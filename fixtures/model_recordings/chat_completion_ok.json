@@ -1,0 +1,35 @@
+{
+  "id": "rec-0001",
+  "object": "chat.completion",
+  "created": 1760100000,
+  "model": "grok-4.7",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "__CONTENT__",
+        "refusal": null
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1200,
+    "completion_tokens": 900,
+    "total_tokens": 2600,
+    "prompt_tokens_details": {
+      "text_tokens": 1200,
+      "audio_tokens": 0,
+      "image_tokens": 0,
+      "cached_tokens": 200
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 500,
+      "audio_tokens": 0,
+      "accepted_prediction_tokens": 0,
+      "rejected_prediction_tokens": 0
+    }
+  },
+  "system_fingerprint": "fp_recorded_shape"
+}

@@ -1,0 +1,40 @@
+{
+  "story": "PCC-DEMO-4",
+  "_provenance": "Reviewer-style expected-results manifest (SYNTHETIC). Hand-derived from the story AC and fixtures/data/attribute_dictionary.json; NOT derived from application code.",
+  "source": "PCC-DEMO-4 AC1-AC2",
+  "review": {
+    "status": "synthetic-pending-qa-lead-approval",
+    "reviewer": null,
+    "approved_at": null
+  },
+  "oracles": {
+    "ORC4-EMPTY": {
+      "ac": [
+        "AC1"
+      ],
+      "actions": [
+        "api_import"
+      ],
+      "expected": {
+        "imported": 0,
+        "rejected": 0,
+        "error_codes": []
+      },
+      "description": "header-only file imports nothing",
+      "derivation": "no data rows"
+    },
+    "ORC4-UI-ZERO": {
+      "ac": [
+        "AC2"
+      ],
+      "actions": [
+        "ui_import_and_count"
+      ],
+      "expected": {
+        "displayed_count": 0
+      },
+      "description": "product list shows 0 after header-only upload",
+      "derivation": "no data rows"
+    }
+  }
+}

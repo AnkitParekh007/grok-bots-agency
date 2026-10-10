@@ -38,7 +38,7 @@ def write_report(agent, run_id):
         f"<td><b>{r['status'].upper()}</b></td><td><pre>{e(json.dumps(r['expected']))}</pre></td><td><pre>{e(json.dumps(r['actual']))}</pre></td>"
         f"<td>{e(json.dumps(r['diffs']) if r['diffs'] else (r['error'] or ''))}</td>"
         f"<td>{'<a href=\"artifacts/'+r['screenshot']+'\"><img src=\"artifacts/'+r['screenshot']+'\" width=160></a>' if r.get('screenshot') else ''}"
-        f"<br><a href='artifacts/{r['trace']}'>trace</a> · <a href='artifacts/{r['log']}'>log</a></td></tr>" for r in results)
+        f"{evidence_links(r)}</td></tr>" for r in results)
     acs = "".join(f"<tr><td>{a['id']}</td><td>{e(a['text'])}</td><td><i>{e(a['source_quote'])}</i></td><td>{rep['per_ac'][a['id']].upper()}</td></tr>"
                   for a in rep["acceptance_criteria"])
     s = rep["summary"]
@@ -71,3 +71,8 @@ def ac_verdict(rs):
         if v in st:
             return v
     return "passed"
+
+
+def evidence_links(r):
+    out = [f"<a href='artifacts/{r[k]}'>{k}</a>" for k in ("trace", "log") if r.get(k)]
+    return "<br>" + " · ".join(out) if out else ""

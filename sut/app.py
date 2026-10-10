@@ -5,19 +5,22 @@ Seeded defects are toggled with env SUT_DEFECTS (comma list or 'all'):
   drop_color         - attribute mapping drops the colour/color attribute
   no_sku_validation  - rows without SKU are imported instead of rejected
   ui_count_off       - product list page shows count - 1
+Fault injection (never part of 'all'; must be named explicitly):
+  slow_api           - GET /api/products/{sku} sleeps 3 s (exercises agent timeouts -> ERROR, never PASS)
 """
-import csv, html, io, os
+import csv, html, io, os, time
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import HTMLResponse
 
 ALL_DEFECTS = {"inch_factor", "drop_color", "no_sku_validation", "ui_count_off"}
+FAULTS = {"slow_api"}
 
 
 def active_defects() -> set:
     raw = os.environ.get("SUT_DEFECTS", "").strip()
     if raw == "all":
         return set(ALL_DEFECTS)
-    return {d for d in (x.strip() for x in raw.split(",")) if d in ALL_DEFECTS}
+    return {d for d in (x.strip() for x in raw.split(",")) if d in ALL_DEFECTS | FAULTS}
 
 
 ALIASES = {"colour": "color", "color": "color", "material": "material"}
@@ -83,6 +86,8 @@ def api_products():
 
 @app.get("/api/products/{sku}")
 def api_product(sku: str):
+    if "slow_api" in active_defects():
+        time.sleep(3)
     if sku not in PRODUCTS:
         raise HTTPException(404, "not found")
     return PRODUCTS[sku]

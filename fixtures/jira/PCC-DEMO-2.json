@@ -1,0 +1,22 @@
+{
+  "key": "PCC-DEMO-2",
+  "_provenance": "SYNTHETIC Jira-shaped fixture (Milestone B1). Not a real PCC story.",
+  "fields": {
+    "summary": "Weight normalisation and unknown-unit rejection for supplier imports",
+    "issuetype": {
+      "name": "Story"
+    },
+    "project": {
+      "key": "PCC"
+    },
+    "status": {
+      "name": "Ready for QA"
+    },
+    "labels": [
+      "synthetic",
+      "supplier-import",
+      "uom"
+    ],
+    "description": "As a catalogue manager I want supplier weights normalised and rows with unknown units rejected so that catalogue data stays consistent.\n\nAcceptance criteria:\n1. Weights supplied in lb or g are converted to kilograms, rounded to 3 decimals.\n2. Rows with a unit that is not in the attribute dictionary are rejected with error code UNIT_UNKNOWN and are not imported.\n3. Imported products are assigned an ETIM class based on the supplier category column."
+  }
+}

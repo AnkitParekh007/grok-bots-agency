@@ -1,0 +1,40 @@
+{
+  "story": "PCC-DEMO-3",
+  "_provenance": "Reviewer-style expected-results manifest (SYNTHETIC). Hand-derived from the story AC and fixtures/data/attribute_dictionary.json; NOT derived from application code.",
+  "source": "attribute_dictionary.json@synthetic-0.1 + PCC-DEMO-3 AC1",
+  "review": {
+    "status": "synthetic-pending-qa-lead-approval",
+    "reviewer": null,
+    "approved_at": null
+  },
+  "oracles": {
+    "ORC3-COLOUR-GREY": {
+      "ac": [
+        "AC1"
+      ],
+      "actions": [
+        "api_product_after_import"
+      ],
+      "expected": {
+        "sku": "SKU-1002",
+        "attributes.color": "Grey"
+      },
+      "description": "colour->color for SKU-1002",
+      "derivation": "colour alias"
+    },
+    "ORC3-COLOUR-WHITE": {
+      "ac": [
+        "AC1"
+      ],
+      "actions": [
+        "api_product_after_import"
+      ],
+      "expected": {
+        "sku": "SKU-1003",
+        "attributes.color": "White"
+      },
+      "description": "colour->color for SKU-1003",
+      "derivation": "colour alias"
+    }
+  }
+}
