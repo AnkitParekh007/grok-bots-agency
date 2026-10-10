@@ -1,5 +1,5 @@
 import html, json
-from .util import canon, now, sha256
+from .util import canon, now, sha256, redact
 
 
 def write_report(agent, run_id):
@@ -17,12 +17,18 @@ def write_report(agent, run_id):
         "approval": agent.approvals.latest(run_id),
         "acceptance_criteria": run["ac_json"]["acceptance_criteria"],
         "summary": run["summary_json"], "results": results,
-        "per_ac": {a["id"]: ("failed" if any(r["status"] != "passed" for r in results if a["id"] in r["ac_refs"]) else "passed")
-                   for a in run["ac_json"]["acceptance_criteria"]},
+        "per_ac": {a["id"]: ac_verdict([r for r in results if a["id"] in r["ac_refs"]]) for a in run["ac_json"]["acceptance_criteria"]},
+        "not_run": sum(r["status"] == "not_run" for r in results),
+        "run_status_at_report": "cancelled" if agent.is_cancelled(run_id) else run["status"],
+        "coverage_gaps": (run.get("planning_json") or {}).get("coverage_gaps", []),
+        "understanding": (run.get("planning_json") or {}).get("understanding"),
+        "usage": agent.store.run_usage(run_id)["totals"],
+        "approval_identity_note": "authenticated local identity" if (agent.approvals.latest(run_id) or {}).get("identity")
+                                  else "UNAUTHENTICATED demo approver label (local demo mode)",
         "audit_entries": len(audit), "audit_denied": sum(a["decision"] == "deny" for a in audit),
     }
     rep["artifacts"] = agent.artifacts.manifest(run_id)
-    body = json.dumps(rep, indent=2, default=str)
+    body = redact(json.dumps(rep, indent=2, default=str))
     digest = sha256(body)
     agent.artifacts.write_bytes(run_id, "report.json", body.encode())
     agent.artifacts.write_bytes(run_id, "report.json.sha256", f"{digest}  report.json\n".encode())
@@ -47,7 +53,21 @@ tr.failed td,tr.error td{{background:#fde8e8}} tr.passed td{{background:#e8f8ec}
 <h2>Summary: {s['passed']} passed / {s['failed']} failed / {s['error']} error / {s['blocked']} blocked of {s['total']}</h2>
 <h3>Acceptance criteria traceability</h3><table><tr><th>AC</th><th>Interpretation</th><th>Story quote</th><th>Verdict</th></tr>{acs}</table>
 <h3>Test results</h3><table><tr><th>ID</th><th>Test</th><th>AC</th><th>Status</th><th>Expected (oracle)</th><th>Actual</th><th>Mismatch</th><th>Evidence</th></tr>{rows}</table>
+<h3>Coverage gaps (not tested)</h3><ul>{''.join(f"<li>{e(','.join(g['ac_refs']) or '-')} [{e(g['kind'])}] {e(g['reason'])}</li>" for g in rep['coverage_gaps']) or '<li>none</li>'}</ul>
+<p>Approver identity: {e(rep['approval_identity_note'])}</p>
+<p>Model usage: {rep['usage']['calls']} call(s), {rep['usage']['total_tokens']} tokens, cost ${rep['usage']['cost_usd']:.6f} (replay/mock = $0)</p>
+<p>Not run (cancelled): {rep['not_run']}</p>
 <p>Audit: {rep['audit_entries']} tool calls logged ({rep['audit_denied']} denied) — <a href="audit.jsonl">audit.jsonl</a></p>
 <p>report.json sha256: <code>{digest}</code></p></body></html>"""
-    agent.artifacts.write_bytes(run_id, "report.html", doc.encode())
+    agent.artifacts.write_bytes(run_id, "report.html", redact(doc).encode())
     return {"sha256": digest}
+
+
+def ac_verdict(rs):
+    if not rs:
+        return "untested (coverage gap)"
+    st = {r["status"] for r in rs}
+    for v in ("failed", "error", "blocked", "not_run"):
+        if v in st:
+            return v
+    return "passed"

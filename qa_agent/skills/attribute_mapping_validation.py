@@ -16,3 +16,6 @@ def api_product_after_import(t, p):
 
 
 ACTIONS = {"api_product_after_import": ("api", api_product_after_import)}
+
+# Allowlisted parameters per action (the model may only fill these, from these value domains).
+PARAMS = {"api_product_after_import": {"file": {"kind": "fixture_file"}, "sku": {"kind": "sku"}}}

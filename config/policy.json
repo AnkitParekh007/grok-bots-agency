@@ -2,14 +2,49 @@
   "_comment": "Default-deny tool policy. Any tool not listed here is denied and audited. requires_approval=true tools only run after a human approved the exact plan hash.",
   "default": "deny",
   "tools": {
-    "tracker.get_issue":   {"requires_approval": false},
-    "model.complete":      {"requires_approval": false},
-    "env.resolve":         {"requires_approval": false},
-    "http.request":        {"requires_approval": true, "network": "environment", "methods": ["GET", "POST"], "file_roots": ["fixtures/data"]},
-    "browser.navigate":    {"requires_approval": true, "network": "environment"},
-    "browser.upload_file": {"requires_approval": true, "network": "environment", "file_roots": ["fixtures/data"]},
-    "browser.screenshot":  {"requires_approval": true},
-    "artifact.write":      {"requires_approval": false},
-    "report.generate":     {"requires_approval": false}
+    "tracker.get_issue": {
+      "requires_approval": false
+    },
+    "model.complete": {
+      "requires_approval": false
+    },
+    "env.resolve": {
+      "requires_approval": false
+    },
+    "http.request": {
+      "requires_approval": true,
+      "network": "environment",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "file_roots": [
+        "fixtures/data"
+      ]
+    },
+    "browser.navigate": {
+      "requires_approval": true,
+      "network": "environment"
+    },
+    "browser.upload_file": {
+      "requires_approval": true,
+      "network": "environment",
+      "file_roots": [
+        "fixtures/data"
+      ]
+    },
+    "browser.screenshot": {
+      "requires_approval": true
+    },
+    "artifact.write": {
+      "requires_approval": false
+    },
+    "report.generate": {
+      "requires_approval": false
+    },
+    "model.request": {
+      "requires_approval": false,
+      "network": "model_egress"
+    }
   }
 }

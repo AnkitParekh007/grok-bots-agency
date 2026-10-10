@@ -3,7 +3,7 @@ import json, threading, time
 from pathlib import Path
 from urllib.parse import urlparse
 from . import ROOT
-from .util import canon, sha256, now
+from .util import canon, sha256, now, redact
 
 
 class PolicyDenied(Exception):
@@ -19,11 +19,11 @@ class ToolGateway:
 
     def _audit(self, run_id, tool, args, decision, reason, outcome, dur):
         rec = {"ts": now(), "run_id": run_id, "tool": tool, "args_hash": sha256(canon(args)),
-               "args_summary": canon(args)[:300], "decision": decision, "reason": reason,
-               "outcome": outcome, "duration_ms": dur}
+               "args_summary": redact(canon(args))[:300], "decision": decision, "reason": redact(reason)[:500],
+               "outcome": redact(outcome)[:300], "duration_ms": dur}
         with self._lock:
-            self.store.x("INSERT INTO audit(ts,run_id,tool,args_hash,args_summary,decision,reason,outcome,duration_ms)"
-                         " VALUES(:ts,:run_id,:tool,:args_hash,:args_summary,:decision,:reason,:outcome,:duration_ms)", rec)
+            self.store.append_audit(rec)
+            rec = {k: rec[k] for k in (*self.store.AUDIT_FIELDS, "prev_hash", "entry_hash")}
             line = json.dumps(rec) + "\n"
             with open(self.audit_jsonl, "a") as f:
                 f.write(line)
@@ -31,6 +31,10 @@ class ToolGateway:
                 with open(self.artifacts.path_for(run_id, "audit.jsonl"), "a") as f:
                     f.write(line)
         return rec
+
+    def record(self, run_id, tool, args, decision, reason, outcome="not_executed"):
+        """Audit a decision taken outside invoke() (e.g. model-output validation rejects, budget denials)."""
+        return self._audit(run_id, tool, args, decision, reason, outcome, 0)
 
     def check(self, run_id, tool, args, ctx) -> str | None:
         """Return None if allowed, else a denial reason. Fail-closed on anything missing."""
@@ -48,6 +52,16 @@ class ToolGateway:
             url = args.get("url")
             if not env or not url or not self.envs.is_url_allowed(env, url):
                 return f"url not allowed for environment: {url}"
+        if rule.get("network") == "model_egress":
+            # Loopback (local stub) is allowed; any external model host must be explicitly listed AND the provider approved.
+            host = urlparse(args.get("url", "")).hostname or ""
+            from .environments import _is_loopback
+            if not _is_loopback(host):
+                approved_hosts = (ctx or {}).get("approved_model_hosts") or []
+                if host not in approved_hosts:
+                    return f"model egress to {host} not in approved model hosts"
+                if (ctx or {}).get("provider_approved") is not True:
+                    return f"model egress to {host} denied: provider not approved (approved flag + approval_ref required)"
         if "methods" in rule and args.get("method", "GET").upper() not in rule["methods"]:
             return f"method {args.get('method')} not allowed"
         if "file_roots" in rule and ("file" in args or tool == "browser.upload_file"):

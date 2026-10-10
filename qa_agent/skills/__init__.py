@@ -11,6 +11,7 @@ class Skill:
         self.description = module.DESCRIPTION
         self.version = module.VERSION
         self.actions = module.ACTIONS  # name -> (type, fn)
+        self.params = getattr(module, "PARAMS", {})
 
 
 class LocalSkillRegistry(SkillRegistry):
@@ -24,4 +25,4 @@ class LocalSkillRegistry(SkillRegistry):
 
     def list(self):
         return [{"name": s.name, "version": s.version, "description": s.description,
-                 "actions": {a: t for a, (t, _) in s.actions.items()}} for s in self.skills.values()]
+                 "actions": {a: t for a, (t, _) in s.actions.items()}, "params": s.params} for s in self.skills.values()]
