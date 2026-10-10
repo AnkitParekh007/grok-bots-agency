@@ -1,0 +1,4 @@
+sku,name,length,length_unit,weight,weight_unit,colour,material
+SKU-1001,Cable Tray 300,10,in,5,lb,Red,Steel
+SKU-1002,Mounting Rail 35,250,mm,1.2,kg,Grey,Aluminium
+SKU-1003,Junction Box IP65,12,cm,500,g,White,PVC

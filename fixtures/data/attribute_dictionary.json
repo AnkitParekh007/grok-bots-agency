@@ -1,0 +1,12 @@
+{
+  "_provenance": "SYNTHETIC attribute dictionary v0 for Milestone A. Not a Bluemeteor/PCC artefact. Replace with the authoritative source once identified (BL-303).",
+  "version": "synthetic-0.1",
+  "attributes": {
+    "length": {"canonical_unit": "mm", "unit_factors": {"mm": 1.0, "cm": 10.0, "in": 25.4}, "rounding": 3},
+    "weight": {"canonical_unit": "kg", "unit_factors": {"kg": 1.0, "g": 0.001, "lb": 0.45359237}, "rounding": 3},
+    "color":  {"supplier_aliases": ["colour", "color"], "type": "string"},
+    "material": {"supplier_aliases": ["material"], "type": "string"}
+  },
+  "required": ["sku"],
+  "error_codes": {"SKU_REQUIRED": "Row has no supplier SKU", "UNIT_UNKNOWN": "Unit not in dictionary"}
+}

@@ -1,6 +1,7 @@
-.venv/
+/.venv
+/.venv/
 __pycache__/
 *.pyc
-data/
-runs/
+/data/
+/runs/
 .pytest_cache/
