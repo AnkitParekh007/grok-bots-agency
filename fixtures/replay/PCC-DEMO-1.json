@@ -1,0 +1,28 @@
+{
+  "_provenance": "Hand-authored recording for offline/CI use. NO live model was called. Output is labeled REPLAYED (mock model).",
+  "story": "PCC-DEMO-1",
+  "responses": {
+    "extract_acceptance_criteria": {
+      "acceptance_criteria": [
+        {"id": "AC1", "text": "Valid supplier CSV imports every row and reports imported/rejected counts", "source_quote": "Uploading a valid supplier CSV imports every row"},
+        {"id": "AC2", "text": "Lengths in/cm -> mm, weights lb/g -> kg, 3 decimals", "source_quote": "converted to millimetres"},
+        {"id": "AC3", "text": "Supplier column colour maps to dictionary attribute color", "source_quote": "is mapped to the dictionary attribute \"color\""},
+        {"id": "AC4", "text": "Rows without SKU rejected with SKU_REQUIRED, not imported, error shown in UI", "source_quote": "rejected with error code SKU_REQUIRED"},
+        {"id": "AC5", "text": "Product list shows correct number of imported products", "source_quote": "The product list page shows the correct number"}
+      ],
+      "gaps": ["Story does not state behaviour for unknown units (dictionary defines UNIT_UNKNOWN); not tested in this plan."]
+    },
+    "generate_test_plan": {
+      "test_cases": [
+        {"id": "TC-01", "title": "API: valid CSV import reports 3 imported / 0 rejected", "type": "api", "skill": "pim_import_testing", "action": "api_import", "params": {"file": "supplier_valid.csv"}, "ac_refs": ["AC1"], "oracle_ref": "ORC-IMPORT-VALID"},
+        {"id": "TC-02", "title": "API: inch length converted to mm (SKU-1001)", "type": "api", "skill": "attribute_mapping_validation", "action": "api_product_after_import", "params": {"file": "supplier_valid.csv", "sku": "SKU-1001"}, "ac_refs": ["AC2"], "oracle_ref": "ORC-UNIT-INCH"},
+        {"id": "TC-03", "title": "API: cm length and gram weight normalised (SKU-1003)", "type": "api", "skill": "attribute_mapping_validation", "action": "api_product_after_import", "params": {"file": "supplier_valid.csv", "sku": "SKU-1003"}, "ac_refs": ["AC2"], "oracle_ref": "ORC-UNIT-CM"},
+        {"id": "TC-04", "title": "API: pound weight converted to kg (SKU-1001)", "type": "api", "skill": "attribute_mapping_validation", "action": "api_product_after_import", "params": {"file": "supplier_valid.csv", "sku": "SKU-1001"}, "ac_refs": ["AC2"], "oracle_ref": "ORC-UNIT-LB"},
+        {"id": "TC-05", "title": "API: supplier 'colour' mapped to 'color' (SKU-1002)", "type": "api", "skill": "attribute_mapping_validation", "action": "api_product_after_import", "params": {"file": "supplier_valid.csv", "sku": "SKU-1002"}, "ac_refs": ["AC3"], "oracle_ref": "ORC-MAP-COLOUR"},
+        {"id": "TC-06", "title": "API: row without SKU rejected with SKU_REQUIRED", "type": "api", "skill": "pim_import_testing", "action": "api_import", "params": {"file": "supplier_missing_sku.csv"}, "ac_refs": ["AC4"], "oracle_ref": "ORC-REQ-SKU"},
+        {"id": "TC-07", "title": "Browser: upload page shows SKU_REQUIRED error", "type": "browser", "skill": "pim_import_testing", "action": "ui_import_error", "params": {"file": "supplier_missing_sku.csv"}, "ac_refs": ["AC4"], "oracle_ref": "ORC-UI-ERROR"},
+        {"id": "TC-08", "title": "Browser: product list shows 3 products after UI upload", "type": "browser", "skill": "pim_import_testing", "action": "ui_import_and_count", "params": {"file": "supplier_valid.csv"}, "ac_refs": ["AC1", "AC5"], "oracle_ref": "ORC-UI-COUNT"}
+      ]
+    }
+  }
+}

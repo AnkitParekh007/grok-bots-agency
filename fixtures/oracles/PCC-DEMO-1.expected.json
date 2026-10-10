@@ -1,0 +1,24 @@
+{
+  "story": "PCC-DEMO-1",
+  "_provenance": "Reviewer-style expected-results manifest. Hand-derived from the story AC and fixtures/data/attribute_dictionary.json (synthetic-0.1). NOT derived from the application code.",
+  "source": "fixtures/data/attribute_dictionary.json@synthetic-0.1 + PCC-DEMO-1 AC1-AC5",
+  "review": {"status": "synthetic-pending-qa-lead-approval", "reviewer": null, "approved_at": null},
+  "oracles": {
+    "ORC-IMPORT-VALID": {"ac": ["AC1"], "expected": {"imported": 3, "rejected": 0, "error_codes": []},
+                          "derivation": "supplier_valid.csv has 3 complete rows"},
+    "ORC-UNIT-INCH":    {"ac": ["AC2"], "expected": {"sku": "SKU-1001", "length_mm": 254.0}, "tolerance": 0.001,
+                          "derivation": "10 in x 25.4 mm/in = 254.0 mm"},
+    "ORC-UNIT-CM":      {"ac": ["AC2"], "expected": {"sku": "SKU-1003", "length_mm": 120.0, "weight_kg": 0.5}, "tolerance": 0.001,
+                          "derivation": "12 cm x 10 = 120 mm; 500 g x 0.001 = 0.5 kg"},
+    "ORC-UNIT-LB":      {"ac": ["AC2"], "expected": {"sku": "SKU-1001", "weight_kg": 2.268}, "tolerance": 0.001,
+                          "derivation": "5 lb x 0.45359237 = 2.26796 -> 2.268 kg"},
+    "ORC-MAP-COLOUR":   {"ac": ["AC3"], "expected": {"sku": "SKU-1002", "attributes.color": "Grey"},
+                          "derivation": "colour -> color alias in dictionary"},
+    "ORC-REQ-SKU":      {"ac": ["AC4"], "expected": {"imported": 1, "rejected": 1, "error_codes": ["SKU_REQUIRED"]},
+                          "derivation": "supplier_missing_sku.csv row 3 has blank sku"},
+    "ORC-UI-ERROR":     {"ac": ["AC4"], "expected": {"error_visible": true, "error_codes": ["SKU_REQUIRED"]},
+                          "derivation": "AC4: upload page shows the error"},
+    "ORC-UI-COUNT":     {"ac": ["AC5"], "expected": {"displayed_count": 3},
+                          "derivation": "3 rows imported from supplier_valid.csv"}
+  }
+}

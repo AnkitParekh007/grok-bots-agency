@@ -1,0 +1,57 @@
+<!doctype html><html><head><meta charset="utf-8"><title>QA Agent workspace</title>
+<style>
+body{font-family:system-ui,sans-serif;margin:0;display:flex;height:100vh;font-size:14px}
+#side{width:260px;border-right:1px solid #ddd;padding:10px;overflow:auto;background:#fafafa}
+#main{flex:1;display:flex;flex-direction:column}
+#chat{flex:1;overflow:auto;padding:12px}
+#bar{display:flex;gap:6px;padding:10px;border-top:1px solid #ddd}
+#msg{flex:1;padding:8px}
+.run{padding:6px;border-radius:4px;cursor:pointer;margin-bottom:4px}.run:hover,.run.sel{background:#e6eefc}
+.ev{color:#333;font-family:monospace;font-size:12px;margin:1px 0}
+.lbl{background:#ffe08a;padding:2px 6px;border-radius:3px;font-weight:600}
+.badge{padding:1px 6px;border-radius:3px;color:#fff;font-size:12px}
+.passed{background:#2a8a3e}.failed{background:#c0392b}.error{background:#8e44ad}.blocked{background:#555}
+table{border-collapse:collapse;width:100%;margin:8px 0}td,th{border:1px solid #ddd;padding:4px;vertical-align:top;font-size:12px}
+.card{border:1px solid #ccc;border-radius:6px;padding:10px;margin:10px 0;background:#fff}
+button{padding:6px 12px;cursor:pointer}#approve{background:#2a8a3e;color:#fff;border:0}#reject{background:#c0392b;color:#fff;border:0}
+.user{background:#e6eefc;padding:8px;border-radius:6px;margin:6px 0}
+</style></head><body>
+<div id="side"><b>Bluemeteor QA Agent</b><div style="font-size:12px;color:#666">Milestone A · local · synthetic</div>
+<div id="cfg" style="margin:8px 0;font-size:12px"></div><b>History</b><div id="runs"></div></div>
+<div id="main"><div id="chat"><p style="color:#666">Ask, e.g.: <i>Read the synthetic supplier import story, generate test cases, execute the approved tests, and give me the results.</i></p></div>
+<div id="bar"><select id="env"></select><input id="msg" placeholder="Message the QA agent"><button id="send">Send</button></div></div>
+<script>
+let current = null, timer = null;
+const $ = s => document.querySelector(s), esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+async function j(u, o) { const r = await fetch(u, o); if (!r.ok) throw new Error(await r.text()); return r.json(); }
+async function loadCfg() { const c = await j('/api/config');
+  $('#cfg').innerHTML = `Model: <span class="lbl">${esc(c.model_label)}</span><br>Skills: ${c.skills.map(s => esc(s.name)).join(', ')}`;
+  $('#env').innerHTML = c.environments.map(e => `<option>${esc(e)}</option>`).join(''); }
+async function loadRuns() { const rs = await j('/api/runs');
+  $('#runs').innerHTML = rs.map(r => `<div class="run ${r.id === current ? 'sel' : ''}" onclick="show('${r.id}')">${esc(r.story_key || '?')} · <b>${esc(r.status)}</b><br><small>${esc(r.created.slice(0,19))} · ${esc(r.id)}</small></div>`).join(''); }
+async function show(id) { current = id; clearInterval(timer); await render(); timer = setInterval(render, 1000); }
+async function render() {
+  if (!current) return; const r = await j('/api/runs/' + current); const base = '/api/runs/' + current;
+  let h = `<div class="user">${esc(r.request)}</div><div class="card"><b>Run ${esc(r.id)}</b> · status <b id="status">${esc(r.status)}</b> · env ${esc(r.environment)} · <span class="lbl">${esc(r.model_label)}</span>
+   <div id="events">${r.events.map(e => `<div class="ev">${esc(e.ts.slice(11,19))} [${esc(e.step)}] ${esc(e.message)}</div>`).join('')}</div></div>`;
+  if (r.ac_json) h += `<div class="card"><b>Acceptance criteria</b> <span class="lbl">${esc(r.model_label)}</span><table>${r.ac_json.acceptance_criteria.map(a => `<tr><td>${a.id}</td><td>${esc(a.text)}</td><td><i>"${esc(a.source_quote)}"</i></td></tr>`).join('')}</table></div>`;
+  if (r.plan_json) { h += `<div class="card" id="plan"><b>Proposed test plan</b> <span class="lbl">${esc(r.model_label)}</span> <small>sha256 ${esc(r.plan_hash.slice(0,16))}</small><table><tr><th>ID</th><th>Title</th><th>Type</th><th>Skill</th><th>AC</th><th>Oracle</th></tr>
+    ${r.plan_json.test_cases.map(t => `<tr><td>${t.id}</td><td>${esc(t.title)}</td><td>${t.type}</td><td>${esc(t.skill)}</td><td>${t.ac_refs.join(',')}</td><td>${esc(t.oracle_ref)}</td></tr>`).join('')}</table>`;
+    if (r.status === 'awaiting_approval') h += `Approver: <input id="who" value="ankit.parekh"> <button id="approve" onclick="decide('approved')">Approve &amp; execute</button> <button id="reject" onclick="decide('rejected')">Reject</button>`;
+    else if (r.approval) h += `<div>Plan <b>${esc(r.approval.decision)}</b> by ${esc(r.approval.approver)} at ${esc(r.approval.ts)}</div>`;
+    h += `</div>`; }
+  if (r.results.length) h += `<div class="card" id="results"><b>Results</b>${r.summary_json ? ` — ${r.summary_json.passed} passed, ${r.summary_json.failed} failed, ${r.summary_json.error} error, ${r.summary_json.blocked} blocked` : ' (running…)'}
+    <table><tr><th>ID</th><th>Test</th><th>Status</th><th>Mismatch / error</th><th>Evidence</th></tr>${r.results.map(x => `<tr><td>${x.id}</td><td>${esc(x.title)}</td><td><span class="badge ${x.status}">${x.status}</span></td>
+    <td>${x.diffs.length ? x.diffs.map(d => `${esc(d.field)}: expected ${esc(JSON.stringify(d.expected))}, got ${esc(JSON.stringify(d.actual))}`).join('<br>') : esc(x.error || '')}</td>
+    <td>${x.screenshot ? `<a href="${base}/artifacts/${x.screenshot}" target=_blank><img src="${base}/artifacts/${x.screenshot}" width=120></a>` : ''} <a href="${base}/artifacts/${x.trace}">trace</a> <a href="${base}/artifacts/${x.log}" target=_blank>log</a></td></tr>`).join('')}</table></div>`;
+  if (r.status === 'completed') h += `<div class="card" id="links"><a id="report-link" href="${base}/report.html" target=_blank>Report (HTML)</a> · <a href="${base}/report.json">Report (JSON)</a> · <a href="${base}/audit.jsonl" target=_blank>Audit log (${r.audit_count})</a></div>`;
+  if (r.error) h += `<div class="card" style="color:#c0392b">Error: ${esc(r.error)}</div>`;
+  $('#chat').innerHTML = h; loadRuns();
+  if (['completed','failed','rejected','blocked','interrupted'].includes(r.status)) clearInterval(timer);
+}
+async function decide(d) { await j(`/api/runs/${current}/approval`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({approver: $('#who').value, decision: d})}); show(current); }
+$('#send').onclick = async () => { const m = $('#msg').value.trim(); if (!m) return; $('#msg').value = '';
+  const r = await j('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message: m, environment: $('#env').value})}); show(r.run_id); };
+$('#msg').onkeydown = e => { if (e.key === 'Enter') $('#send').click(); };
+loadCfg(); loadRuns();
+</script></body></html>

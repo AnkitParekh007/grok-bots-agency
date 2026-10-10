@@ -1,0 +1,20 @@
+{
+  "_comment": "Model choice is configuration, never code. Override provider with env QA_MODEL_PROVIDER.",
+  "model": {"provider": "replay"},
+  "providers": {
+    "replay": {"replay_dir": "fixtures/replay", "label": "REPLAYED (mock model)"},
+    "grok": {
+      "enabled": false,
+      "approved": false,
+      "approval_ref": null,
+      "model": "grok-4",
+      "base_url": "https://api.x.ai/v1",
+      "api_key_env": "XAI_API_KEY",
+      "allowed_data_classes": ["synthetic"]
+    }
+  },
+  "issue_tracker": {"provider": "mock_jira", "fixtures_dir": "fixtures/jira"},
+  "oracles_dir": "fixtures/oracles",
+  "fixture_data_dir": "fixtures/data",
+  "default_environment": "synthetic-local"
+}

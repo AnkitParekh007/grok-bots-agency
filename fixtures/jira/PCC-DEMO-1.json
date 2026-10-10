@@ -1,0 +1,12 @@
+{
+  "key": "PCC-DEMO-1",
+  "_provenance": "SYNTHETIC Jira-shaped fixture. Not a real PCC story.",
+  "fields": {
+    "summary": "Supplier SKU import with attribute mapping and unit normalisation",
+    "issuetype": {"name": "Story"},
+    "project": {"key": "PCC"},
+    "status": {"name": "Ready for QA"},
+    "labels": ["synthetic", "supplier-import", "attribute-mapping"],
+    "description": "As a catalogue manager I want to upload a supplier CSV file so that supplier SKUs are imported into the product catalogue with attributes mapped to our dictionary and units normalised.\n\nAcceptance criteria:\n1. Uploading a valid supplier CSV imports every row and reports the number of imported and rejected rows.\n2. Lengths supplied in in or cm are converted to millimetres and weights supplied in lb or g are converted to kilograms, rounded to 3 decimals.\n3. The supplier column \"colour\" is mapped to the dictionary attribute \"color\" without losing the value.\n4. Rows without a supplier SKU are rejected with error code SKU_REQUIRED and are not imported; the upload page shows the error.\n5. The product list page shows the correct number of imported products."
+  }
+}
