@@ -34,6 +34,9 @@ class LoginIn(BaseModel):
 
 def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users_file: Path | None = None, agent_cfg: dict | None = None) -> FastAPI:
     data_dir = Path(data_dir or os.environ.get("QA_DATA_DIR", ROOT / "data"))
+    if agent_cfg is None and os.environ.get("QA_AGENT_CONFIG"):
+        import json
+        agent_cfg = json.loads(Path(os.environ["QA_AGENT_CONFIG"]).read_text())
     agent = QAAgent(data_dir, agent_cfg=agent_cfg)
     acfg = agent.cfg.get("auth", {})
     mode = auth_mode or os.environ.get("QA_AUTH_MODE") or acfg.get("mode", "demo")
@@ -86,7 +89,11 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
         return {"ok": True}
 
     @app.get("/api/me")
-    def me(p: Principal = Depends(principal)):
+    def me(request: Request):
+        try:
+            p = principal(request)
+        except HTTPException:
+            return {"user": None, "role": None, "mode": mode, "authenticated": False}
         return {"user": p.name, "role": p.role, "mode": p.mode, "authenticated": p.authenticated}
 
     @app.get("/api/config")
