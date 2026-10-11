@@ -59,10 +59,11 @@ def test_role_enforcement_and_approval_identity(local):
     r = c.post(url, json={"decision": "approved", "plan_hash": ph, "approver": "Bob the label"}, headers=H(t["bob"]))
     assert r.status_code == 200 and r.json()["authenticated"] is True
     assert c.post(url, json={"decision": "approved", "plan_hash": ph}, headers=H(t["carol"])).status_code == 409  # duplicate
-    done = wait_status(lambda: c.get(f"/api/runs/{rid}", headers=H(t["vic"])).json(), {"completed"})
+    done = wait_status(lambda: c.get(f"/api/runs/{rid}", headers=H(t["rita"])).json(), {"completed"})   # owner
+    assert c.get(f"/api/runs/{rid}", headers=H(t["vic"])).status_code == 404   # PR#1 review: viewers no longer see others' runs
     a = done["approval"]
     assert (a["identity"], a["approver"], a["auth_mode"], a["approver_label"]) == ("bob", "bob", "local", "Bob the label")
-    rep = json.loads(c.get(f"/api/runs/{rid}/report.json", headers=H(t["vic"])).content)
+    rep = json.loads(c.get(f"/api/runs/{rid}/report.json", headers=H(t["bob"])).content)
     assert rep["approval_identity_note"] == "authenticated local identity"
 
 

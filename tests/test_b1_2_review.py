@@ -188,3 +188,57 @@ def test_concurrent_runs_share_daily_cap(tmp_path, key):
         failed = next(r for r in rids if st.get_run(r)["status"] == "failed")
         assert "daily cap" in st.get_run(failed)["error"]
         assert st.day_spend() <= est * 1.5 + 1e-12
+
+
+# ---------------- run-level access in authenticated (local) mode ----------------
+from qa_agent.auth import UserStore
+from qa_agent.server import create_app
+from tests.b1_helpers import wait_status
+
+PROMPT = "Read the synthetic supplier import story, generate test cases, execute the approved tests, and give me the results."
+
+
+@pytest.fixture
+def local(tmp_path):
+    us = UserStore(tmp_path / "u.json")
+    t = {n: us.add(n, r) for n, r in [("rita", "requester"), ("ron", "requester"), ("vic", "viewer"), ("bob", "approver")]}
+    app = create_app(tmp_path / "d", auth_mode="local", users_file=tmp_path / "u.json")
+    return TestClient(app), t
+
+
+def H(tok):
+    return {"Authorization": f"Bearer {tok}"}
+
+
+@pytest.mark.approval
+@pytest.mark.security
+def test_run_level_access_local_mode(local):
+    c, t = local
+    rid = c.post("/api/chat", json={"message": PROMPT}, headers=H(t["rita"])).json()["run_id"]
+    run = wait_status(lambda: c.get(f"/api/runs/{rid}", headers=H(t["rita"])).json(), {"awaiting_approval"})
+    for who in ("ron", "vic"):                                    # not owner, not approver
+        for path in ("", "/usage", "/report.json", "/report.html", "/audit.jsonl", "/artifacts/report.json"):
+            assert c.get(f"/api/runs/{rid}{path}", headers=H(t[who])).status_code == 404, (who, path)
+        assert rid not in [r["id"] for r in c.get("/api/runs", headers=H(t[who])).json()]
+    assert c.post(f"/api/runs/{rid}/cancel", headers=H(t["ron"])).status_code == 403
+    assert c.get("/api/audit/export", headers=H(t["vic"])).status_code == 403          # cross-run data: approver only
+    assert c.get("/api/telemetry", headers=H(t["rita"])).status_code == 403
+    assert c.get("/api/audit/export", headers=H(t["bob"])).status_code == 200
+    # owner and approver keep access; approver can approve
+    assert rid in [r["id"] for r in c.get("/api/runs", headers=H(t["rita"])).json()]
+    assert c.get(f"/api/runs/{rid}", headers=H(t["bob"])).status_code == 200
+    r = c.post(f"/api/runs/{rid}/approval", json={"decision": "approved", "plan_hash": run["plan_hash"]}, headers=H(t["bob"]))
+    assert r.status_code == 200
+    wait_status(lambda: c.get(f"/api/runs/{rid}", headers=H(t["rita"])).json(), {"completed"})
+    assert c.get(f"/api/runs/{rid}/report.json", headers=H(t["rita"])).status_code == 200
+    # denials are audited
+    rows = c.get(f"/api/runs/{rid}/audit.jsonl", headers=H(t["bob"])).text
+    assert "http.run_access" in rows
+
+
+@pytest.mark.approval
+def test_demo_mode_is_single_user_no_run_checks(tmp_path):
+    c = TestClient(create_app(tmp_path))
+    rid = c.post("/api/chat", json={"message": PROMPT}).json()["run_id"]
+    wait_status(lambda: c.get(f"/api/runs/{rid}").json(), {"awaiting_approval"})
+    assert c.get(f"/api/runs/{rid}/usage").status_code == 200 and rid in [r["id"] for r in c.get("/api/runs").json()]

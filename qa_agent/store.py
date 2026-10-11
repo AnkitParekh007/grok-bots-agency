@@ -91,7 +91,7 @@ class Store:
         return r
 
     def list_runs(self):
-        return self.q("SELECT id,created,status,story_key,environment,model_label,request FROM runs ORDER BY created DESC")
+        return self.q("SELECT id,created,status,story_key,environment,model_label,request,requested_by FROM runs ORDER BY created DESC")
 
     def event(self, run_id, step, message):
         self.x("INSERT INTO events(run_id,ts,step,message) VALUES(?,?,?,?)", (run_id, now(), step, redact(message)))

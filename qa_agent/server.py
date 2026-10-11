@@ -70,6 +70,18 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
             raise HTTPException(404, "run not found")
         return r
 
+    def can_access(p, run):
+        """Run-level access. demo mode: single trusted local user, no per-run checks.
+        local mode: the run's requester (owner) or any approver; everyone else gets 404 (existence not disclosed)."""
+        return mode != "local" or has_role(p, "approver") or (p.name is not None and run.get("requested_by") == p.name)
+
+    def owned_run(run_id, p, action):
+        r = run_or_404(run_id)
+        if not can_access(p, r):
+            agent.gateway.record(run_id, "http.run_access", {"user": p.name, "action": action}, "deny", "not run owner or approver")
+            raise HTTPException(404, "run not found")
+        return r
+
     @app.get("/", response_class=HTMLResponse)
     def index():
         return (ROOT / "qa_agent/static/index.html").read_text()
@@ -107,11 +119,11 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
 
     @app.get("/api/runs")
     def runs(p: Principal = Depends(need("viewer"))):
-        return agent.store.list_runs()
+        return [r for r in agent.store.list_runs() if can_access(p, r)]
 
     @app.get("/api/runs/{run_id}")
     def run(run_id: str, p: Principal = Depends(need("viewer"))):
-        r = run_or_404(run_id)
+        r = owned_run(run_id, p, "read")
         r["events"] = agent.store.events(run_id)
         r["results"] = agent.store.results(run_id)
         r["approval"] = agent.approvals.latest(run_id)
@@ -121,7 +133,7 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
 
     @app.post("/api/runs/{run_id}/approval")
     def approval(run_id: str, body: ApprovalIn, p: Principal = Depends(need("approver"))):
-        run = run_or_404(run_id)
+        run = owned_run(run_id, p, "approve")   # approvers may act on any run (but never self-approve, below)
         if mode == "local":
             if not body.plan_hash:
                 raise HTTPException(400, "plan_hash required: approve the exact plan you reviewed")
@@ -142,7 +154,7 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
 
     @app.post("/api/runs/{run_id}/cancel")
     def cancel(run_id: str, p: Principal = Depends(need("requester"))):
-        run = run_or_404(run_id)
+        run = run_or_404(run_id)   # existing behaviour: 403 (audited) for non-owner requesters
         if mode == "local" and not has_role(p, "approver") and run.get("requested_by") != p.name:
             agent.gateway.record(run_id, "run.cancel", {"user": p.name}, "deny", "not the run owner")
             raise HTTPException(403, "only the run owner or an approver can cancel this run")
@@ -154,11 +166,11 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
 
     @app.get("/api/runs/{run_id}/usage")
     def usage(run_id: str, p: Principal = Depends(need("viewer"))):
-        run_or_404(run_id)
+        owned_run(run_id, p, "usage")
         return agent.store.run_usage(run_id)
 
     @app.get("/api/telemetry")
-    def telemetry(p: Principal = Depends(need("viewer"))):
+    def telemetry(p: Principal = Depends(need("approver" if mode == "local" else "viewer"))):   # cross-run data
         return {"by_kind": agent.store.telemetry_summary(), "day_spend_usd": agent.store.day_spend()}
 
     @app.get("/api/audit/verify")
@@ -166,15 +178,15 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
         return agent.store.verify_audit_chain()
 
     @app.get("/api/audit/export")
-    def audit_export(p: Principal = Depends(need("viewer"))):
+    def audit_export(p: Principal = Depends(need("approver" if mode == "local" else "viewer"))):   # cross-run data
         out = data_dir / "audit_export.jsonl"
         agent.store.export_audit(out)
         r = FileResponse(out, media_type="application/x-ndjson")
         r.headers["Content-Disposition"] = 'attachment; filename="audit_export.jsonl"'
         return r
 
-    def send(run_id, rel, media=None):
-        run_or_404(run_id)
+    def send(run_id, rel, media=None, p=None):
+        owned_run(run_id, p, f"artifact:{rel}")
         try:
             path = agent.artifacts.path_for(run_id, rel)
         except ValueError:
@@ -185,21 +197,21 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
 
     @app.get("/api/runs/{run_id}/report.html")
     def report_html(run_id: str, p: Principal = Depends(need("viewer"))):
-        return send(run_id, "report.html", "text/html")
+        return send(run_id, "report.html", "text/html", p)
 
     @app.get("/api/runs/{run_id}/report.json")
     def report_json(run_id: str, p: Principal = Depends(need("viewer"))):
-        r = send(run_id, "report.json", "application/json")
+        r = send(run_id, "report.json", "application/json", p)
         r.headers["Content-Disposition"] = f'attachment; filename="{run_id}-report.json"'
         return r
 
     @app.get("/api/runs/{run_id}/audit.jsonl")
     def audit(run_id: str, p: Principal = Depends(need("viewer"))):
-        return send(run_id, "audit.jsonl", "application/x-ndjson")
+        return send(run_id, "audit.jsonl", "application/x-ndjson", p)
 
     @app.get("/api/runs/{run_id}/artifacts/{rel:path}")
     def artifact(run_id: str, rel: str, p: Principal = Depends(need("viewer"))):
-        return send(run_id, rel)
+        return send(run_id, rel, None, p)
 
     return app
 
