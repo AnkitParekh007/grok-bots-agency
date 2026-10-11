@@ -5,6 +5,8 @@ from qa_agent.runtime import QAAgent, ConflictError
 from qa_agent.store import Store
 from tests.b1_helpers import agent_cfg
 
+pytestmark = [pytest.mark.execution, pytest.mark.integration]
+
 PROMPT = "Read the synthetic supplier import story, generate test cases, execute the approved tests, and give me the results."
 
 

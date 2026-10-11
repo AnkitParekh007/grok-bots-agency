@@ -7,6 +7,8 @@ from qa_agent.providers.models import compose_plan_story
 from qa_agent.skills import LocalSkillRegistry
 from qa_agent.util import load_json
 
+pytestmark = [pytest.mark.planning, pytest.mark.security]
+
 SK = LocalSkillRegistry()
 FILES = sorted(p.name for p in (ROOT / "fixtures/data").glob("*.csv"))
 

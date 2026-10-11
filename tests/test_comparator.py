@@ -1,4 +1,7 @@
+import pytest
 from qa_agent.comparator import compare
+
+pytestmark = [pytest.mark.execution]
 
 
 def test_match_with_tolerance():

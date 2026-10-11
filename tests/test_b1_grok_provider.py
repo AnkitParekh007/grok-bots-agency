@@ -1,3 +1,4 @@
+import pytest
 """GrokProvider against recorded-shape responses (httpx.MockTransport). No network: a socket guard fails the
 test if anything tries to connect to a non-loopback address."""
 import json, socket
@@ -10,6 +11,8 @@ from qa_agent.providers.models import (GrokProvider, ProviderNotApproved, Provid
 from qa_agent.runtime import QAAgent
 from qa_agent.util import load_json, redact
 from tests.b1_helpers import grok_cfg, fake_key
+
+pytestmark = [pytest.mark.provider, pytest.mark.security, pytest.mark.cost]
 
 REC = ROOT / "fixtures/model_recordings"
 CTX = {"story_key": "PCC-DEMO-2", "data_class": "synthetic", "story": load_json(ROOT / "fixtures/jira/PCC-DEMO-2.json"), "catalog": {}}

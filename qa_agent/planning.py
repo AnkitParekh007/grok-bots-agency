@@ -17,8 +17,11 @@ PLAN_STORY_SCHEMA = TestPlan   # wire contract (see contracts.py for named parts
 # Keys a model must never emit anywhere (attempts to invent commands, endpoints, expected results, permissions).
 FORBIDDEN_KEYS = {"command", "cmd", "shell", "script", "exec", "url", "endpoint", "path", "method", "headers", "body",
                   "expected", "expected_result", "expected_results", "expected_value", "permissions", "permission",
-                  "tool", "tools", "approve", "approved", "auto_approve", "approval", "credentials", "token", "api_key"}
-SUSPICIOUS_VALUE = re.compile(r"(\bcurl\b|\bwget\b|\brm\s+-|\|\s*(ba)?sh\b|;\s*(ba)?sh\b|[a-z]+://|\.\./|`|\$\()", re.I)
+                  "tool", "tools", "approve", "approved", "auto_approve", "approval", "credentials", "token", "api_key",
+                  # approval-bypass and environment/production-access attempts
+                  "skip_approval", "bypass_approval", "requires_approval", "approver",
+                  "environment", "env", "target", "base_url", "host", "hostname", "production", "prod"}
+SUSPICIOUS_VALUE = re.compile(r"(\bprod(uction)?\b|^/|\bcurl\b|\bwget\b|\brm\s+-|\|\s*(ba)?sh\b|;\s*(ba)?sh\b|[a-z]+://|\.\./|`|\$\()", re.I)
 
 
 class FormatError(Exception):

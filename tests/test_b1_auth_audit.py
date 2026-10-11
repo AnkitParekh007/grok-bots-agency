@@ -9,6 +9,8 @@ from qa_agent.server import create_app
 from qa_agent.util import canon, sha256
 from tests.b1_helpers import wait_status
 
+pytestmark = [pytest.mark.approval, pytest.mark.audit, pytest.mark.security, pytest.mark.integration]
+
 PROMPT = "Read the synthetic supplier import story, generate test cases, execute the approved tests, and give me the results."
 
 

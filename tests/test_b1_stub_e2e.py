@@ -11,6 +11,8 @@ from qa_agent.server import create_app
 from qa_agent.util import load_json
 from tests.b1_helpers import agent_cfg, model_stub, fake_key, wait_status
 
+pytestmark = [pytest.mark.integration, pytest.mark.provider, pytest.mark.planning, pytest.mark.cost]
+
 
 @pytest.fixture
 def key(monkeypatch):
