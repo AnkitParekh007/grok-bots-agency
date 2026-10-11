@@ -58,5 +58,8 @@
     "users_file": "data/users.json",
     "forbid_self_approval": true,
     "_comment": "demo = unauthenticated approver label (local demo only). local = hashed bearer tokens from users_file with roles viewer/requester/approver. Neither is SSO."
+  },
+  "plan": {
+    "ttl_minutes": 60
   }
 }

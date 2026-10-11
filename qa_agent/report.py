@@ -13,7 +13,7 @@ def write_report(agent, run_id):
                   "note": "Test plan and AC extraction were REPLAYED from a recording; no live LLM was called." if run["model_provider"] == "replay" else ""},
         "oracle_source": agent._oracles(run["story_key"]).get("source"),
         "oracle_review": agent._oracles(run["story_key"]).get("review"),
-        "plan_hash": run["plan_hash"],
+        "plan_hash": run["plan_hash"], "catalog_version": run.get("catalog_version"),
         "approval": agent.approvals.latest(run_id),
         "acceptance_criteria": run["ac_json"]["acceptance_criteria"],
         "summary": run["summary_json"], "results": results,

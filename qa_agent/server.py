@@ -142,7 +142,10 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
 
     @app.post("/api/runs/{run_id}/cancel")
     def cancel(run_id: str, p: Principal = Depends(need("requester"))):
-        run_or_404(run_id)
+        run = run_or_404(run_id)
+        if mode == "local" and not has_role(p, "approver") and run.get("requested_by") != p.name:
+            agent.gateway.record(run_id, "run.cancel", {"user": p.name}, "deny", "not the run owner")
+            raise HTTPException(403, "only the run owner or an approver can cancel this run")
         try:
             agent.cancel(run_id, by=p.name or "demo-user")
         except ConflictError as e:

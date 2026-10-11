@@ -13,7 +13,8 @@ from .providers.models import (build_model_provider, ProviderNotApproved, DataCl
 from .report import write_report
 from .skills import LocalSkillRegistry
 from .store import Store, FileArtifactStore, SqliteApprovalProvider
-from .util import canon, load_json, sha256, redact
+from datetime import datetime, timezone
+from .util import canon, load_json, sha256, redact, now
 
 KEY_RE = re.compile(r"\b([A-Z][A-Z0-9]+-[A-Z0-9]+(?:-[0-9]+)?)\b")
 TERMINAL = {"completed", "failed", "rejected", "blocked", "interrupted", "cancelled"}
@@ -47,6 +48,7 @@ class QAAgent:
         self.max_repairs = int(self.cfg.get("repair", {}).get("max_format_repairs", 2))
         self.exec_cfg = self.cfg.get("execution", {})
         self.exec_lock = threading.Lock()
+        self.plan_ttl_min = float(self.cfg.get("plan", {}).get("ttl_minutes", 60))
         self.threads = []
 
     # ---------- public API ----------
@@ -67,6 +69,9 @@ class QAAgent:
         run = self.store.get_run(run_id)
         if not run or run["status"] != "awaiting_approval":
             raise ConflictError(f"run not awaiting approval (status={run and run['status']})")
+        if self._plan_expired(run):
+            self.gateway.record(run_id, "plan.approve", {"plan_hash": run["plan_hash"]}, "deny", "plan expired; re-plan required")
+            raise ConflictError(f"plan expired (older than {self.plan_ttl_min} min); start a new run to re-plan")
         if plan_hash is not None and plan_hash != run["plan_hash"]:
             self.gateway.record(run_id, "plan.approve", {"plan_hash": plan_hash}, "deny", "stale plan hash: approval refers to a different plan")
             raise ConflictError("stale plan: the plan changed since it was displayed; reload and review again")
@@ -86,6 +91,13 @@ class QAAgent:
                 self.exec_lock.release()
             raise
         return self._spawn(run_id, self._execute_locked, run_id, wait=wait)
+
+    def _plan_expired(self, run):
+        ts = run.get("plan_created_at")
+        if not ts:
+            return False   # runs planned before B1.1 have no timestamp
+        age = (datetime.now(timezone.utc) - datetime.fromisoformat(ts)).total_seconds() / 60
+        return age > self.plan_ttl_min
 
     def execute(self, run_id, wait=True):
         """Direct execution entry (used to prove fail-closed); still gated by approval + gateway."""
@@ -162,7 +174,7 @@ class QAAgent:
         plan = {"test_cases": planning["test_cases"]}
         plan_hash = sha256(canon(plan))
         self.store.update_run(run_id, ac_json=ac, planning_json=planning, plan_json=plan, plan_hash=plan_hash,
-                              status="awaiting_approval")
+                              catalog_version=catalog["catalog_version"], plan_created_at=now(), status="awaiting_approval")
         cats = {c: sum(t["category"] == c for t in plan["test_cases"]) for c in P.CATEGORIES}
         ev("ac", f"[{self.model.label}] {len(ac['acceptance_criteria'])} acceptance criteria, each traced to verbatim story text")
         ev("plan", f"[{self.model.label}] Test plan: {len(plan['test_cases'])} cases {cats}, {len(gaps)} coverage gap(s) (sha256 {plan_hash[:12]})")
@@ -236,6 +248,12 @@ class QAAgent:
             self.store.update_run(run_id, status="blocked", error="execution refused: no approval for this exact plan")
             self.gateway.record(run_id, "plan.execute", {"plan_hash": run["plan_hash"]}, "deny", "no approval for this exact plan (or plan modified after approval)")
             ev("blocked", "Execution refused: no human approval recorded for this exact plan (fail-closed)")
+            return
+        cur = P.catalog_version(self.skills)
+        if run.get("catalog_version") and run["catalog_version"] != cur:
+            self.store.update_run(run_id, status="blocked", error=f"action catalog changed since planning ({run['catalog_version']} -> {cur}); re-plan")
+            self.gateway.record(run_id, "plan.execute", {"catalog_version": run["catalog_version"], "current": cur}, "deny", "stale action catalog")
+            ev("blocked", "Execution refused: the skill/action catalog changed after the plan was approved")
             return
         self.store.update_run(run_id, status="executing")
         env = self._tool(run_id, "env.resolve", {"name": run["environment"]}, lambda: self.envs.resolve(run["environment"]))
