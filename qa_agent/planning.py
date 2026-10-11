@@ -10,38 +10,9 @@ import json, re
 from pathlib import Path
 import jsonschema
 
-CATEGORIES = ["positive", "negative", "edge"]
-GAP_KINDS = ["no_skill_action", "no_approved_oracle", "ambiguous_requirement", "out_of_scope", "untrusted_instruction_ignored"]
-STR = {"type": "string", "minLength": 1, "maxLength": 2000}
+from .contracts import CATEGORIES, GAP_KINDS, STR, TestPlan
 
-PLAN_STORY_SCHEMA = {
-    "type": "object", "additionalProperties": False,
-    "required": ["understanding", "acceptance_criteria", "behaviors", "selected_skills", "test_cases", "coverage_gaps"],
-    "properties": {
-        "understanding": {"type": "object", "additionalProperties": False, "required": ["summary", "domain", "assumptions"],
-                          "properties": {"summary": STR, "domain": STR, "assumptions": {"type": "array", "items": STR}}},
-        "acceptance_criteria": {"type": "array", "minItems": 1, "maxItems": 50, "items": {
-            "type": "object", "additionalProperties": False, "required": ["id", "text", "source_quote"],
-            "properties": {"id": {"type": "string", "pattern": "^AC[0-9]+$"}, "text": STR, "source_quote": {"type": "string", "minLength": 3, "maxLength": 2000}}}},
-        "behaviors": {"type": "array", "maxItems": 100, "items": {
-            "type": "object", "additionalProperties": False, "required": ["id", "ac_refs", "description", "testable"],
-            "properties": {"id": {"type": "string", "pattern": "^B-[0-9]+$"}, "ac_refs": {"type": "array", "items": {"type": "string"}},
-                           "description": STR, "testable": {"type": "boolean"}}}},
-        "selected_skills": {"type": "array", "items": {"type": "string"}},
-        "test_cases": {"type": "array", "maxItems": 50, "items": {
-            "type": "object", "additionalProperties": False,
-            "required": ["id", "title", "type", "category", "behavior_ref", "skill", "action", "params", "ac_refs", "oracle_ref"],
-            "properties": {
-                "id": {"type": "string", "pattern": "^TC-[0-9]+$"}, "title": STR,
-                "type": {"enum": ["api", "browser"]}, "category": {"enum": CATEGORIES},
-                "behavior_ref": {"type": "string"}, "skill": {"type": "string"}, "action": {"type": "string"},
-                "params": {"type": "object", "additionalProperties": {"type": "string", "maxLength": 200}},
-                "ac_refs": {"type": "array", "minItems": 1, "items": {"type": "string"}},
-                "oracle_ref": {"type": "string"}}}},
-        "coverage_gaps": {"type": "array", "items": {
-            "type": "object", "additionalProperties": False, "required": ["ac_refs", "kind", "reason"],
-            "properties": {"ac_refs": {"type": "array", "items": {"type": "string"}}, "kind": {"enum": GAP_KINDS}, "reason": STR}}},
-    }}
+PLAN_STORY_SCHEMA = TestPlan   # wire contract (see contracts.py for named parts)
 
 # Keys a model must never emit anywhere (attempts to invent commands, endpoints, expected results, permissions).
 FORBIDDEN_KEYS = {"command", "cmd", "shell", "script", "exec", "url", "endpoint", "path", "method", "headers", "body",
@@ -73,8 +44,18 @@ Rules (non-negotiable):
 6. Include positive, negative and edge tests where the catalog permits. A human must approve the plan before execution."""
 
 
+CATALOG_FORMAT = "qa-action-catalog/1"
+
+
+def catalog_version(skills) -> str:
+    """Content hash of the registered action catalog (skill versions, actions, types, param specs)."""
+    from .util import canon, sha256
+    return CATALOG_FORMAT + "+" + sha256(canon(skills.list()))[:16]
+
+
 def build_catalog(skills, oracles_manifest: dict, fixture_files: list[str]) -> dict:
     return {
+        "catalog_format": CATALOG_FORMAT, "catalog_version": catalog_version(skills),
         "skill_catalog": [{"skill": s["name"], "version": s["version"], "description": s["description"],
                            "actions": [{"action": a, "type": t, "params": s["params"].get(a, {})} for a, t in s["actions"].items()]}
                           for s in skills.list()],
@@ -208,3 +189,16 @@ def validate_plan(obj, story_description, skills, oracles_manifest, fixture_file
     if not obj["test_cases"]:
         raise FormatError("plan contains no executable tests")
     return obj
+
+
+def evaluate_plan(text, finish_reason, story_description, skills, oracles_manifest, fixture_files):
+    """Non-raising wrapper producing a PlanValidationResult dict."""
+    from .util import canon, sha256
+    try:
+        obj = validate_plan(parse_output(text, finish_reason), story_description, skills, oracles_manifest, fixture_files)
+        return {"ok": True, "category": "ok", "errors": [], "catalog_version": catalog_version(skills),
+                "plan_hash": sha256(canon({"test_cases": obj["test_cases"]}))}
+    except PolicyViolation as e:
+        return {"ok": False, "category": "policy", "errors": [str(e)], "catalog_version": catalog_version(skills), "plan_hash": None}
+    except FormatError as e:
+        return {"ok": False, "category": "format", "errors": [str(e)], "catalog_version": catalog_version(skills), "plan_hash": None}
