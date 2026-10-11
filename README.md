@@ -132,6 +132,13 @@ With `all`, the expected result is 3 passed / 5 failed (TC-02, TC-05, TC-06, TC-
   - In stub and replay modes it is a harness self-test, **not real model reasoning**.
   - Grok mode requires `--confirm-live-approved` and the approvals in `docs/b2/`. It fails closed with the default config.
 - **Approval pack:** `docs/b2/LIVE_EVAL_APPROVAL_REQUEST.md` and `docs/b2/ENABLE_LIVE_EVAL.md`.
+- **PR #2 review changes:**
+  - **Verdicts fail closed:** PASS / FAIL / NOT_EVALUABLE / SMOKE.
+  - **Defect phases:** the harness runs a defect-ON and a defect-OFF phase, and failed or missing runs stay in every denominator.
+  - **Unattended approval** is scoped, runtime-enforced and audited (`qa_agent/eval_authorization.py`), and the first live plan is always approved manually.
+  - **Held-out story:** PCC-DEMO-7, with gold sealed outside the repo.
+  - **Contamination limits:** see `docs/b2/CONTAMINATION_AND_INDEPENDENCE.md`.
+  - **Spend cap:** a persistent total cap (`budget.total_usd` per `budget.scope`).
 
 ### Trust limits of the local hash chain
 The chain catches accidental or partial tampering, such as an edited row, a deleted row, or an out-of-order or duplicated sequence number, **if the verifier holds a previously recorded head hash or export manifest**. Someone with write access to `data/` can rebuild the whole chain consistently, so locally it is *tamper-evident only relative to an externally kept head*. For enterprise use, ship exports or heads to a store the agent host cannot rewrite (WORM/object lock or an external log service) and sign them.

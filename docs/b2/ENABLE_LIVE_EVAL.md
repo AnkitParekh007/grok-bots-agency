@@ -20,7 +20,9 @@ Do these in order. Stop at any unchecked item. Nothing in this repo enables Grok
   - `approval_ref: "<sign-off reference>"`
   - `model: "grok-4.7"` (or the approved model)
   - `pricing`: input 2.00, cached 0.50, output 6.00 USD per 1M tokens, or the current verified price
-- [ ] `budget`: `per_run_usd: 1.0`, `daily_usd: 15.0`.
+- [ ] `budget`: `per_run_usd: 1.0`, `daily_usd: 15.0`, `total_usd: 15.0`, `scope: "b2-live-eval-1"` (repo defaults). `providers.grok.max_retries: 1` is recommended.
+- [ ] `unattended_eval_approval.enabled: true` **only** once the authorization file is signed. Fill `docs/b2/UNATTENDED_EVAL_AUTHORIZATION.template.json` with ref, identity, expiry and `max_runs` ≥ 36, and store it outside the repo.
+- [ ] Sealed gold for PCC-DEMO-7 has been handed over from custody, and its hash matches `eval_set.json`.
 - [ ] `config/policy.json` → `tools.model.request.approved_hosts == ["api.x.ai"]` and `require_https: true`.
 - [ ] `export XAI_API_KEY=...` in the shell that runs the harness only. Never put it in files, CI or chat.
 - [ ] `python -m pytest -q` is green and `python scripts/eval_b2.py --provider stub --runs 1` passes.
@@ -29,7 +31,9 @@ Do these in order. Stop at any unchecked item. Nothing in this repo enables Grok
 - [ ] Smoke: `python scripts/eval_b2.py --provider grok --confirm-live-approved --stories PCC-DEMO-5 --runs 1 --no-execute`.
   - The report shows `LIVE MODEL` in the model labels, `unpriced_calls: 0`, and cost > 0 from actual usage.
   - The audit has `model.request` rows with correlation IDs to `api.x.ai`.
-- [ ] Full: `python scripts/eval_b2.py --provider grok --confirm-live-approved --runs 3`.
+- [ ] First live plan approved manually: workspace in `QA_AUTH_MODE=local` with `QA_DATA_DIR=reports/eval/data`, approved by an authenticated approver.
+- [ ] Full: `python scripts/eval_b2.py --provider grok --confirm-live-approved --authorization <file> --sealed-gold-dir <dir>`. Only `PASS` counts; `NOT_EVALUABLE` means the evaluation is incomplete.
+- [ ] Independent reviewer spot checks are done (`INDEPENDENT_REVIEW_TEMPLATE.md`).
 - [ ] Check the stop conditions (approval doc §8) and archive `reports/eval/` and the audit export.
 
 **After**

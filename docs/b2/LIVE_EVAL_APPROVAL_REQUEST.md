@@ -1,6 +1,6 @@
 # Live Grok evaluation — approval request (Milestone B2)
 
-Status: **DRAFT, awaiting sign-off.** Grok remains disabled in `config/agent.json` (`enabled: false`, `approved: false`, pricing `null`). No live xAI call has been made by this project.
+Status: **DRAFT, awaiting sign-off.** The proposed numbers below are **not** an approved authorization. Grok remains disabled in `config/agent.json` (`enabled: false`, `approved: false`, pricing `null`). No live xAI call has been made by this project.
 
 ## 1. Scope
 - **Purpose:** measure how well a live Grok model plans tests, using the offline harness `scripts/eval_b2.py` and the metrics and PROPOSED thresholds in `qa_agent/eval_metrics.py`.
@@ -11,7 +11,10 @@ Status: **DRAFT, awaiting sign-off.** Grok remains disabled in `config/agent.jso
 - **Contamination guard:** hand-authored stub answers exist in `fixtures/replay/` for harness self-tests only.
   - They are never placed in prompts; `tests/test_b2_eval.py::test_prompt_never_contains_recorded_answers` checks this.
   - In `--provider grok` mode the harness refuses loopback/stub endpoints and counts any plan identical to a recorded answer as a hard-gate failure.
-- **Out of scope:** production or customer environments, Jira/Git integrations, any write to external systems, and autonomous approval. Harness approvals are labelled `eval-harness (synthetic eval only)` and run only against the loopback synthetic SUT.
+- **Out of scope:** production or customer environments, Jira/Git integrations, and any write to external systems.
+- **Approval modes** (enforced in the runtime, see `qa_agent/eval_authorization.py`):
+  1. **Manual (default and unchanged).** The **first live-generated plan** must be reviewed and approved by an authenticated approver (`QA_AUTH_MODE=local`) in the workspace UI. This is required for the `LIVE MODEL` class whatever the authorization file says.
+  2. **Unattended (synthetic eval only).** This needs `unattended_eval_approval.enabled=true` plus a signed authorization file (template `UNATTENDED_EVAL_AUTHORIZATION.template.json`). The file lists approval_ref, approver identity, allowlisted stories, environment, skills, actions, max_runs, model classes and expiry. Uses are counted atomically, every decision is audited (`plan.approve_unattended`), and there is no HTTP route for it.
 
 ## 2. Data classification
 | Item | Classification | Notes |
@@ -68,21 +71,22 @@ Our prompts are about 2.5k tokens, far below the 200k long-context threshold.
 - output 8,000 × $6/1M = $0.048
 - **total $0.056**
 
-**Worst case per run:** 3 calls × 4 attempts × $0.056 = **$0.672**. The runtime reserves this per attempt (PR #1 fix) and refuses any attempt that would cross a cap.
+**Worst case per run:** 3 calls × 4 attempts × $0.056 = **$0.672** with the default `max_retries=3`. With `max_retries=1`, which is **recommended for the eval**, it is 3 × 2 × $0.056 = **$0.336**. The runtime reserves this per attempt and refuses any attempt that would cross a cap.
 
-**Eval run plan:** 5 stories × 3 runs = 15 runs.
-- Worst case: 15 × $0.672 = **$10.08**.
-- Realistic: one attempt per run, about 2.5k input and up to about 3k output/reasoning tokens, so roughly $0.023 per run and **about $0.35 in total**. This is an estimate only; the report shows actual usage × price.
+**Eval run plan:** (5 required + 1 held-out story) × 3 runs × 2 phases (defect-ON and defect-OFF) = **36 runs**.
+- Worst case: 36 × $0.336 = **$12.10** with `max_retries=1`, or $24.19 with `max_retries=3`, which **exceeds the $15 total cap**. The cap would stop the eval, and the result would be NOT_EVALUABLE.
+- Realistic: about 36 × $0.023 ≈ **$0.83**. This is an estimate only; the report uses actual usage.
 
-**Proposed caps, all PROPOSED:**
+**Proposed caps, all PROPOSED (not approved):**
 
 | Cap | Proposed | Where enforced |
 |---|---|---|
-| per-run | **$1.00** (≥ $0.672 worst case) | `budget.per_run_usd` (atomic reservation per attempt) |
+| per-run | **$1.00** | `budget.per_run_usd`, atomic per-attempt reservation |
 | daily | **$15.00** | `budget.daily_usd` |
-| total eval | **$15.00** | daily cap on the eval day, plus the xAI Console team spend limit / prepaid credit as backstop (**VERIFY** availability) |
+| total eval | **$15.00** | `budget.total_usd` for `budget.scope` (e.g. `b2-live-eval-1`). It is **persisted in SQLite across runs, days and restarts**, and reserved atomically (`BEGIN IMMEDIATE`) |
+| provider backstop | ≤ $15 | xAI Console team spend limit or prepaid credit. This is a **separate prerequisite** (**VERIFY** availability); the local caps do not replace it |
 
-The current repo defaults are $10 per run and $150 per day. Lower them to the values above for the evaluation.
+The repo config now defaults to $1 / $15 / $15 with scope `b2-live-eval-1`. A billable provider refuses to start if any cap or the scope is missing, zero or non-numeric.
 
 ## 7. Egress
 - Host: `api.x.ai` over **https** only, path `/v1/chat/completions`.
@@ -91,14 +95,22 @@ The current repo defaults are $10 per run and $150 per day. Lower them to the va
 
 ## 8. Run plan
 1. Dry run on the stub: `python scripts/eval_b2.py --provider stub --runs 3` (CI already runs this).
-2. One smoke run (live): `--provider grok --confirm-live-approved --stories PCC-DEMO-5 --runs 1 --no-execute`. Check the audit, usage and cost rows.
-3. Full evaluation (live): `--provider grok --confirm-live-approved --runs 3`. This is 15 runs, with execution against the loopback synthetic SUT using `SUT_DEFECTS=all`.
-4. Review `reports/eval/eval_report.md` and `.json` against the PROPOSED thresholds. Hard gates are:
+2. **Smoke (plan only, live):** `--provider grok --confirm-live-approved --stories PCC-DEMO-5 --runs 1 --no-execute`. The verdict is always `SMOKE/NOT_EVALUABLE`. Check the audit, usage and cost rows.
+3. **First manual approval:** start the workspace with `QA_AUTH_MODE=local QA_DATA_DIR=reports/eval/data` and plan one story. An authenticated approver reviews the plan and approves it in the UI.
+4. **Full evaluation (live):**
+   - Command: `--provider grok --confirm-live-approved --authorization <signed file> --sealed-gold-dir <custody dir>`.
+   - This is 36 runs: a defect-ON phase (`SUT_DEFECTS=all`) and a defect-OFF phase (no defects).
+   - **PASS requires** every required story, at least 3 runs, execution results for every run in both phases, the verified sealed gold, and every threshold measured and met.
+   - Anything incomplete is `NOT_EVALUABLE`; any hard-gate or threshold miss is `FAIL`.
+   - Failed or missing runs are kept in every denominator.
+5. Review `reports/eval/eval_report.md` and `.json` against the PROPOSED thresholds. Hard gates are:
    - `policy_violations` = 0
    - `false_alarms` = 0
    - `gap_recall` = 1.0
    - `contaminated_plans` = 0
-5. Archive the report together with an audit export (`python -m qa_agent.audit_verify export`).
+   - `defect_off_runs_incomplete` = 0
+   - Also review `near_copy_*` (heuristic, see `CONTAMINATION_AND_INDEPENDENCE.md`) and do independent reviewer spot checks (`INDEPENDENT_REVIEW_TEMPLATE.md`).
+6. Archive the report together with an audit export (`python -m qa_agent.audit_verify export`).
 
 **Stop conditions:**
 - any hard-gate failure in the smoke run;
