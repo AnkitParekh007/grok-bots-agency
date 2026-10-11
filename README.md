@@ -104,6 +104,23 @@ With `all`, the expected result is 3 passed / 5 failed (TC-02, TC-05, TC-06, TC-
   - Chains from A (unchained) and B1 (no seq) are still accepted and reported as `legacy` / v1.
 - **Cost:** a response without usage stores NULL token counts (usage is never invented) and reserves the conservative estimate against the budget, flagged `priced=0`.
 
+
+### PR #1 review fixes
+- **Budget across retries and concurrent runs:**
+  - Before *every* HTTP attempt, including retries, the provider reserves that attempt's worst-case cost: the prompt estimate plus the full `max_completion_tokens`.
+  - The reservation is checked atomically against the per-run and daily caps (`Store.reserve_spend` uses `BEGIN IMMEDIATE`, i.e. the SQLite write lock), so concurrent runs and processes sharing the DB cannot jointly overspend.
+  - After the attempt, the reservation is settled with actual usage × price. If usage is unknown (HTTP error, timeout, invalid body, missing `usage`), the conservative charge stays, token columns are NULL and `priced=0`.
+  - A request denied by policy before it is sent is settled at 0. A retry that would breach a cap is never sent.
+- **Egress:**
+  - Non-loopback model endpoints must use https. This is checked in the provider constructor and again at the gateway.
+  - The approved host list lives in `config/policy.json` (`tools.model.request.approved_hosts`), separate from the provider `base_url` config. `approved_model_hosts` in the provider config is ignored.
+- **Run-level access** (`QA_AUTH_MODE=local`):
+  - Run list, run detail, usage, reports, audit.jsonl, artifacts and approval are available only to the run's requester (owner) and to approvers. Others get an audited 404.
+  - Cancel is owner or approver (other requesters get 403).
+  - Cross-run endpoints (`/api/telemetry`, `/api/audit/export`) are approver-only.
+  - The `viewer` role can no longer read other users' runs.
+- **Demo mode is single-user:** `demo` mode applies no per-run checks and must only be used by one trusted person on localhost.
+
 ### Trust limits of the local hash chain
 The chain catches accidental or partial tampering, such as an edited row, a deleted row, or an out-of-order or duplicated sequence number, **if the verifier holds a previously recorded head hash or export manifest**. Someone with write access to `data/` can rebuild the whole chain consistently, so locally it is *tamper-evident only relative to an externally kept head*. For enterprise use, ship exports or heads to a store the agent host cannot rewrite (WORM/object lock or an external log service) and sign them.
 
