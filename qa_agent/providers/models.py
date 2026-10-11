@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 import httpx
 from ..interfaces import ModelProvider
+from ..gateway import PolicyDenied
 from ..util import load_json, redact, register_secret_env
 
 
@@ -24,6 +25,10 @@ class ProviderConfigError(ProviderNotApproved):
 
 class DataClassDenied(ProviderNotApproved):
     pass
+
+
+class BudgetExceeded(Exception):
+    """A per-run or daily spend cap would be exceeded by reserving the next request's worst-case cost."""
 
 
 class ModelCallError(Exception):
@@ -137,6 +142,8 @@ class GrokProvider(ModelProvider):
     RETRYABLE = {429, 500, 502, 503, 504}
     PRICE_KEYS = ("input_per_mtok_usd", "cached_input_per_mtok_usd", "output_per_mtok_usd")
 
+    per_attempt_budget = True   # runtime passes a reservation ledger; every HTTP attempt is reserved + settled
+
     def __init__(self, cfg: dict, gateway=None, transport=None, sleep=time.sleep):
         self.cfg = dict(cfg)
         self.gateway, self.transport, self.sleep = gateway, transport, sleep
@@ -208,7 +215,10 @@ class GrokProvider(ModelProvider):
     def complete(self, task, context):
         raise NotImplementedError("use generate(); callers must validate output against a schema")
 
-    def generate(self, task, context, schema=None, repair_feedback=None, run_id=None):
+    def generate(self, task, context, schema=None, repair_feedback=None, run_id=None, budget=None):
+        """budget: optional ledger with reserve(http_attempt, est) -> handle and settle(handle, usage, cost, priced, outcome).
+        Every HTTP attempt (including retries) reserves its worst-case cost BEFORE it is sent. Attempts whose real usage is
+        unknown (errors, timeouts, missing usage) keep the conservative reserved charge; usage is never invented."""
         if context.get("data_class") not in self.allowed_data_classes:
             raise DataClassDenied(f"data class {context.get('data_class')!r} not approved for provider grok "
                                   f"(allowed: {self.allowed_data_classes})")
@@ -222,9 +232,16 @@ class GrokProvider(ModelProvider):
             cid = f"{run_id or 'norun'}-{uuid.uuid4().hex[:12]}"
             cids.append(cid)
             args = {"url": url, "model": self.model, "task": task, "attempt": attempt, "correlation_id": cid}
+            est = self.estimate_max_cost(len(json.dumps(body["messages"])))
+            h = budget.reserve(attempt, est) if budget else None   # raises BudgetExceeded before anything is sent
+            settle = (lambda u, c, pr, out: budget.settle(h, u, c, pr, out)) if budget else (lambda *a: None)
             try:
                 resp = self.gateway.invoke(run_id, "model.request", args, lambda: self._post(url, body, cid), ctx)
+            except PolicyDenied:
+                settle(None, 0.0, False, "denied_not_sent")
+                raise
             except _HTTPStatus as e:
+                settle(None, est, False, f"http_{e.status}")
                 kind, retryable = normalize_status(e.status)
                 if not retryable or attempt == self.max_retries:
                     raise ModelCallError(redact(f"model endpoint returned HTTP {e.status} ({kind}): {e.body[:200]}"),
@@ -234,6 +251,7 @@ class GrokProvider(ModelProvider):
                 continue
             except (httpx.TimeoutException, httpx.TransportError) as e:
                 kind = "timeout" if isinstance(e, httpx.TimeoutException) else "transport"
+                settle(None, est, False, kind)
                 if attempt == self.max_retries:
                     raise ModelCallError(redact(f"model endpoint unreachable after {attempt + 1} attempts ({kind}): {type(e).__name__}"),
                                          kind=kind, retryable=True, correlation_id=cid, attempts=attempt + 1)
@@ -242,11 +260,17 @@ class GrokProvider(ModelProvider):
             try:
                 data = resp.json()
             except ValueError:
+                settle(None, est, False, "invalid_response")
                 raise ModelCallError("model endpoint returned non-JSON HTTP body", kind="invalid_response", status=200,
                                      correlation_id=cid, attempts=attempt + 1)
-            usage = self.parse_usage(data)
+            try:
+                usage = self.parse_usage(data)
+            except UsageMissing:
+                settle(None, est, False, "usage_missing")
+                raise
             choice = (data.get("choices") or [{}])[0]
             text = ((choice.get("message") or {}).get("content")) or ""
+            settle(usage, self.cost(usage), True, choice.get("finish_reason") or "unknown")
             return ModelResponse(text=text, provider=self.name, model=data.get("model") or self.model, label=self.label,
                                  finish_reason=choice.get("finish_reason") or "unknown", usage=usage,
                                  cost_usd=self.cost(usage), priced=True, attempts=attempt + 1, correlation_ids=cids)

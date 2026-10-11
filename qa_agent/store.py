@@ -49,7 +49,8 @@ class Store:
                         ("catalog_version", "TEXT"), ("plan_created_at", "TEXT")],
                "approvals": [("identity", "TEXT"), ("auth_mode", "TEXT"), ("approver_label", "TEXT")],
                "audit": [("prev_hash", "TEXT"), ("entry_hash", "TEXT"),
-                          ("seq", "INTEGER"), ("payload_hash", "TEXT")]}
+                          ("seq", "INTEGER"), ("payload_hash", "TEXT")],
+               "usage": [("http_attempt", "INTEGER"), ("est_usd", "REAL")]}
         for t, cs in add.items():
             have = cols(t)
             for c, typ in cs:
@@ -143,6 +144,45 @@ class Store:
                (run_id, now(), datetime.now(timezone.utc).date().isoformat(), provider, model, task, attempt,
                 u.get("prompt_tokens", 0), u.get("cached_tokens", 0), u.get("completion_tokens", 0), u.get("reasoning_tokens", 0),
                 u.get("total_tokens", 0), cost, 1 if priced else 0, outcome))
+
+    def reserve_spend(self, run_id, provider, model, task, attempt, http_attempt, est, per_run_cap, daily_cap):
+        """Atomically check caps and insert a 'reserved' row charged at the worst-case estimate.
+        BEGIN IMMEDIATE takes SQLite's write lock, so concurrent reservations (threads or processes sharing this DB)
+        are serialized: two runs cannot both pass the cap check against the same remaining budget."""
+        day = datetime.now(timezone.utc).date().isoformat()
+        with self.lock:
+            self.db.execute("BEGIN IMMEDIATE")
+            try:
+                run_spent = self.db.execute("SELECT COALESCE(SUM(cost_usd),0) FROM usage WHERE run_id=?", (run_id,)).fetchone()[0]
+                day_spent = self.db.execute("SELECT COALESCE(SUM(cost_usd),0) FROM usage WHERE day=?", (day,)).fetchone()[0]
+                reason = None
+                if run_spent + est > per_run_cap:
+                    reason = f"per-run cap ${per_run_cap} would be exceeded (spent ${run_spent:.4f} + est ${est:.4f})"
+                elif day_spent + est > daily_cap:
+                    reason = f"daily cap ${daily_cap} would be exceeded (spent ${day_spent:.4f} + est ${est:.4f})"
+                if reason:
+                    self.db.execute("ROLLBACK")
+                    return None, reason
+                cur = self.db.execute(
+                    "INSERT INTO usage(run_id,ts,day,provider,model,task,attempt,http_attempt,cost_usd,est_usd,priced,outcome)"
+                    " VALUES(?,?,?,?,?,?,?,?,?,?,0,'reserved')",
+                    (run_id, now(), day, provider, model, task, attempt, http_attempt, est, est))
+                self.db.execute("COMMIT")
+                return cur.lastrowid, None
+            except BaseException:
+                self.db.execute("ROLLBACK")
+                raise
+
+    def settle_spend(self, uid, u, cost, priced, outcome):
+        """Replace a reservation with the actual charge. u=None: usage unknown -> token columns stay NULL and the
+        caller passes the conservative reserved estimate (or 0.0 when the request provably never left the process)."""
+        if u is None:
+            self.x("UPDATE usage SET cost_usd=?, priced=0, outcome=? WHERE id=?", (cost, outcome, uid))
+        else:
+            self.x("UPDATE usage SET prompt_tokens=?, cached_tokens=?, completion_tokens=?, reasoning_tokens=?, total_tokens=?,"
+                   " cost_usd=?, priced=?, outcome=? WHERE id=?",
+                   (u.get("prompt_tokens"), u.get("cached_tokens"), u.get("completion_tokens"), u.get("reasoning_tokens"),
+                    u.get("total_tokens"), cost, 1 if priced else 0, outcome, uid))
 
     def run_usage(self, run_id):
         rows = self.q("SELECT * FROM usage WHERE run_id=? ORDER BY id", (run_id,))

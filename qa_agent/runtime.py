@@ -24,8 +24,25 @@ class PlanInvalid(Exception):
     pass
 
 
-class BudgetExceeded(Exception):
-    pass
+from .providers.models import BudgetExceeded  # re-exported for callers/tests
+
+
+class _BudgetLedger:
+    """Per-attempt reservation ledger handed to providers that make billable requests."""
+    def __init__(self, agent, run_id, provider, model, task, repair_attempt):
+        self.a, self.run_id, self.provider, self.model, self.task, self.attempt = agent, run_id, provider, model, task, repair_attempt
+
+    def reserve(self, http_attempt, est):
+        uid, reason = self.a.store.reserve_spend(self.run_id, self.provider, self.model, self.task, self.attempt, http_attempt,
+                                                 est, self.a.budget["per_run_usd"], self.a.budget["daily_usd"])
+        if reason:
+            self.a.store.telemetry(self.run_id, "budget_denied", self.provider, reason)
+            self.a.gateway.record(self.run_id, "model.budget_gate", {"estimate_usd": est, "http_attempt": http_attempt}, "deny", reason)
+            raise BudgetExceeded(reason)
+        return uid
+
+    def settle(self, uid, usage, cost, priced, outcome):
+        self.a.store.settle_spend(uid, usage, cost, priced, outcome)
 
 
 class ConflictError(ValueError):
@@ -184,19 +201,25 @@ class QAAgent:
         feedback, attempt = None, 0
         pname = self.model.name
         while True:
-            est = self.model.estimate_max_cost(len(json.dumps(P.build_messages("plan_story", mctx, feedback))))
-            self._budget_check(run_id, est)
+            billable = getattr(self.model, "per_attempt_budget", False)
+            if billable:
+                ledger = _BudgetLedger(self, run_id, pname, getattr(self.model, "model", pname), "plan_story", attempt)
+                call = lambda: self.model.generate("plan_story", mctx, P.PLAN_STORY_SCHEMA, feedback, run_id=run_id, budget=ledger)
+            else:
+                est = self.model.estimate_max_cost(len(json.dumps(P.build_messages("plan_story", mctx, feedback))))
+                self._budget_check(run_id, est)
+                call = lambda: self.model.generate("plan_story", mctx, P.PLAN_STORY_SCHEMA, feedback, run_id=run_id)
             try:
                 resp = self._tool(run_id, "model.complete",
-                                  {"task": "plan_story", "story": mctx["story_key"], "provider": pname, "repair_attempt": attempt},
-                                  lambda: self.model.generate("plan_story", mctx, P.PLAN_STORY_SCHEMA, feedback, run_id=run_id))
+                                  {"task": "plan_story", "story": mctx["story_key"], "provider": pname, "repair_attempt": attempt}, call)
             except DataClassDenied as e:
                 self.store.telemetry(run_id, "data_class_denied", pname, str(e))
                 self.gateway.record(run_id, "model.data_class_gate", {"data_class": mctx["data_class"]}, "deny", str(e))
                 raise
             except UsageMissing as e:
-                # never invent usage: token counts stay NULL; the conservative estimate is reserved against the budget
-                self.store.add_usage(run_id, pname, getattr(self.model, "model", pname), "plan_story", attempt, None, est, False, "usage_missing")
+                # never invent usage: token counts stay NULL; the conservative estimate stays charged against the budget
+                if not billable:
+                    self.store.add_usage(run_id, pname, getattr(self.model, "model", pname), "plan_story", attempt, None, est, False, "usage_missing")
                 self.store.telemetry(run_id, "usage_missing", pname, str(e))
                 raise
             except ModelCallError as e:
@@ -205,7 +228,8 @@ class QAAgent:
             except (ProviderNotApproved, PolicyDenied) as e:
                 self.store.telemetry(run_id, "model_call_failed", pname, f"{type(e).__name__}: {e}")
                 raise   # no automatic fallback to another provider
-            self.store.add_usage(run_id, resp.provider, resp.model, "plan_story", attempt, resp.usage, resp.cost_usd, resp.priced, resp.finish_reason)
+            if not billable:   # billable providers already settled every HTTP attempt in the ledger
+                self.store.add_usage(run_id, resp.provider, resp.model, "plan_story", attempt, resp.usage, resp.cost_usd, resp.priced, resp.finish_reason)
             self.store.telemetry(run_id, "model_call_ok", pname, f"attempts={resp.attempts} tokens={resp.usage.get('total_tokens', 0)} cost={resp.cost_usd}")
             try:
                 obj = P.parse_output(resp.text, resp.finish_reason)
