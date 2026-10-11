@@ -17,6 +17,12 @@ python3 -m venv .venv
 .venv/bin/python -m pytest -q                        # unit + full end-to-end smoke tests
 ```
 
+## CI / smoke test
+GitHub Actions (`.github/workflows/qa-agent-ci.yml`) runs on push and pull_request with `contents: read`, no secrets and actions pinned to commit SHAs. To reproduce the smoke test locally:
+```bash
+.venv/bin/python -m pytest -q tests/test_e2e_smoke.py && .venv/bin/python scripts/demo_and_screenshots.py
+```
+
 ## Demo
 Interactive:
 ```bash
