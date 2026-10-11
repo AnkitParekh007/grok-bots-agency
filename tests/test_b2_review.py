@@ -98,3 +98,114 @@ def test_total_cap_enforced_through_provider_ledger(tmp_path, key):
     with pytest.raises(BudgetExceeded, match="total cap"):
         p.generate("plan_story", CTX, {}, run_id="r", budget=_BudgetLedger(a, "r", "grok", "m", "plan_story", 0))
     assert calls == []
+
+
+# ---------------- (2) approval modes ----------------
+from qa_agent.eval_authorization import AuthorizationError
+from qa_agent.auth import UserStore
+from qa_agent.server import create_app
+from fastapi.testclient import TestClient
+from tests.b1_helpers import wait_status
+
+STUB_AUTH = load_json(ROOT / "fixtures/eval/authorizations/stub-selftest.json")
+
+
+def write_auth(tmp_path, **over):
+    a = {**copy.deepcopy(STUB_AUTH), **over}
+    p = tmp_path / f"auth-{abs(hash(json.dumps(a, sort_keys=True)))}.json"
+    p.write_text(json.dumps(a)); return p
+
+
+def replay_agent(tmp_path, enabled=True):
+    cfg = load_json(ROOT / "config/agent.json"); cfg["unattended_eval_approval"]["enabled"] = enabled
+    return QAAgent(tmp_path / "data", agent_cfg=cfg)
+
+
+def planned(a, key="PCC-DEMO-5"):
+    rid = a.start_run(f"Plan {key}", story_key=key, wait=True)
+    assert a.store.get_run(rid)["status"] == "awaiting_approval"
+    return rid
+
+
+def denied(a, rid, path, match):
+    with pytest.raises(AuthorizationError, match=match):
+        a.approve_unattended(rid, path)
+    assert a.store.get_run(rid)["status"] == "awaiting_approval" and a.approvals.latest(rid) is None
+    assert any(r["tool"] == "plan.approve_unattended" and r["decision"] == "deny" for r in a.store.audit_rows(rid))
+
+
+@pytest.mark.approval
+@pytest.mark.security
+def test_unattended_disabled_by_default(tmp_path):
+    a = replay_agent(tmp_path, enabled=False)
+    denied(a, planned(a), write_auth(tmp_path), "disabled")
+
+
+@pytest.mark.approval
+@pytest.mark.security
+@pytest.mark.parametrize("over,match", [
+    ({"stories": ["PCC-DEMO-2"]}, "not in authorization allowlist"),
+    ({"environment": "other-env"}, "environment"),
+    ({"actions": ["api_import"]}, "outside the authorization"),
+    ({"skills": ["pim_import_testing"]}, "outside the authorization"),
+    ({"model_classes": ["LIVE MODEL"]}, "model class"),
+    ({"expires_at": "2020-01-01T00:00:00Z"}, "expired"),
+    ({"data_class": "internal"}, "synthetic"),
+    ({"kind": "something-else"}, "kind"),
+    ({"approval_ref": ""}, "missing fields"),
+    ({"max_runs": 0}, "missing fields|max_runs")])
+def test_unattended_out_of_scope_denied(tmp_path, over, match):
+    a = replay_agent(tmp_path)
+    denied(a, planned(a), write_auth(tmp_path, **over), match)
+
+
+@pytest.mark.approval
+def test_unattended_max_runs_enforced_and_audited(tmp_path):
+    a = replay_agent(tmp_path)
+    p = write_auth(tmp_path, max_runs=1, approval_ref="REF-1")
+    r1 = planned(a)
+    a.approve_unattended(r1, p, wait=True)
+    ap = a.approvals.latest(r1)
+    assert ap["auth_mode"] == "unattended-synthetic-eval" and ap["identity"] == "ci-harness-selftest" and ap["approver_label"] == "REF-1"
+    assert any(r["tool"] == "plan.approve_unattended" and r["decision"] == "allow" for r in a.store.audit_rows(r1))
+    denied(a, planned(a), p, "exhausted")
+
+
+@pytest.mark.approval
+def test_unattended_requires_first_manual_approval(tmp_path):
+    a = replay_agent(tmp_path)
+    p = write_auth(tmp_path, require_first_manual_approval=True)
+    denied(a, planned(a), p, "MANUAL approval")
+
+
+@pytest.mark.approval
+@pytest.mark.security
+def test_live_model_class_always_requires_manual_first(tmp_path, monkeypatch):
+    a = replay_agent(tmp_path)
+    rid = planned(a)
+    a.store.update_run(rid, model_label="LIVE MODEL (grok-4.7 via api.x.ai)")    # simulate a live-planned run
+    p = write_auth(tmp_path, model_classes=["LIVE MODEL"], require_first_manual_approval=False)
+    denied(a, rid, p, "MANUAL approval")
+
+
+@pytest.mark.approval
+def test_manual_authenticated_approval_unlocks_unattended(tmp_path):
+    us = UserStore(tmp_path / "u.json"); t = {n: us.add(n, r) for n, r in [("rita", "requester"), ("bob", "approver")]}
+    cfg = load_json(ROOT / "config/agent.json"); cfg["unattended_eval_approval"]["enabled"] = True
+    app = create_app(tmp_path / "data", auth_mode="local", users_file=tmp_path / "u.json", agent_cfg=cfg)
+    c = TestClient(app); H = lambda n: {"Authorization": f"Bearer {t[n]}"}
+    rid = c.post("/api/chat", json={"message": "Plan PCC-DEMO-5"}, headers=H("rita")).json()["run_id"]
+    run = wait_status(lambda: c.get(f"/api/runs/{rid}", headers=H("rita")).json(), {"awaiting_approval"})
+    assert c.post(f"/api/runs/{rid}/approval", json={"decision": "approved", "plan_hash": run["plan_hash"]}, headers=H("bob")).status_code == 200
+    wait_status(lambda: c.get(f"/api/runs/{rid}", headers=H("rita")).json(), {"completed", "failed"})
+    a = QAAgent(tmp_path / "data", agent_cfg=cfg)
+    r2 = planned(a)
+    a.approve_unattended(r2, write_auth(tmp_path, require_first_manual_approval=True))
+    assert a.approvals.latest(r2)["auth_mode"] == "unattended-synthetic-eval"
+
+
+@pytest.mark.approval
+@pytest.mark.security
+def test_no_http_route_for_unattended_approval(tmp_path):
+    app = create_app(tmp_path)
+    assert not any("unattended" in getattr(r, "path", "") for r in app.routes)

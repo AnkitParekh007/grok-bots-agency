@@ -62,5 +62,9 @@
   },
   "plan": {
     "ttl_minutes": 60
+  },
+  "unattended_eval_approval": {
+    "_comment": "Synthetic-eval harness only. Requires a signed authorization file (see docs/b2/UNATTENDED_EVAL_AUTHORIZATION.template.json). Normal approvals are unaffected.",
+    "enabled": false
   }
 }

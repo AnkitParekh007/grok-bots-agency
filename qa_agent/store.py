@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, 
 CREATE TABLE IF NOT EXISTS usage(id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, ts TEXT, day TEXT, provider TEXT,
   model TEXT, task TEXT, attempt INTEGER, prompt_tokens INTEGER, cached_tokens INTEGER, completion_tokens INTEGER,
   reasoning_tokens INTEGER, total_tokens INTEGER, cost_usd REAL, priced INTEGER, outcome TEXT);
+CREATE TABLE IF NOT EXISTS eval_authorization_uses(id INTEGER PRIMARY KEY AUTOINCREMENT, approval_ref TEXT, run_id TEXT UNIQUE, ts TEXT);
 CREATE TABLE IF NOT EXISTS telemetry(id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, ts TEXT, kind TEXT, provider TEXT, detail TEXT);
 CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT,'audit is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit BEGIN SELECT RAISE(ABORT,'audit is append-only'); END;
@@ -195,6 +196,27 @@ class Store:
         tot["cost_usd"] = round(sum(r["cost_usd"] or 0 for r in rows), 6)
         tot["calls"] = len(rows)
         return {"totals": tot, "calls": rows}
+
+    def claim_authorization_use(self, approval_ref, run_id, max_runs):
+        """Atomically count and record one unattended-approval use (BEGIN IMMEDIATE). Returns (ok, used_before)."""
+        with self.lock:
+            self.db.execute("BEGIN IMMEDIATE")
+            try:
+                used = self.db.execute("SELECT COUNT(*) FROM eval_authorization_uses WHERE approval_ref=?", (approval_ref,)).fetchone()[0]
+                if used >= max_runs:
+                    self.db.execute("ROLLBACK")
+                    return False, used
+                self.db.execute("INSERT INTO eval_authorization_uses(approval_ref,run_id,ts) VALUES(?,?,?)", (approval_ref, run_id, now()))
+                self.db.execute("COMMIT")
+                return True, used
+            except BaseException:
+                self.db.execute("ROLLBACK")
+                raise
+
+    def has_manual_authenticated_approval(self, model_class_prefix):
+        rows = self.q("SELECT r.model_label FROM approvals a JOIN runs r ON r.id=a.run_id WHERE a.decision='approved' "
+                      "AND a.auth_mode='local' AND a.identity IS NOT NULL")
+        return any((x["model_label"] or "").split(" (")[0].strip() == model_class_prefix for x in rows)
 
     def scope_spend(self, scope):
         return self.q("SELECT COALESCE(SUM(cost_usd),0) s FROM usage WHERE budget_scope=?", (scope,))[0]["s"]
