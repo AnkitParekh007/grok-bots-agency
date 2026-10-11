@@ -17,7 +17,6 @@ jobs:
     timeout-minutes: 30
     env:
       PYTHONUNBUFFERED: "1"
-      QA_MODEL_PROVIDER: replay   # offline only; no model keys exist in CI
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
