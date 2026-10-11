@@ -121,6 +121,18 @@ With `all`, the expected result is 3 passed / 5 failed (TC-02, TC-05, TC-06, TC-
   - The `viewer` role can no longer read other users' runs.
 - **Demo mode is single-user:** `demo` mode applies no per-run checks and must only be used by one trusted person on localhost.
 
+### B2 prep: evaluation set, quality metrics, live-eval approval pack
+- **Evaluation set:** `fixtures/eval/eval_set.json` has five SYNTHETIC stories, PCC-DEMO-2…6.
+  - PCC-DEMO-5 covers ETIM class/feature mapping and includes one untestable AC.
+  - PCC-DEMO-6 covers required fields and import errors, with prompt injection and one untestable AC.
+  - Each story has a gold annotation in `fixtures/eval/gold/`. Oracles and gold are pending QA-lead review.
+  - New seeded defects: `etim_alias_ignored` and `name_not_required`.
+- **Metrics and PROPOSED thresholds:** `qa_agent/eval_metrics.py`.
+- **Harness:** `python scripts/eval_b2.py --provider stub|replay|grok`, which writes `reports/eval/eval_report.{json,md}`.
+  - In stub and replay modes it is a harness self-test, **not real model reasoning**.
+  - Grok mode requires `--confirm-live-approved` and the approvals in `docs/b2/`. It fails closed with the default config.
+- **Approval pack:** `docs/b2/LIVE_EVAL_APPROVAL_REQUEST.md` and `docs/b2/ENABLE_LIVE_EVAL.md`.
+
 ### Trust limits of the local hash chain
 The chain catches accidental or partial tampering, such as an edited row, a deleted row, or an out-of-order or duplicated sequence number, **if the verifier holds a previously recorded head hash or export manifest**. Someone with write access to `data/` can rebuild the whole chain consistently, so locally it is *tamper-evident only relative to an externally kept head*. For enterprise use, ship exports or heads to a store the agent host cannot rewrite (WORM/object lock or an external log service) and sign them.
 
