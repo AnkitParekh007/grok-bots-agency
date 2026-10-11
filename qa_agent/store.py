@@ -117,6 +117,11 @@ class Store:
 
     # ---- usage / telemetry ----
     def add_usage(self, run_id, provider, model, task, attempt, u, cost, priced, outcome):
+        """u=None means the provider reported no usage: token columns are stored NULL (never invented)."""
+        if u is None:
+            self.x("INSERT INTO usage(run_id,ts,day,provider,model,task,attempt,cost_usd,priced,outcome) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                   (run_id, now(), datetime.now(timezone.utc).date().isoformat(), provider, model, task, attempt, cost, 0, outcome))
+            return
         self.x("INSERT INTO usage(run_id,ts,day,provider,model,task,attempt,prompt_tokens,cached_tokens,completion_tokens,"
                "reasoning_tokens,total_tokens,cost_usd,priced,outcome) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                (run_id, now(), datetime.now(timezone.utc).date().isoformat(), provider, model, task, attempt,

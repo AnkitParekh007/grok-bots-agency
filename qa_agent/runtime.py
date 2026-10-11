@@ -195,10 +195,14 @@ class QAAgent:
                 self.gateway.record(run_id, "model.data_class_gate", {"data_class": mctx["data_class"]}, "deny", str(e))
                 raise
             except UsageMissing as e:
-                self.store.add_usage(run_id, pname, getattr(self.model, "model", pname), "plan_story", attempt, {}, est, False, "usage_missing")
+                # never invent usage: token counts stay NULL; the conservative estimate is reserved against the budget
+                self.store.add_usage(run_id, pname, getattr(self.model, "model", pname), "plan_story", attempt, None, est, False, "usage_missing")
                 self.store.telemetry(run_id, "usage_missing", pname, str(e))
                 raise
-            except (ModelCallError, ProviderNotApproved, PolicyDenied) as e:
+            except ModelCallError as e:
+                self.store.telemetry(run_id, f"model_call_failed:{e.kind}", pname, json.dumps(e.as_dict()))
+                raise   # no automatic fallback to another provider
+            except (ProviderNotApproved, PolicyDenied) as e:
                 self.store.telemetry(run_id, "model_call_failed", pname, f"{type(e).__name__}: {e}")
                 raise   # no automatic fallback to another provider
             self.store.add_usage(run_id, resp.provider, resp.model, "plan_story", attempt, resp.usage, resp.cost_usd, resp.priced, resp.finish_reason)

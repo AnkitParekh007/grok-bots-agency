@@ -5,7 +5,7 @@
   Fails closed on missing enablement/approval/key/pricing; all HTTP goes through the ToolGateway
   ("model.request", default-deny model egress); key read from env at call time, never logged.
 """
-import json, os, random, time
+import json, os, random, time, uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
@@ -27,7 +27,27 @@ class DataClassDenied(ProviderNotApproved):
 
 
 class ModelCallError(Exception):
-    """Transport/HTTP failure after bounded retries (or non-retryable status)."""
+    """Normalized provider failure. kind in: rate_limited, server_error, timeout, transport, auth, bad_request,
+    not_found, invalid_response. Message is redacted; correlation_id ties it to audit rows."""
+    def __init__(self, msg, kind="transport", status=None, retryable=False, correlation_id=None, attempts=1):
+        super().__init__(msg)
+        self.kind, self.status, self.retryable, self.correlation_id, self.attempts = kind, status, retryable, correlation_id, attempts
+
+    def as_dict(self):
+        return {"kind": self.kind, "status": self.status, "retryable": self.retryable,
+                "correlation_id": self.correlation_id, "attempts": self.attempts, "message": str(self)}
+
+
+def normalize_status(status):
+    if status == 429:
+        return "rate_limited", True
+    if status in (500, 502, 503, 504):
+        return "server_error", True
+    if status in (401, 403):
+        return "auth", False
+    if status == 404:
+        return "not_found", False
+    return "bad_request", False
 
 
 class UsageMissing(Exception):
@@ -45,6 +65,7 @@ class ModelResponse:
     cost_usd: float = 0.0
     priced: bool = True
     attempts: int = 1
+    correlation_ids: list = field(default_factory=list)
 
 
 def compose_plan_story(rec: dict) -> dict:
@@ -143,6 +164,8 @@ class GrokProvider(ModelProvider):
         self.max_retries = int(cfg.get("max_retries", 3))
         self.backoff_base = float(cfg.get("backoff_base_s", 1.0))
         self.max_backoff = float(cfg.get("max_backoff_s", 30.0))
+        self.jitter = float(cfg.get("backoff_jitter_ratio", 0.25))
+        self.rng = random.Random()
         self.max_completion_tokens = int(cfg.get("max_completion_tokens", 8000))
         self.allowed_data_classes = list(cfg.get("allowed_data_classes", []))
         self.approved_hosts = list(cfg.get("approved_model_hosts", ["api.x.ai"]))
@@ -193,37 +216,45 @@ class GrokProvider(ModelProvider):
         url = f"{self.base_url}/chat/completions"
         body = self.build_body(task, context, schema, repair_feedback)
         ctx = {"provider_approved": self.provider_approved, "approved_model_hosts": self.approved_hosts}
-        last = None
+        cids = []
         for attempt in range(self.max_retries + 1):
-            args = {"url": url, "model": self.model, "task": task, "attempt": attempt}
+            cid = f"{run_id or 'norun'}-{uuid.uuid4().hex[:12]}"
+            cids.append(cid)
+            args = {"url": url, "model": self.model, "task": task, "attempt": attempt, "correlation_id": cid}
             try:
-                resp = self.gateway.invoke(run_id, "model.request", args, lambda: self._post(url, body), ctx)
+                resp = self.gateway.invoke(run_id, "model.request", args, lambda: self._post(url, body, cid), ctx)
             except _HTTPStatus as e:
-                last = e
-                if e.status not in self.RETRYABLE or attempt == self.max_retries:
-                    raise ModelCallError(redact(f"model endpoint returned HTTP {e.status}: {e.body[:200]}"))
+                kind, retryable = normalize_status(e.status)
+                if not retryable or attempt == self.max_retries:
+                    raise ModelCallError(redact(f"model endpoint returned HTTP {e.status} ({kind}): {e.body[:200]}"),
+                                         kind=kind, status=e.status, retryable=retryable, correlation_id=cid, attempts=attempt + 1)
                 wait = self._retry_after(e.retry_after)
-                if wait is None:
-                    wait = min(self.backoff_base * (2 ** attempt), self.max_backoff) * (1 + random.random() * 0.1)
-                self.sleep(wait)
+                self.sleep(wait if wait is not None else self.backoff(attempt))
                 continue
             except (httpx.TimeoutException, httpx.TransportError) as e:
-                last = e
+                kind = "timeout" if isinstance(e, httpx.TimeoutException) else "transport"
                 if attempt == self.max_retries:
-                    raise ModelCallError(redact(f"model endpoint unreachable after {attempt + 1} attempts: {type(e).__name__}"))
-                self.sleep(min(self.backoff_base * (2 ** attempt), self.max_backoff))
+                    raise ModelCallError(redact(f"model endpoint unreachable after {attempt + 1} attempts ({kind}): {type(e).__name__}"),
+                                         kind=kind, retryable=True, correlation_id=cid, attempts=attempt + 1)
+                self.sleep(self.backoff(attempt))
                 continue
             try:
                 data = resp.json()
             except ValueError:
-                raise ModelCallError("model endpoint returned non-JSON HTTP body")
+                raise ModelCallError("model endpoint returned non-JSON HTTP body", kind="invalid_response", status=200,
+                                     correlation_id=cid, attempts=attempt + 1)
             usage = self.parse_usage(data)
             choice = (data.get("choices") or [{}])[0]
             text = ((choice.get("message") or {}).get("content")) or ""
             return ModelResponse(text=text, provider=self.name, model=data.get("model") or self.model, label=self.label,
                                  finish_reason=choice.get("finish_reason") or "unknown", usage=usage,
-                                 cost_usd=self.cost(usage), priced=True, attempts=attempt + 1)
-        raise ModelCallError(f"exhausted retries: {type(last).__name__}")
+                                 cost_usd=self.cost(usage), priced=True, attempts=attempt + 1, correlation_ids=cids)
+        raise ModelCallError("exhausted retries", kind="transport", correlation_id=cids[-1] if cids else None)
+
+    def backoff(self, attempt):
+        """Exponential backoff with bounded jitter: base*2^attempt * (1 +/- jitter), capped at max_backoff."""
+        base = min(self.backoff_base * (2 ** attempt), self.max_backoff)
+        return min(base * (1 + self.rng.uniform(-self.jitter, self.jitter)), self.max_backoff)
 
     def _retry_after(self, v):
         if v is None:
@@ -233,12 +264,13 @@ class GrokProvider(ModelProvider):
         except ValueError:
             return None
 
-    def _post(self, url, body):
+    def _post(self, url, body, correlation_id=None):
         key = os.environ.get(self.key_env)
         if not key:
             raise ProviderNotApproved("api key disappeared from environment")
         with httpx.Client(timeout=self.timeout, transport=self.transport, follow_redirects=False) as c:
-            r = c.post(url, json=body, headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+            r = c.post(url, json=body, headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json",
+                                                   "X-Request-ID": correlation_id or ""})
         if r.status_code != 200:
             raise _HTTPStatus(r.status_code, r.headers.get("retry-after"), redact(r.text))
         return r
