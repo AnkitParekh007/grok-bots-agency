@@ -86,6 +86,31 @@ With `all`, the expected result is 3 passed / 5 failed (TC-02, TC-05, TC-06, TC-
 - After a restart, runs that were in flight are marked `interrupted` with a reason.
 - Browser and API calls have timeouts (`execution.*_ms`). Any exception or timeout produces **ERROR**, never PASS, and evidence (screenshot, trace, log) is kept in a `finally` block. The `slow_api` fault in the SUT (`SUT_DEFECTS=slow_api`) exercises this path.
 
+
+### B1.1 hardening (feature/b1-grok-agent-foundation)
+- **Named contracts** (`qa_agent/contracts.py`): Requirement, AcceptanceCriterion, TestStep, TestScenario, TestPlan, SkillSelection, OracleReference, CoverageGap and PlanValidationResult. They are composed into the unchanged wire schema; `planning.evaluate_plan()` returns a PlanValidationResult.
+- **Versioned action catalog:** `catalog_version` is a content hash of the skills, actions and parameter specs. It is stored with the plan, and execution is blocked if the catalog changed after planning.
+- **Provider:**
+  - Bounded backoff jitter (`backoff_jitter_ratio`).
+  - A per-attempt correlation ID, sent as `X-Request-ID` and recorded in the audit.
+  - Errors normalized into `ModelCallError.kind`: rate_limited, server_error, timeout, transport, auth, not_found, bad_request or invalid_response.
+- **Validation:** approval-bypass keys (`skip_approval`, `requires_approval`…), environment and production keys or values (`environment`, `base_url`, `prod`…) and path- or URL-like parameter values are policy violations. Missing step fields and wrong parameter types are format errors. Every rejection is audited.
+- **Approvals:**
+  - Plans expire after `plan.ttl_minutes` (default 60).
+  - In local mode, only the run owner or an approver can cancel a run.
+- **Audit v2:**
+  - Each row carries a contiguous `seq` and a canonical `payload_hash` (sha256 of sorted-key JSON). `entry_hash = sha256("audit-v2|seq|prev_hash|payload_hash")`.
+  - Export to a self-verifying file with `python -m qa_agent.audit_verify export --data-dir data --out audit_export.jsonl` (or `GET /api/audit/export`), and check it with `python -m qa_agent.audit_verify verify-export audit_export.jsonl`.
+  - Chains from A (unchained) and B1 (no seq) are still accepted and reported as `legacy` / v1.
+- **Cost:** a response without usage stores NULL token counts (usage is never invented) and reserves the conservative estimate against the budget, flagged `priced=0`.
+
+### Trust limits of the local hash chain
+The chain catches accidental or partial tampering, such as an edited row, a deleted row, or an out-of-order or duplicated sequence number, **if the verifier holds a previously recorded head hash or export manifest**. Someone with write access to `data/` can rebuild the whole chain consistently, so locally it is *tamper-evident only relative to an externally kept head*. For enterprise use, ship exports or heads to a store the agent host cannot rewrite (WORM/object lock or an external log service) and sign them.
+
+### Demo mode vs authenticated mode
+- `demo` (default, used by `scripts/run_demo.sh` and `scripts/demo_and_screenshots.py`): there is no authentication. Anyone who can reach 127.0.0.1:8600 can request and approve, and the approver name is a self-asserted label shown as UNAUTHENTICATED.
+- `local` (`QA_AUTH_MODE=local`, used by `scripts/demo_b1.py`): hashed tokens with roles, plan-hash-bound approvals, no self-approval, ownership checks and audited authz denials. It is still not SSO and not suitable beyond a single trusted workstation.
+
 ### B1 demo (local auth + local stub; two users)
 ```bash
 .venv/bin/python scripts/demo_b1.py            # PCC-DEMO-3 (prompt-injection story); or pass PCC-DEMO-2 / PCC-DEMO-4
