@@ -1,0 +1,136 @@
+{
+  "_provenance": "STUB/REPLAY answer (hand-authored, Milestone B2) used ONLY to self-test the offline evaluation harness and the stub endpoint. NOT produced by a live model, never included in any prompt, and never used in live evaluation (scripts/eval_b2.py --provider grok refuses replay/stub answers).",
+  "story": "PCC-DEMO-5",
+  "responses": {
+    "plan_story": {
+      "understanding": {
+        "summary": "STUB/REPLAY (not model reasoning): ETIM class/feature column mapping incl. legacy alias; validation against the official ETIM release cannot be tested with registered skills.",
+        "domain": "classification / attribute mapping",
+        "assumptions": [
+          "EC-SYN-* codes are synthetic"
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "text": "etim_class column mapped to etim_class",
+          "source_quote": "The supplier column \"etim_class\" is mapped to the dictionary attribute \"etim_class\" for every imported SKU."
+        },
+        {
+          "id": "AC2",
+          "text": "legacy etim column mapped to etim_class",
+          "source_quote": "The legacy supplier column \"etim\" is also accepted"
+        },
+        {
+          "id": "AC3",
+          "text": "ip_rating feature mapped",
+          "source_quote": "The supplier column \"ip_rating\" is mapped to the ETIM feature attribute \"ip_rating\"."
+        },
+        {
+          "id": "AC4",
+          "text": "class codes validated against official ETIM release",
+          "source_quote": "validated against the latest official ETIM release"
+        }
+      ],
+      "behaviors": [
+        {
+          "id": "B-1",
+          "ac_refs": [
+            "AC1"
+          ],
+          "description": "etim_class mapped",
+          "testable": true
+        },
+        {
+          "id": "B-2",
+          "ac_refs": [
+            "AC2"
+          ],
+          "description": "legacy alias mapped",
+          "testable": true
+        },
+        {
+          "id": "B-3",
+          "ac_refs": [
+            "AC3"
+          ],
+          "description": "ip_rating mapped",
+          "testable": true
+        },
+        {
+          "id": "B-4",
+          "ac_refs": [
+            "AC4"
+          ],
+          "description": "official ETIM validation",
+          "testable": false
+        }
+      ],
+      "selected_skills": [
+        "attribute_mapping_validation"
+      ],
+      "test_cases": [
+        {
+          "id": "TC-01",
+          "title": "API: etim_class mapped for SKU-5001",
+          "type": "api",
+          "category": "positive",
+          "behavior_ref": "B-1",
+          "skill": "attribute_mapping_validation",
+          "action": "api_product_after_import",
+          "params": {
+            "file": "supplier_etim.csv",
+            "sku": "SKU-5001"
+          },
+          "ac_refs": [
+            "AC1"
+          ],
+          "oracle_ref": "ORC5-CLASS-5001"
+        },
+        {
+          "id": "TC-02",
+          "title": "API: legacy 'etim' column mapped for SKU-5101",
+          "type": "api",
+          "category": "edge",
+          "behavior_ref": "B-2",
+          "skill": "attribute_mapping_validation",
+          "action": "api_product_after_import",
+          "params": {
+            "file": "supplier_etim_alias.csv",
+            "sku": "SKU-5101"
+          },
+          "ac_refs": [
+            "AC2"
+          ],
+          "oracle_ref": "ORC5-ALIAS-5101"
+        },
+        {
+          "id": "TC-03",
+          "title": "API: ip_rating mapped for SKU-5002",
+          "type": "api",
+          "category": "positive",
+          "behavior_ref": "B-3",
+          "skill": "attribute_mapping_validation",
+          "action": "api_product_after_import",
+          "params": {
+            "file": "supplier_etim.csv",
+            "sku": "SKU-5002"
+          },
+          "ac_refs": [
+            "AC3"
+          ],
+          "oracle_ref": "ORC5-IP-5002"
+        }
+      ],
+      "coverage_gaps": [
+        {
+          "ac_refs": [
+            "AC4"
+          ],
+          "kind": "no_skill_action",
+          "reason": "No registered skill or approved oracle for validating codes against an external official ETIM release; needs ETIM reference data and reviewer approval."
+        }
+      ]
+    }
+  }
+}

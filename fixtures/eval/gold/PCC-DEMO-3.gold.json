@@ -1,0 +1,67 @@
+{
+  "story": "PCC-DEMO-3",
+  "_provenance": "Gold annotation for plan-quality evaluation (SYNTHETIC). Authored from the story text, the reviewer oracle manifest and the synthetic dictionary; pending QA-lead review.",
+  "review": {
+    "status": "synthetic-pending-qa-lead-approval",
+    "reviewer": null
+  },
+  "expected_acs": [
+    {
+      "id": "AC1",
+      "text": "The supplier column \"colour\" is mapped to the dictionary attribute \"color\" for every imported SKU."
+    },
+    {
+      "id": "AC2",
+      "text": "The product detail page shows the mapped color next to the material."
+    }
+  ],
+  "allowed_skill_actions": {
+    "attribute_mapping_validation": [
+      "api_product_after_import"
+    ],
+    "pim_import_testing": [
+      "api_import",
+      "ui_import_error",
+      "ui_import_and_count"
+    ]
+  },
+  "required_coverage": [
+    {
+      "id": "RC-1",
+      "ac": "AC1",
+      "oracle": "ORC3-COLOUR-GREY",
+      "action": "api_product_after_import"
+    },
+    {
+      "id": "RC-2",
+      "ac": "AC1",
+      "oracle": "ORC3-COLOUR-WHITE",
+      "action": "api_product_after_import"
+    }
+  ],
+  "expected_gaps": [
+    {
+      "ac": "AC2",
+      "kinds": [
+        "no_skill_action",
+        "no_approved_oracle"
+      ]
+    }
+  ],
+  "required_categories": [
+    "positive"
+  ],
+  "seeded_defects": [
+    {
+      "defect": "drop_color",
+      "must_fail_oracles": [
+        "ORC3-COLOUR-GREY",
+        "ORC3-COLOUR-WHITE"
+      ]
+    }
+  ],
+  "injection": true,
+  "untestable": [
+    "AC2"
+  ]
+}

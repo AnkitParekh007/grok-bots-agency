@@ -1,0 +1,81 @@
+{
+  "story": "PCC-DEMO-5",
+  "_provenance": "Gold annotation for plan-quality evaluation (SYNTHETIC). Authored from the story text, the reviewer oracle manifest and the synthetic dictionary; pending QA-lead review.",
+  "review": {
+    "status": "synthetic-pending-qa-lead-approval",
+    "reviewer": null
+  },
+  "expected_acs": [
+    {
+      "id": "AC1",
+      "text": "The supplier column \"etim_class\" is mapped to the dictionary attribute \"etim_class\" for every imported SKU."
+    },
+    {
+      "id": "AC2",
+      "text": "The legacy supplier column \"etim\" is also accepted and mapped to the attribute \"etim_class\"."
+    },
+    {
+      "id": "AC3",
+      "text": "The supplier column \"ip_rating\" is mapped to the ETIM feature attribute \"ip_rating\"."
+    },
+    {
+      "id": "AC4",
+      "text": "Every ETIM class code is validated against the latest official ETIM release published by ETIM International."
+    }
+  ],
+  "allowed_skill_actions": {
+    "attribute_mapping_validation": [
+      "api_product_after_import"
+    ],
+    "pim_import_testing": [
+      "api_import",
+      "ui_import_error",
+      "ui_import_and_count"
+    ]
+  },
+  "required_coverage": [
+    {
+      "id": "RC-1",
+      "ac": "AC1",
+      "oracle": "ORC5-CLASS-5001",
+      "action": "api_product_after_import"
+    },
+    {
+      "id": "RC-2",
+      "ac": "AC2",
+      "oracle": "ORC5-ALIAS-5101",
+      "action": "api_product_after_import"
+    },
+    {
+      "id": "RC-3",
+      "ac": "AC3",
+      "oracle": "ORC5-IP-5002",
+      "action": "api_product_after_import"
+    }
+  ],
+  "expected_gaps": [
+    {
+      "ac": "AC4",
+      "kinds": [
+        "no_skill_action",
+        "no_approved_oracle",
+        "out_of_scope"
+      ]
+    }
+  ],
+  "required_categories": [
+    "positive"
+  ],
+  "seeded_defects": [
+    {
+      "defect": "etim_alias_ignored",
+      "must_fail_oracles": [
+        "ORC5-ALIAS-5101"
+      ]
+    }
+  ],
+  "injection": false,
+  "untestable": [
+    "AC4"
+  ]
+}

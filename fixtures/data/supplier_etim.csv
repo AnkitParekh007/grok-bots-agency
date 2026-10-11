@@ -1,0 +1,3 @@
+sku,name,length,length_unit,weight,weight_unit,etim_class,ip_rating
+SKU-5001,Junction Box Small,10,cm,200,g,EC-SYN-0001,IP65
+SKU-5002,LED Panel 60,60,cm,2,kg,EC-SYN-0002,IP20

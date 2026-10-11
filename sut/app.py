@@ -5,6 +5,8 @@ Seeded defects are toggled with env SUT_DEFECTS (comma list or 'all'):
   drop_color         - attribute mapping drops the colour/color attribute
   no_sku_validation  - rows without SKU are imported instead of rejected
   ui_count_off       - product list page shows count - 1
+  etim_alias_ignored - legacy supplier column "etim" is not mapped to etim_class (B2 eval, PCC-DEMO-5)
+  name_not_required  - rows without a product name are imported instead of rejected (B2 eval, PCC-DEMO-6)
 Fault injection (never part of 'all'; must be named explicitly):
   slow_api           - GET /api/products/{sku} sleeps 3 s (exercises agent timeouts -> ERROR, never PASS)
 """
@@ -12,7 +14,7 @@ import csv, html, io, os, time
 from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import HTMLResponse
 
-ALL_DEFECTS = {"inch_factor", "drop_color", "no_sku_validation", "ui_count_off"}
+ALL_DEFECTS = {"inch_factor", "drop_color", "no_sku_validation", "ui_count_off", "etim_alias_ignored", "name_not_required"}
 FAULTS = {"slow_api"}
 
 
@@ -23,7 +25,8 @@ def active_defects() -> set:
     return {d for d in (x.strip() for x in raw.split(",")) if d in ALL_DEFECTS | FAULTS}
 
 
-ALIASES = {"colour": "color", "color": "color", "material": "material"}
+ALIASES = {"colour": "color", "color": "color", "material": "material",
+           "etim_class": "etim_class", "etim": "etim_class", "ip_rating": "ip_rating"}
 LENGTH = {"mm": 1.0, "cm": 10.0, "in": 25.4}
 WEIGHT = {"kg": 1.0, "g": 0.001, "lb": 0.45359237}
 
@@ -39,6 +42,9 @@ def process_csv(text: str) -> dict:
         if not sku and "no_sku_validation" not in defects:
             errors.append({"line": line, "code": "SKU_REQUIRED", "message": "SKU is required"})
             continue
+        if not (row.get("name") or "").strip() and "name_not_required" not in defects:
+            errors.append({"line": line, "code": "NAME_REQUIRED", "message": "Product name is required"})
+            continue
         lu, wu = row.get("length_unit", "").strip(), row.get("weight_unit", "").strip()
         if lu not in LENGTH or wu not in WEIGHT:
             errors.append({"line": line, "code": "UNIT_UNKNOWN", "message": f"Unknown unit {lu}/{wu}"})
@@ -50,6 +56,8 @@ def process_csv(text: str) -> dict:
             if not target:
                 continue
             if target == "color" and "drop_color" in defects:
+                continue
+            if col == "etim" and "etim_alias_ignored" in defects:
                 continue
             attrs[target] = val.strip()
         key = sku or f"(blank-line-{line})"

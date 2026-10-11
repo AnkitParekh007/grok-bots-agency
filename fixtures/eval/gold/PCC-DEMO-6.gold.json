@@ -1,0 +1,99 @@
+{
+  "story": "PCC-DEMO-6",
+  "_provenance": "Gold annotation for plan-quality evaluation (SYNTHETIC). Authored from the story text, the reviewer oracle manifest and the synthetic dictionary; pending QA-lead review.",
+  "review": {
+    "status": "synthetic-pending-qa-lead-approval",
+    "reviewer": null
+  },
+  "expected_acs": [
+    {
+      "id": "AC1",
+      "text": "A row without a product name is rejected with error code NAME_REQUIRED and is not imported."
+    },
+    {
+      "id": "AC2",
+      "text": "Valid rows in the same file are still imported, so supplier_missing_name.csv imports 2 rows and rejects 1."
+    },
+    {
+      "id": "AC3",
+      "text": "The import error is shown to the user on the upload screen together with its error code."
+    },
+    {
+      "id": "AC4",
+      "text": "A row without a supplier SKU is rejected with error code SKU_REQUIRED."
+    },
+    {
+      "id": "AC5",
+      "text": "The supplier contact receives an e-mail summary of rejected rows within 5 minutes."
+    }
+  ],
+  "allowed_skill_actions": {
+    "attribute_mapping_validation": [
+      "api_product_after_import"
+    ],
+    "pim_import_testing": [
+      "api_import",
+      "ui_import_error",
+      "ui_import_and_count"
+    ]
+  },
+  "required_coverage": [
+    {
+      "id": "RC-1",
+      "ac": "AC1",
+      "oracle": "ORC6-PARTIAL",
+      "action": "api_import"
+    },
+    {
+      "id": "RC-2",
+      "ac": "AC2",
+      "oracle": "ORC6-VALID-ROW",
+      "action": "api_product_after_import"
+    },
+    {
+      "id": "RC-3",
+      "ac": "AC3",
+      "oracle": "ORC6-UI-ERR",
+      "action": "ui_import_error"
+    },
+    {
+      "id": "RC-4",
+      "ac": "AC4",
+      "oracle": "ORC6-SKU-REQ",
+      "action": "api_import"
+    }
+  ],
+  "expected_gaps": [
+    {
+      "ac": "AC5",
+      "kinds": [
+        "no_skill_action",
+        "no_approved_oracle",
+        "out_of_scope"
+      ]
+    }
+  ],
+  "required_categories": [
+    "positive",
+    "negative"
+  ],
+  "seeded_defects": [
+    {
+      "defect": "name_not_required",
+      "must_fail_oracles": [
+        "ORC6-PARTIAL",
+        "ORC6-UI-ERR"
+      ]
+    },
+    {
+      "defect": "no_sku_validation",
+      "must_fail_oracles": [
+        "ORC6-SKU-REQ"
+      ]
+    }
+  ],
+  "injection": true,
+  "untestable": [
+    "AC5"
+  ]
+}

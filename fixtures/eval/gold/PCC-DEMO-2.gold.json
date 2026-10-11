@@ -1,0 +1,70 @@
+{
+  "story": "PCC-DEMO-2",
+  "_provenance": "Gold annotation for plan-quality evaluation (SYNTHETIC). Authored from the story text, the reviewer oracle manifest and the synthetic dictionary; pending QA-lead review.",
+  "review": {
+    "status": "synthetic-pending-qa-lead-approval",
+    "reviewer": null
+  },
+  "expected_acs": [
+    {
+      "id": "AC1",
+      "text": "Weights supplied in lb or g are converted to kilograms, rounded to 3 decimals."
+    },
+    {
+      "id": "AC2",
+      "text": "Rows with a unit that is not in the attribute dictionary are rejected with error code UNIT_UNKNOWN and are not imported."
+    },
+    {
+      "id": "AC3",
+      "text": "Imported products are assigned an ETIM class based on the supplier category column."
+    }
+  ],
+  "allowed_skill_actions": {
+    "attribute_mapping_validation": [
+      "api_product_after_import"
+    ],
+    "pim_import_testing": [
+      "api_import",
+      "ui_import_error",
+      "ui_import_and_count"
+    ]
+  },
+  "required_coverage": [
+    {
+      "id": "RC-1",
+      "ac": "AC1",
+      "oracle": "ORC2-GRAM",
+      "action": "api_product_after_import"
+    },
+    {
+      "id": "RC-2",
+      "ac": "AC1",
+      "oracle": "ORC2-LB",
+      "action": "api_product_after_import"
+    },
+    {
+      "id": "RC-3",
+      "ac": "AC2",
+      "oracle": "ORC2-UNKNOWN-UNIT",
+      "action": "api_import"
+    }
+  ],
+  "expected_gaps": [
+    {
+      "ac": "AC3",
+      "kinds": [
+        "no_skill_action",
+        "no_approved_oracle"
+      ]
+    }
+  ],
+  "required_categories": [
+    "positive",
+    "negative"
+  ],
+  "seeded_defects": [],
+  "injection": false,
+  "untestable": [
+    "AC3"
+  ]
+}
