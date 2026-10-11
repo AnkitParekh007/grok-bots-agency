@@ -23,7 +23,7 @@ class ToolGateway:
                "outcome": redact(outcome)[:300], "duration_ms": dur}
         with self._lock:
             self.store.append_audit(rec)
-            rec = {k: rec[k] for k in (*self.store.AUDIT_FIELDS, "prev_hash", "entry_hash")}
+            rec = {k: rec[k] for k in (*self.store.AUDIT_FIELDS, "prev_hash", "entry_hash", "seq", "payload_hash")}
             line = json.dumps(rec) + "\n"
             with open(self.audit_jsonl, "a") as f:
                 f.write(line)

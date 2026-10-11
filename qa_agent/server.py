@@ -165,6 +165,14 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
     def audit_verify(p: Principal = Depends(need("viewer"))):
         return agent.store.verify_audit_chain()
 
+    @app.get("/api/audit/export")
+    def audit_export(p: Principal = Depends(need("viewer"))):
+        out = data_dir / "audit_export.jsonl"
+        agent.store.export_audit(out)
+        r = FileResponse(out, media_type="application/x-ndjson")
+        r.headers["Content-Disposition"] = 'attachment; filename="audit_export.jsonl"'
+        return r
+
     def send(run_id, rel, media=None):
         run_or_404(run_id)
         try:

@@ -48,7 +48,8 @@ class Store:
         add = {"runs": [("planning_json", "TEXT"), ("requested_by", "TEXT"), ("cancel_requested", "INTEGER DEFAULT 0"),
                         ("catalog_version", "TEXT"), ("plan_created_at", "TEXT")],
                "approvals": [("identity", "TEXT"), ("auth_mode", "TEXT"), ("approver_label", "TEXT")],
-               "audit": [("prev_hash", "TEXT"), ("entry_hash", "TEXT")]}
+               "audit": [("prev_hash", "TEXT"), ("entry_hash", "TEXT"),
+                          ("seq", "INTEGER"), ("payload_hash", "TEXT")]}
         for t, cs in add.items():
             have = cols(t)
             for c, typ in cs:
@@ -101,15 +102,30 @@ class Store:
     def entry_hash(prev_hash, rec):
         return sha256((prev_hash or "GENESIS") + "|" + canon({k: rec.get(k) for k in Store.AUDIT_FIELDS}))
 
+    @staticmethod
+    def payload_hash(rec):
+        """Canonical payload hash: sorted-key compact JSON of the audited fields."""
+        return sha256(canon({k: rec.get(k) for k in Store.AUDIT_FIELDS}))
+
+    @staticmethod
+    def entry_hash_v2(seq, prev_hash, payload_hash):
+        return sha256(f"audit-v2|{seq}|{prev_hash}|{payload_hash}")
+
     def append_audit(self, rec):
-        """Caller must hold the gateway lock; computes prev_hash from the last chained row."""
+        """Caller must hold the gateway lock. v2 chain: monotonically increasing seq + canonical payload hash."""
         with self.lock:
-            last = self.db.execute("SELECT entry_hash FROM audit WHERE entry_hash IS NOT NULL ORDER BY id DESC LIMIT 1").fetchone()
+            last = self.db.execute("SELECT entry_hash, seq FROM audit WHERE entry_hash IS NOT NULL ORDER BY id DESC LIMIT 1").fetchone()
+            last_seq = self.db.execute("SELECT MAX(seq) FROM audit").fetchone()[0] or 0
             rec["prev_hash"] = last[0] if last else "GENESIS"
-            rec["entry_hash"] = self.entry_hash(rec["prev_hash"], rec)
-            self.db.execute("INSERT INTO audit(ts,run_id,tool,args_hash,args_summary,decision,reason,outcome,duration_ms,prev_hash,entry_hash)"
-                            " VALUES(:ts,:run_id,:tool,:args_hash,:args_summary,:decision,:reason,:outcome,:duration_ms,:prev_hash,:entry_hash)", rec)
+            rec["seq"] = last_seq + 1
+            rec["payload_hash"] = self.payload_hash(rec)
+            rec["entry_hash"] = self.entry_hash_v2(rec["seq"], rec["prev_hash"], rec["payload_hash"])
+            self.db.execute("INSERT INTO audit(ts,run_id,tool,args_hash,args_summary,decision,reason,outcome,duration_ms,prev_hash,entry_hash,seq,payload_hash)"
+                            " VALUES(:ts,:run_id,:tool,:args_hash,:args_summary,:decision,:reason,:outcome,:duration_ms,:prev_hash,:entry_hash,:seq,:payload_hash)", rec)
         return rec
+
+    def export_audit(self, path):
+        return export_audit(self.q("SELECT * FROM audit ORDER BY id"), path)
 
     def verify_audit_chain(self):
         rows = self.q("SELECT * FROM audit ORDER BY id")
@@ -211,19 +227,68 @@ class SqliteApprovalProvider(ApprovalProvider):
 
 
 def verify_chain(rows):
-    """Recompute the audit hash chain. Rows written before B1 (no entry_hash) are counted as legacy/unchained."""
-    prev, legacy, checked = None, 0, 0
+    """Recompute the audit hash chain.
+    legacy rows (Milestone A, no entry_hash) are counted, not verified; v1 rows (B1, no seq) use the B1 formula;
+    v2 rows require seq == previous v2 seq + 1, a matching canonical payload hash and entry hash."""
+    prev, legacy, checked, last_seq = None, 0, 0, None
     for r in rows:
+        rid = r.get("id")
         if not r.get("entry_hash"):
             if checked:
-                return {"ok": False, "broken_at_id": r.get("id"), "reason": "unchained row after chain start", "checked": checked, "legacy": legacy}
+                return {"ok": False, "broken_at_id": rid, "reason": "unchained row after chain start", "checked": checked, "legacy": legacy}
             legacy += 1
             continue
-        expect_prev = prev or "GENESIS"
-        if r.get("prev_hash") != expect_prev:
-            return {"ok": False, "broken_at_id": r.get("id"), "reason": "prev_hash mismatch (row removed/reordered)", "checked": checked, "legacy": legacy}
-        if Store.entry_hash(r["prev_hash"], r) != r["entry_hash"]:
-            return {"ok": False, "broken_at_id": r.get("id"), "reason": "entry_hash mismatch (row modified)", "checked": checked, "legacy": legacy}
+        if r.get("prev_hash") != (prev or "GENESIS"):
+            return {"ok": False, "broken_at_id": rid, "reason": "prev_hash mismatch (row removed/reordered)", "checked": checked, "legacy": legacy}
+        if r.get("seq") is None:
+            if last_seq is not None:
+                return {"ok": False, "broken_at_id": rid, "reason": "unsequenced row after sequenced rows", "checked": checked, "legacy": legacy}
+            if Store.entry_hash(r["prev_hash"], r) != r["entry_hash"]:
+                return {"ok": False, "broken_at_id": rid, "reason": "entry_hash mismatch (row modified)", "checked": checked, "legacy": legacy}
+        else:
+            expect = (last_seq or 0) + 1
+            if r["seq"] != expect:
+                return {"ok": False, "broken_at_id": rid, "reason": f"incorrect sequence: got {r['seq']}, expected {expect}", "checked": checked, "legacy": legacy}
+            ph = Store.payload_hash(r)
+            if ph != r.get("payload_hash") or Store.entry_hash_v2(r["seq"], r["prev_hash"], ph) != r["entry_hash"]:
+                return {"ok": False, "broken_at_id": rid, "reason": "entry_hash mismatch (row modified)", "checked": checked, "legacy": legacy}
+            last_seq = r["seq"]
         prev = r["entry_hash"]
         checked += 1
-    return {"ok": True, "checked": checked, "legacy": legacy, "head": prev}
+    return {"ok": True, "checked": checked, "legacy": legacy, "head": prev, "last_seq": last_seq}
+
+
+EXPORT_FIELDS = ("id", *Store.AUDIT_FIELDS, "prev_hash", "entry_hash", "seq", "payload_hash")
+
+
+def export_audit(rows, path):
+    """Write a self-verifying JSONL export: one canonical line per row + a final manifest line."""
+    lines = [canon({k: r.get(k) for k in EXPORT_FIELDS}) for r in rows]
+    body = "".join(l + "\n" for l in lines)
+    v = verify_chain(rows)
+    manifest = {"_manifest": {"format": "qa-audit-export/1", "count": len(rows), "body_sha256": sha256(body),
+                              "head": v.get("head"), "last_seq": v.get("last_seq"), "chain_ok_at_export": v["ok"],
+                              "exported_at": now()}}
+    Path(path).write_text(body + canon(manifest) + "\n")
+    return manifest["_manifest"]
+
+
+def verify_export(path):
+    text = Path(path).read_text()
+    lines = text.splitlines()
+    if not lines:
+        return {"ok": False, "reason": "empty export"}
+    try:
+        man = json.loads(lines[-1])["_manifest"]
+    except (ValueError, KeyError):
+        return {"ok": False, "reason": "missing manifest"}
+    body = "".join(l + "\n" for l in lines[:-1])
+    if sha256(body) != man["body_sha256"]:
+        return {"ok": False, "reason": "body hash mismatch (export modified)"}
+    rows = [json.loads(l) for l in lines[:-1]]
+    if len(rows) != man["count"]:
+        return {"ok": False, "reason": "row count mismatch"}
+    v = verify_chain(rows)
+    if v["ok"] and v.get("head") != man["head"]:
+        return {"ok": False, "reason": "head mismatch"}
+    return {**v, "manifest": man}
