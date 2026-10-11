@@ -24,7 +24,7 @@ class PlanInvalid(Exception):
     pass
 
 
-from .providers.models import BudgetExceeded  # re-exported for callers/tests
+from .providers.models import BudgetExceeded, ProviderConfigError  # re-exported for callers/tests
 
 
 class _BudgetLedger:
@@ -34,7 +34,8 @@ class _BudgetLedger:
 
     def reserve(self, http_attempt, est):
         uid, reason = self.a.store.reserve_spend(self.run_id, self.provider, self.model, self.task, self.attempt, http_attempt,
-                                                 est, self.a.budget["per_run_usd"], self.a.budget["daily_usd"])
+                                                 est, self.a.budget["per_run_usd"], self.a.budget["daily_usd"],
+                                                 self.a.budget["total_usd"], self.a.budget["scope"])
         if reason:
             self.a.store.telemetry(self.run_id, "budget_denied", self.provider, reason)
             self.a.gateway.record(self.run_id, "model.budget_gate", {"estimate_usd": est, "http_attempt": http_attempt}, "deny", reason)
@@ -61,7 +62,16 @@ class QAAgent:
         self.tracker = MockJiraProvider(ROOT / self.cfg["issue_tracker"]["fixtures_dir"])
         self.skills = LocalSkillRegistry()
         self.model = build_model_provider(self.cfg, ROOT, gateway=self.gateway)  # fail-closed if not approved/configured
-        self.budget = {"per_run_usd": 10.0, "daily_usd": 150.0, **self.cfg.get("budget", {})}
+        self.budget = {"per_run_usd": 1.0, "daily_usd": 15.0, **self.cfg.get("budget", {})}
+        if getattr(self.model, "per_attempt_budget", False):
+            # billable provider: every cap must be explicitly configured, positive and numeric (fail closed)
+            for k in ("per_run_usd", "daily_usd", "total_usd"):
+                v = self.budget.get(k)
+                if not isinstance(v, (int, float)) or isinstance(v, bool) or v <= 0:
+                    raise ProviderConfigError(f"budget.{k} must be a positive number for a billable provider (got {v!r})")
+            if not isinstance(self.budget.get("scope"), str) or not self.budget["scope"].strip():
+                raise ProviderConfigError("budget.scope (persistent total-cap scope id) is required for a billable provider")
+        self.budget.setdefault("total_usd", None); self.budget.setdefault("scope", None)
         self.max_repairs = int(self.cfg.get("repair", {}).get("max_format_repairs", 2))
         self.exec_cfg = self.cfg.get("execution", {})
         self.exec_lock = threading.Lock()

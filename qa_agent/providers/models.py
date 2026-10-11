@@ -166,7 +166,8 @@ class GrokProvider(ModelProvider):
         if not os.environ.get(self.key_env):
             raise ProviderNotApproved(f"grok api key not provided via approved secret reference (env {self.key_env})")
         pricing = cfg.get("pricing") or {}
-        if any(not isinstance(pricing.get(k), (int, float)) for k in self.PRICE_KEYS):
+        if any(not isinstance(pricing.get(k), (int, float)) or isinstance(pricing.get(k), bool) or pricing.get(k) < 0
+               for k in self.PRICE_KEYS) or not pricing.get("input_per_mtok_usd") or not pricing.get("output_per_mtok_usd"):
             raise ProviderConfigError(f"grok pricing not configured ({', '.join(self.PRICE_KEYS)} per 1M tokens, USD) - refusing unpriced calls")
         self.pricing = pricing
         self.timeout = float(cfg.get("timeout_s", 60))

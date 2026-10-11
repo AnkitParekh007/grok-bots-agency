@@ -50,7 +50,7 @@ class Store:
                "approvals": [("identity", "TEXT"), ("auth_mode", "TEXT"), ("approver_label", "TEXT")],
                "audit": [("prev_hash", "TEXT"), ("entry_hash", "TEXT"),
                           ("seq", "INTEGER"), ("payload_hash", "TEXT")],
-               "usage": [("http_attempt", "INTEGER"), ("est_usd", "REAL")]}
+               "usage": [("http_attempt", "INTEGER"), ("est_usd", "REAL"), ("budget_scope", "TEXT")]}
         for t, cs in add.items():
             have = cols(t)
             for c, typ in cs:
@@ -145,7 +145,8 @@ class Store:
                 u.get("prompt_tokens", 0), u.get("cached_tokens", 0), u.get("completion_tokens", 0), u.get("reasoning_tokens", 0),
                 u.get("total_tokens", 0), cost, 1 if priced else 0, outcome))
 
-    def reserve_spend(self, run_id, provider, model, task, attempt, http_attempt, est, per_run_cap, daily_cap):
+    def reserve_spend(self, run_id, provider, model, task, attempt, http_attempt, est, per_run_cap, daily_cap,
+                      total_cap=None, scope=None):
         """Atomically check caps and insert a 'reserved' row charged at the worst-case estimate.
         BEGIN IMMEDIATE takes SQLite's write lock, so concurrent reservations (threads or processes sharing this DB)
         are serialized: two runs cannot both pass the cap check against the same remaining budget."""
@@ -160,13 +161,17 @@ class Store:
                     reason = f"per-run cap ${per_run_cap} would be exceeded (spent ${run_spent:.4f} + est ${est:.4f})"
                 elif day_spent + est > daily_cap:
                     reason = f"daily cap ${daily_cap} would be exceeded (spent ${day_spent:.4f} + est ${est:.4f})"
+                elif total_cap is not None:
+                    total = self.db.execute("SELECT COALESCE(SUM(cost_usd),0) FROM usage WHERE budget_scope=?", (scope,)).fetchone()[0]
+                    if total + est > total_cap:
+                        reason = f"total cap ${total_cap} for scope {scope!r} would be exceeded (spent ${total:.4f} + est ${est:.4f})"
                 if reason:
                     self.db.execute("ROLLBACK")
                     return None, reason
                 cur = self.db.execute(
-                    "INSERT INTO usage(run_id,ts,day,provider,model,task,attempt,http_attempt,cost_usd,est_usd,priced,outcome)"
-                    " VALUES(?,?,?,?,?,?,?,?,?,?,0,'reserved')",
-                    (run_id, now(), day, provider, model, task, attempt, http_attempt, est, est))
+                    "INSERT INTO usage(run_id,ts,day,provider,model,task,attempt,http_attempt,cost_usd,est_usd,priced,outcome,budget_scope)"
+                    " VALUES(?,?,?,?,?,?,?,?,?,?,0,'reserved',?)",
+                    (run_id, now(), day, provider, model, task, attempt, http_attempt, est, est, scope))
                 self.db.execute("COMMIT")
                 return cur.lastrowid, None
             except BaseException:
@@ -190,6 +195,9 @@ class Store:
         tot["cost_usd"] = round(sum(r["cost_usd"] or 0 for r in rows), 6)
         tot["calls"] = len(rows)
         return {"totals": tot, "calls": rows}
+
+    def scope_spend(self, scope):
+        return self.q("SELECT COALESCE(SUM(cost_usd),0) s FROM usage WHERE budget_scope=?", (scope,))[0]["s"]
 
     def run_spend(self, run_id):
         return self.q("SELECT COALESCE(SUM(cost_usd),0) s FROM usage WHERE run_id=?", (run_id,))[0]["s"]
