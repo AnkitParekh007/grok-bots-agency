@@ -23,7 +23,12 @@ PROPOSED_THRESHOLDS = {
     "repeatability": (">=", 0.80, False),
     "plan_latency_p95_s": ("<=", 90.0, False),
     "contaminated_plans": ("==", 0, True),     # live plan identical to a recorded stub answer
+    "defect_off_runs_incomplete": ("==", 0, True),   # every defect-off run must complete (missing runs count as failures)
 }
+
+# Not gated: heuristic only (see docs/b2/CONTAMINATION_AND_INDEPENDENCE.md)
+NEAR_COPY_THRESHOLD = 0.80
+HARD_GATES = sorted(k for k, v in PROPOSED_THRESHOLDS.items() if v[2])
 
 
 def norm(s):
@@ -79,6 +84,36 @@ def score_plan(plan, gold, oracles_manifest, recorded_plan=None):
         "contaminated": recorded_plan is not None and canon(plan) == canon(recorded_plan),
         "test_signatures": sorted(signature(t) for t in tests),
     }
+
+
+def _tokens(plan):
+    parts = []
+    for t in plan.get("test_cases", []):
+        parts += [t.get("title", ""), t.get("action", ""), " ".join(f"{k} {v}" for k, v in sorted((t.get("params") or {}).items()))]
+    return set(norm(" ".join(parts)).split())
+
+
+def near_copy_similarity(plan, recorded):
+    """HEURISTIC: Jaccard similarity of normalized tokens of scenario titles/actions/params. Exact equality only catches
+    verbatim copies; this flags close paraphrases. It cannot prove independent reasoning and has false positives (good plans
+    for the same story legitimately share vocabulary). Reported, never gated."""
+    a, b = _tokens(plan), _tokens(recorded)
+    return round(len(a & b) / len(a | b), 4) if a | b else 1.0
+
+
+def verdict(agg, thresholds_result, completeness):
+    """PASS only when the evaluation is complete and every threshold is measured and met.
+    completeness: dict with bool 'complete' and list 'missing' (stories, runs, executions, sealed gold...)."""
+    if completeness.get("mode") == "smoke":
+        return "SMOKE/NOT_EVALUABLE"
+    hard_missing = [k for k in HARD_GATES if thresholds_result.get(k, {}).get("pass") is None]
+    if any(v["hard_gate"] and v["pass"] is False for v in thresholds_result.values()):
+        return "FAIL"
+    if not completeness.get("complete") or hard_missing:
+        return "NOT_EVALUABLE"
+    if any(v["pass"] is None for v in thresholds_result.values()):
+        return "NOT_EVALUABLE"
+    return "PASS" if all(v["pass"] for v in thresholds_result.values()) else "FAIL"
 
 
 def signature(t):

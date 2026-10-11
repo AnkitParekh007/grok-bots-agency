@@ -209,3 +209,131 @@ def test_manual_authenticated_approval_unlocks_unattended(tmp_path):
 def test_no_http_route_for_unattended_approval(tmp_path):
     app = create_app(tmp_path)
     assert not any("unattended" in getattr(r, "path", "") for r in app.routes)
+
+
+# ---------------- (1) fail-closed verdicts, (4) defect-on/off denominators ----------------
+import hashlib, importlib.util
+from qa_agent.eval_metrics import verdict, check_thresholds, HARD_GATES, near_copy_similarity, NEAR_COPY_THRESHOLD
+from qa_agent.providers.models import compose_plan_story
+from qa_agent.util import canon
+
+
+def harness():
+    spec = importlib.util.spec_from_file_location("eval_b2", ROOT / "scripts/eval_b2.py")
+    m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m); return m
+
+
+GOOD = {"ac_precision": 1, "ac_recall": 1, "required_coverage": 1, "required_categories_present": 1, "skill_action_correct_rate": 1,
+        "gap_recall": 1, "gap_precision": 1, "injection_flagged_rate": 1, "policy_violations": 0, "schema_valid_first_try_rate": 1,
+        "mean_repairs": 0, "seeded_defect_detection": 1, "false_alarms": 0, "execution_errors": 0, "repeatability": 1,
+        "plan_latency_p95_s": 1, "contaminated_plans": 0, "defect_off_runs_incomplete": 0}
+FULL = {"mode": "full", "complete": True, "missing": []}
+
+
+@pytest.mark.eval
+def test_verdict_pass_only_when_complete_and_measured():
+    assert verdict(GOOD, check_thresholds(GOOD), FULL) == "PASS"
+    for k in HARD_GATES:                                            # any unmeasured hard gate => never PASS
+        g = dict(GOOD); g[k] = None
+        assert verdict(g, check_thresholds(g), FULL) == "NOT_EVALUABLE", k
+    g = dict(GOOD); g["repeatability"] = None                       # unmeasured soft metric => not PASS either
+    assert verdict(g, check_thresholds(g), FULL) == "NOT_EVALUABLE"
+    assert verdict(GOOD, check_thresholds(GOOD), {"mode": "full", "complete": False, "missing": ["x"]}) == "NOT_EVALUABLE"
+    assert verdict(GOOD, check_thresholds(GOOD), {"mode": "smoke", "complete": True, "missing": []}) == "SMOKE/NOT_EVALUABLE"
+    g = dict(GOOD); g["policy_violations"] = 1
+    assert verdict(g, check_thresholds(g), FULL) == "FAIL"
+    g = dict(GOOD); g["ac_recall"] = 0.5
+    assert verdict(g, check_thresholds(g), FULL) == "FAIL"
+
+
+def fake_run(story, phase, planned=True, executed=True, detected=(), failed_tests=(), status="completed", sig=("a",)):
+    q = {"ac_precision": 1.0, "ac_recall": 1.0, "required_coverage": 1.0, "required_categories_present": 1.0, "skill_action_correct_rate": 1.0,
+         "gap_recall": 1.0, "gap_precision": 1.0, "injection_flagged": None, "contaminated": False, "near_copy": None, "test_signatures": list(sig)}
+    if not planned:
+        q = {k: (0.0 if isinstance(v, float) else v) for k, v in q.items()}; q["test_signatures"] = []
+    ex = {"status": status, "detected": list(detected), "failed_tests": list(failed_tests), "execution_errors": 0} if (planned and executed) else None
+    return {"story": story, "phase": phase, "planned": planned, "quality": q, "execution": ex, "policy_violations": 0, "format_errors": 0,
+            "schema_valid_first_try": planned, "latency_s": 0.1, "tokens_total_actual": 0, "cost_usd_actual": 0, "unpriced_calls": 0}
+
+
+@pytest.mark.eval
+def test_failed_and_missing_runs_stay_in_denominators():
+    h = harness()
+    golds = {"PCC-DEMO-5": load_json(ROOT / "fixtures/eval/gold/PCC-DEMO-5.gold.json")}   # 1 must-fail oracle
+    runs = [fake_run("PCC-DEMO-5", "defect_on", detected=["ORC5-ALIAS-5101"]),
+            fake_run("PCC-DEMO-5", "defect_on", planned=False),                   # planning failed
+            fake_run("PCC-DEMO-5", "defect_on", executed=False),                  # no execution result
+            fake_run("PCC-DEMO-5", "defect_off"), fake_run("PCC-DEMO-5", "defect_off", status="failed"),
+            fake_run("PCC-DEMO-5", "defect_off", failed_tests=["TC-01"])]
+    a = h.aggregate(runs, golds, "stub")
+    assert a["seeded_defect_detection"] == round(1 / 3, 4) and a["seeded_defects_expected"] == 3
+    assert a["planning_failures"] == 1 and a["ac_recall"] == round(5 / 6, 4)
+    assert a["defect_off_runs_incomplete"] == 1 and a["false_alarms"] == 1
+    assert verdict(a, check_thresholds(a), FULL) == "FAIL"
+
+
+@pytest.mark.eval
+def test_defect_off_phase_missing_is_not_evaluable():
+    h = harness()
+    golds = {"PCC-DEMO-5": load_json(ROOT / "fixtures/eval/gold/PCC-DEMO-5.gold.json")}
+    a = h.aggregate([fake_run("PCC-DEMO-5", "defect_on", detected=["ORC5-ALIAS-5101"])] * 3, golds, "stub")
+    assert a["false_alarms"] is None and a["defect_off_runs_incomplete"] is None
+    assert verdict(a, check_thresholds(a), FULL) == "NOT_EVALUABLE"
+
+
+@pytest.mark.eval
+@pytest.mark.integration
+def test_without_authorization_full_run_is_not_evaluable(tmp_path, monkeypatch):
+    monkeypatch.setenv("XAI_API_KEY", "stub-not-a-real-key-000000")
+    rc = harness().main(["--provider", "stub", "--out", str(tmp_path), "--runs", "3"])
+    rep = json.loads((tmp_path / "eval_report.json").read_text())
+    assert rc == 3 and rep["mode"] == "full" and rep["verdict"] == "NOT_EVALUABLE"
+    assert any("without execution results" in m and "awaiting human approval" in m for m in rep["completeness"]["missing"])
+    assert all(r["status"] == "awaiting_approval" for r in rep["runs"])          # nothing auto-approved
+
+
+@pytest.mark.eval
+@pytest.mark.integration
+def test_plan_only_is_smoke(tmp_path, monkeypatch):
+    monkeypatch.setenv("XAI_API_KEY", "stub-not-a-real-key-000000")
+    rc = harness().main(["--provider", "stub", "--out", str(tmp_path), "--runs", "3", "--no-execute"])
+    rep = json.loads((tmp_path / "eval_report.json").read_text())
+    assert rc == 3 and rep["verdict"] == "SMOKE/NOT_EVALUABLE" and rep["phases"] == ["plan_only"]
+
+
+# ---------------- (3) held-out story, sealed gold, contamination heuristics ----------------
+@pytest.mark.eval
+def test_held_out_story_has_no_recording_and_no_gold_in_repo():
+    es = load_json(ROOT / "fixtures/eval/eval_set.json")
+    assert es["held_out_stories"] == ["PCC-DEMO-7"] and "PCC-DEMO-7" not in es["required_stories"]
+    assert not (ROOT / "fixtures/replay/PCC-DEMO-7.json").exists()
+    assert not list(ROOT.glob("**/PCC-DEMO-7.gold.json"))
+    assert len(es["sealed_gold"]["PCC-DEMO-7"]["sha256"]) == 64
+    assert (ROOT / "docs/b2/blinded/PCC-DEMO-7.SPEC.md").exists()
+    o = load_json(ROOT / "fixtures/oracles/PCC-DEMO-7.expected.json")
+    assert o["review"]["status"] == "synthetic-pending-qa-lead-approval" and (ROOT / "fixtures/data/supplier_lengths.csv").exists()
+
+
+@pytest.mark.eval
+def test_sealed_gold_hash_verification(tmp_path):
+    h = harness()
+    gold = {"story": "PCC-DEMO-7", "x": 1}
+    es = {"sealed_gold": {"PCC-DEMO-7": {"sha256": hashlib.sha256(canon(gold).encode()).hexdigest()}}}
+    assert h.load_sealed_gold(es, "PCC-DEMO-7", None)[1].startswith("sealed gold not provided")
+    assert "missing" in h.load_sealed_gold(es, "PCC-DEMO-7", tmp_path)[1]
+    (tmp_path / "PCC-DEMO-7.gold.json").write_text(json.dumps(gold))
+    assert h.load_sealed_gold(es, "PCC-DEMO-7", tmp_path) == (gold, None)
+    (tmp_path / "PCC-DEMO-7.gold.json").write_text(json.dumps({**gold, "x": 2}))
+    assert h.load_sealed_gold(es, "PCC-DEMO-7", tmp_path)[1] == "sealed gold hash mismatch"
+
+
+@pytest.mark.eval
+def test_near_copy_heuristic():
+    rec = compose_plan_story(load_json(ROOT / "fixtures/replay/PCC-DEMO-6.json"))
+    assert near_copy_similarity(rec, rec) == 1.0
+    para = copy.deepcopy(rec)
+    for t in para["test_cases"]:
+        t["title"] = t["title"].replace("API:", "Api -")              # light paraphrase defeats exact equality
+    assert canon(para) != canon(rec) and near_copy_similarity(para, rec) >= NEAR_COPY_THRESHOLD
+    other = compose_plan_story(load_json(ROOT / "fixtures/replay/PCC-DEMO-3.json"))
+    assert near_copy_similarity(other, rec) < NEAR_COPY_THRESHOLD

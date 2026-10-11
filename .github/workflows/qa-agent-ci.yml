@@ -38,7 +38,8 @@ jobs:
       - name: B2 eval harness self-test (local STUB only, not real model reasoning)
         if: always()
         run: |
-          python scripts/eval_b2.py --provider stub --runs 2 --out reports/eval
+          python scripts/eval_b2.py --provider stub --out reports/eval \
+            --authorization fixtures/eval/authorizations/stub-selftest.json
           cat reports/eval/eval_report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Category coverage check (each category has tests)
         if: always()

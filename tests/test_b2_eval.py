@@ -163,17 +163,18 @@ def test_harness_grok_fails_closed_with_default_config(tmp_path, monkeypatch):
     rc = load_harness().main(["--provider", "grok", "--confirm-live-approved", "--out", str(tmp_path), "--runs", "1",
                               "--stories", "PCC-DEMO-5"])
     rep = json.loads((tmp_path / "eval_report.json").read_text())
-    assert rc == 2 and rep["verdict"].startswith("NOT RUN") and "not enabled" in rep["error"]
+    assert rc == 2 and rep["verdict"] == "NOT_EVALUABLE" and "not enabled" in rep["error"]
 
 
 @pytest.mark.integration
-def test_harness_stub_self_test(tmp_path, monkeypatch):
+def test_harness_stub_subset_is_smoke_never_pass(tmp_path, monkeypatch):
     monkeypatch.setenv("XAI_API_KEY", "stub-not-a-real-key-000000")
-    rc = load_harness().main(["--provider", "stub", "--out", str(tmp_path), "--runs", "2", "--stories", "PCC-DEMO-5,PCC-DEMO-6"])
+    rc = load_harness().main(["--provider", "stub", "--out", str(tmp_path), "--runs", "1", "--stories", "PCC-DEMO-5,PCC-DEMO-6",
+                              "--authorization", str(ROOT / "fixtures/eval/authorizations/stub-selftest.json")])
     rep = json.loads((tmp_path / "eval_report.json").read_text())
-    assert rc == 0 and rep["verdict"] == "PASS" and "NOT real model reasoning" in rep["banner"]
+    assert rc == 3 and rep["verdict"] == "SMOKE/NOT_EVALUABLE" and rep["mode"] == "smoke" and "NOT real model reasoning" in rep["banner"]
+    assert any("required story PCC-DEMO-2 not run" in m for m in rep["completeness"]["missing"])
     a = rep["aggregate"]
-    assert a["policy_violations"] == 0 and a["seeded_defect_detection"] == 1.0 and a["false_alarms"] == 0 and a["repeatability"] == 1.0
-    assert a["unpriced_calls"] == 0 and a["tokens_total_actual"] > 0
+    assert a["policy_violations"] == 0 and a["seeded_defect_detection"] == 1.0 and a["false_alarms"] == 0 and a["defect_off_runs_incomplete"] == 0
     assert all("STUB ENDPOINT" in l for l in rep["model_labels"])
     assert (tmp_path / "eval_report.md").read_text().startswith("# B2 plan-quality evaluation")
