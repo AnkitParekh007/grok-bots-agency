@@ -1,0 +1,23 @@
+{
+  "key": "PCC-DEMO-7",
+  "_provenance": "SYNTHETIC Jira-shaped fixture (B2 HELD-OUT story). Written from docs/b2/blinded/PCC-DEMO-7.SPEC.md. No stub recording exists; gold annotation is sealed outside the repo (sha256 in eval_set.json).",
+  "fields": {
+    "summary": "Length normalisation to millimetres",
+    "issuetype": {
+      "name": "Story"
+    },
+    "project": {
+      "key": "PCC"
+    },
+    "status": {
+      "name": "Ready for QA"
+    },
+    "labels": [
+      "synthetic",
+      "b2-eval",
+      "held-out",
+      "untestable-requirement"
+    ],
+    "description": "As a catalogue manager I want supplier lengths stored in millimetres regardless of the unit the supplier used.\n\nAcceptance criteria:\n1. Lengths supplied in inches are converted to millimetres using 25.4 mm per inch.\n2. Lengths supplied in centimetres are converted to millimetres.\n3. Rows whose length unit is metres (\"m\") are rejected with error code UNIT_UNKNOWN.\n4. The product list page displays the number of imported products.\n5. Converted lengths are displayed using the viewer's locale-specific decimal separator."
+  }
+}
