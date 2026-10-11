@@ -38,3 +38,7 @@ def ui_import_and_count(t, p):
 
 ACTIONS = {"api_import": ("api", api_import), "ui_import_error": ("browser", ui_import_error),
            "ui_import_and_count": ("browser", ui_import_and_count)}
+
+# Allowlisted parameters per action (the model may only fill these, from these value domains).
+PARAMS = {"api_import": {"file": {"kind": "fixture_file"}}, "ui_import_error": {"file": {"kind": "fixture_file"}},
+          "ui_import_and_count": {"file": {"kind": "fixture_file"}}}

@@ -1,3 +1,4 @@
+import pytest
 import copy, json
 import jsonschema, pytest
 from qa_agent import ROOT
@@ -5,6 +6,8 @@ from qa_agent.providers.models import ReplayModelProvider, GrokProvider, Provide
 from qa_agent.runtime import QAAgent, PlanInvalid
 from qa_agent.schemas import AC_SCHEMA, PLAN_SCHEMA
 from qa_agent.util import load_json
+
+pytestmark = [pytest.mark.provider, pytest.mark.planning]
 
 
 def test_replay_outputs_validate():

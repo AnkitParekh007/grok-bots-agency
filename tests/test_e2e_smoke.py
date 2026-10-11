@@ -5,6 +5,8 @@ from fastapi.testclient import TestClient
 from qa_agent.server import create_app
 from qa_agent.util import sha256
 
+pytestmark = [pytest.mark.integration, pytest.mark.execution, pytest.mark.approval]
+
 PROMPT = "Read the synthetic supplier import story, generate test cases, execute the approved tests, and give me the results."
 
 

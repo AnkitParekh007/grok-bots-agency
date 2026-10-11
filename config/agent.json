@@ -1,20 +1,63 @@
 {
-  "_comment": "Model choice is configuration, never code. Override provider with env QA_MODEL_PROVIDER.",
-  "model": {"provider": "replay"},
+  "_comment": "Model choice is configuration, never code. Override provider with env QA_MODEL_PROVIDER. No automatic fallback between providers.",
+  "model": {
+    "provider": "replay"
+  },
   "providers": {
-    "replay": {"replay_dir": "fixtures/replay", "label": "REPLAYED (mock model)"},
+    "replay": {
+      "replay_dir": "fixtures/replay",
+      "label": "REPLAYED (mock model)"
+    },
     "grok": {
+      "_comment": "xAI Chat Completions (OpenAI-compatible) POST {base_url}/chat/completions with response_format json_schema strict. Disabled until Milestone B2 approval. Prices MUST be entered from the xAI console/models page (USD per 1M tokens); null => refuses to run.",
       "enabled": false,
       "approved": false,
       "approval_ref": null,
-      "model": "grok-4",
+      "model": "grok-4.7",
       "base_url": "https://api.x.ai/v1",
       "api_key_env": "XAI_API_KEY",
-      "allowed_data_classes": ["synthetic"]
+      "allowed_data_classes": [
+        "synthetic"
+      ],
+      "timeout_s": 60,
+      "max_retries": 3,
+      "backoff_base_s": 1.0,
+      "max_backoff_s": 30,
+      "max_completion_tokens": 8000,
+      "pricing": {
+        "input_per_mtok_usd": null,
+        "cached_input_per_mtok_usd": null,
+        "output_per_mtok_usd": null
+      },
+      "_egress_comment": "Approved external model hosts live in config/policy.json tools.model.request.approved_hosts (separate from this base_url). Non-loopback endpoints must use https."
     }
   },
-  "issue_tracker": {"provider": "mock_jira", "fixtures_dir": "fixtures/jira"},
+  "issue_tracker": {
+    "provider": "mock_jira",
+    "fixtures_dir": "fixtures/jira"
+  },
   "oracles_dir": "fixtures/oracles",
   "fixture_data_dir": "fixtures/data",
-  "default_environment": "synthetic-local"
+  "default_environment": "synthetic-local",
+  "budget": {
+    "per_run_usd": 10.0,
+    "daily_usd": 150.0
+  },
+  "repair": {
+    "max_format_repairs": 2
+  },
+  "execution": {
+    "action_timeout_ms": 15000,
+    "navigation_timeout_ms": 15000,
+    "api_timeout_ms": 15000
+  },
+  "auth": {
+    "mode": "demo",
+    "users_file": "data/users.json",
+    "forbid_self_approval": true,
+    "_comment": "demo = unauthenticated approver label (local demo only). local = hashed bearer tokens from users_file with roles viewer/requester/approver. Neither is SSO."
+  },
+  "plan": {
+    "ttl_minutes": 60
+  }
 }

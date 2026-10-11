@@ -16,16 +16,23 @@ table{border-collapse:collapse;width:100%;margin:8px 0}td,th{border:1px solid #d
 button{padding:6px 12px;cursor:pointer}#approve{background:#2a8a3e;color:#fff;border:0}#reject{background:#c0392b;color:#fff;border:0}
 .user{background:#e6eefc;padding:8px;border-radius:6px;margin:6px 0}
 </style></head><body>
-<div id="side"><b>Bluemeteor QA Agent</b><div style="font-size:12px;color:#666">Milestone A · local · synthetic</div>
-<div id="cfg" style="margin:8px 0;font-size:12px"></div><b>History</b><div id="runs"></div></div>
+<div id="side"><b>Bluemeteor QA Agent</b><div style="font-size:12px;color:#666">Milestone B1 · local · synthetic</div>
+<div id="cfg" style="margin:8px 0;font-size:12px"></div><div id="auth" style="margin:8px 0;font-size:12px"></div><b>History</b><div id="runs"></div></div>
 <div id="main"><div id="chat"><p style="color:#666">Ask, e.g.: <i>Read the synthetic supplier import story, generate test cases, execute the approved tests, and give me the results.</i></p></div>
 <div id="bar"><select id="env"></select><input id="msg" placeholder="Message the QA agent"><button id="send">Send</button></div></div>
 <script>
-let current = null, timer = null;
+let current = null, timer = null, plan_hash = null;
 const $ = s => document.querySelector(s), esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 async function j(u, o) { const r = await fetch(u, o); if (!r.ok) throw new Error(await r.text()); return r.json(); }
+async function loadAuth() { const me = await (await fetch('/api/me')).json().catch(() => ({}));
+  if (me.mode === 'local' && !me.authenticated) { $('#auth').innerHTML = `<b>Sign in</b><br><input id="tok" type="password" placeholder="local token" style="width:100%"><button id="login" onclick="login()">Sign in</button>`; return false; }
+  $('#auth').innerHTML = me.mode === 'demo' ? '<span class="lbl" style="background:#f9c">DEMO MODE: approver identity NOT authenticated</span>'
+    : `Signed in: <b>${esc(me.user)}</b> (${esc(me.role)}) <a href="#" onclick="logout()">sign out</a>`; return true; }
+async function login() { const r = await fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({token: $('#tok').value})});
+  if (!r.ok) { alert('invalid token'); return; } boot(); }
+async function logout() { await fetch('/api/logout', {method:'POST'}); location.reload(); }
 async function loadCfg() { const c = await j('/api/config');
-  $('#cfg').innerHTML = `Model: <span class="lbl">${esc(c.model_label)}</span><br>Skills: ${c.skills.map(s => esc(s.name)).join(', ')}`;
+  $('#cfg').innerHTML = `Model: <span class="lbl">${esc(c.model_label)}</span><br>Skills: ${c.skills.map(s => esc(s.name)).join(', ')}<br>Budget: $${c.budget.per_run_usd}/run, $${c.budget.daily_usd}/day`;
   $('#env').innerHTML = c.environments.map(e => `<option>${esc(e)}</option>`).join(''); }
 async function loadRuns() { const rs = await j('/api/runs');
   $('#runs').innerHTML = rs.map(r => `<div class="run ${r.id === current ? 'sel' : ''}" onclick="show('${r.id}')">${esc(r.story_key || '?')} · <b>${esc(r.status)}</b><br><small>${esc(r.created.slice(0,19))} · ${esc(r.id)}</small></div>`).join(''); }
@@ -33,25 +40,31 @@ async function show(id) { current = id; clearInterval(timer); await render(); ti
 async function render() {
   if (!current) return; const r = await j('/api/runs/' + current); const base = '/api/runs/' + current;
   let h = `<div class="user">${esc(r.request)}</div><div class="card"><b>Run ${esc(r.id)}</b> · status <b id="status">${esc(r.status)}</b> · env ${esc(r.environment)} · <span class="lbl">${esc(r.model_label)}</span>
+   ${['planning','awaiting_approval','executing'].includes(r.status) ? `<button id="cancel" onclick="cancelRun()">Cancel run</button>` : ''}
+   <div>Model usage: ${r.usage.calls} call(s), ${r.usage.total_tokens} tokens, $${r.usage.cost_usd.toFixed(6)}</div>
    <div id="events">${r.events.map(e => `<div class="ev">${esc(e.ts.slice(11,19))} [${esc(e.step)}] ${esc(e.message)}</div>`).join('')}</div></div>`;
   if (r.ac_json) h += `<div class="card"><b>Acceptance criteria</b> <span class="lbl">${esc(r.model_label)}</span><table>${r.ac_json.acceptance_criteria.map(a => `<tr><td>${a.id}</td><td>${esc(a.text)}</td><td><i>"${esc(a.source_quote)}"</i></td></tr>`).join('')}</table></div>`;
-  if (r.plan_json) { h += `<div class="card" id="plan"><b>Proposed test plan</b> <span class="lbl">${esc(r.model_label)}</span> <small>sha256 ${esc(r.plan_hash.slice(0,16))}</small><table><tr><th>ID</th><th>Title</th><th>Type</th><th>Skill</th><th>AC</th><th>Oracle</th></tr>
-    ${r.plan_json.test_cases.map(t => `<tr><td>${t.id}</td><td>${esc(t.title)}</td><td>${t.type}</td><td>${esc(t.skill)}</td><td>${t.ac_refs.join(',')}</td><td>${esc(t.oracle_ref)}</td></tr>`).join('')}</table>`;
-    if (r.status === 'awaiting_approval') h += `Approver: <input id="who" value="ankit.parekh"> <button id="approve" onclick="decide('approved')">Approve &amp; execute</button> <button id="reject" onclick="decide('rejected')">Reject</button>`;
-    else if (r.approval) h += `<div>Plan <b>${esc(r.approval.decision)}</b> by ${esc(r.approval.approver)} at ${esc(r.approval.ts)}</div>`;
+  if (r.planning_json) { const u = r.planning_json.understanding; h += `<div class="card"><b>Understanding</b> <span class="lbl">${esc(r.model_label)}</span><div>${esc(u.summary)}</div>${u.assumptions.length ? '<small>Assumptions: ' + u.assumptions.map(esc).join('; ') + '</small>' : ''}
+    <div id="gaps"><b>Coverage gaps</b><ul>${r.planning_json.coverage_gaps.map(g => `<li>${esc(g.ac_refs.join(',') || '-')} [${esc(g.kind)}] ${esc(g.reason)}</li>`).join('') || '<li>none</li>'}</ul></div></div>`; }
+  if (r.plan_json) { plan_hash = r.plan_hash; h += `<div class="card" id="plan"><b>Proposed test plan</b> <span class="lbl">${esc(r.model_label)}</span> <small>sha256 ${esc(r.plan_hash.slice(0,16))}</small><table><tr><th>ID</th><th>Title</th><th>Type</th><th>Category</th><th>Skill</th><th>AC</th><th>Oracle</th></tr>
+    ${r.plan_json.test_cases.map(t => `<tr><td>${t.id}</td><td>${esc(t.title)}</td><td>${t.type}</td><td>${esc(t.category || '')}</td><td>${esc(t.skill)}</td><td>${t.ac_refs.join(',')}</td><td>${esc(t.oracle_ref)}</td></tr>`).join('')}</table>`;
+    if (r.status === 'awaiting_approval') h += `Approver label: <input id="who" value="ankit.parekh"> <button id="approve" onclick="decide('approved')">Approve &amp; execute</button> <button id="reject" onclick="decide('rejected')">Reject</button>`;
+    else if (r.approval) h += `<div>Plan <b>${esc(r.approval.decision)}</b> by ${esc(r.approval.approver)} (${r.approval.identity ? 'authenticated' : 'UNAUTHENTICATED demo label'}) at ${esc(r.approval.ts)}</div>`;
     h += `</div>`; }
-  if (r.results.length) h += `<div class="card" id="results"><b>Results</b>${r.summary_json ? ` — ${r.summary_json.passed} passed, ${r.summary_json.failed} failed, ${r.summary_json.error} error, ${r.summary_json.blocked} blocked` : ' (running…)'}
+  if (r.results.length) h += `<div class="card" id="results"><b>Results</b>${r.summary_json ? ` — ${r.summary_json.passed} passed, ${r.summary_json.failed} failed, ${r.summary_json.error} error, ${r.summary_json.blocked} blocked` : ' (running…)'}${r.summary_json ? '' : ''}
     <table><tr><th>ID</th><th>Test</th><th>Status</th><th>Mismatch / error</th><th>Evidence</th></tr>${r.results.map(x => `<tr><td>${x.id}</td><td>${esc(x.title)}</td><td><span class="badge ${x.status}">${x.status}</span></td>
     <td>${x.diffs.length ? x.diffs.map(d => `${esc(d.field)}: expected ${esc(JSON.stringify(d.expected))}, got ${esc(JSON.stringify(d.actual))}`).join('<br>') : esc(x.error || '')}</td>
-    <td>${x.screenshot ? `<a href="${base}/artifacts/${x.screenshot}" target=_blank><img src="${base}/artifacts/${x.screenshot}" width=120></a>` : ''} <a href="${base}/artifacts/${x.trace}">trace</a> <a href="${base}/artifacts/${x.log}" target=_blank>log</a></td></tr>`).join('')}</table></div>`;
-  if (r.status === 'completed') h += `<div class="card" id="links"><a id="report-link" href="${base}/report.html" target=_blank>Report (HTML)</a> · <a href="${base}/report.json">Report (JSON)</a> · <a href="${base}/audit.jsonl" target=_blank>Audit log (${r.audit_count})</a></div>`;
+    <td>${x.screenshot ? `<a href="${base}/artifacts/${x.screenshot}" target=_blank><img src="${base}/artifacts/${x.screenshot}" width=120></a>` : ''} ${x.trace ? `<a href="${base}/artifacts/${x.trace}">trace</a>` : ''} ${x.log ? `<a href="${base}/artifacts/${x.log}" target=_blank>log</a>` : ''}</td></tr>`).join('')}</table></div>`;
+  if (['completed','cancelled'].includes(r.status) && r.summary_json) h += `<div class="card" id="links"><a id="report-link" href="${base}/report.html" target=_blank>Report (HTML)</a> · <a href="${base}/report.json">Report (JSON)</a> · <a href="${base}/audit.jsonl" target=_blank>Audit log (${r.audit_count})</a></div>`;
   if (r.error) h += `<div class="card" style="color:#c0392b">Error: ${esc(r.error)}</div>`;
   $('#chat').innerHTML = h; loadRuns();
-  if (['completed','failed','rejected','blocked','interrupted'].includes(r.status)) clearInterval(timer);
+  if (['completed','failed','rejected','blocked','interrupted','cancelled'].includes(r.status)) clearInterval(timer);
 }
-async function decide(d) { await j(`/api/runs/${current}/approval`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({approver: $('#who').value, decision: d})}); show(current); }
+async function cancelRun() { await j(`/api/runs/${current}/cancel`, {method:'POST'}); render(); }
+async function decide(d) { try { await j(`/api/runs/${current}/approval`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({approver: $('#who').value, decision: d, plan_hash})}); } catch (e) { alert(e.message); } show(current); }
 $('#send').onclick = async () => { const m = $('#msg').value.trim(); if (!m) return; $('#msg').value = '';
   const r = await j('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message: m, environment: $('#env').value})}); show(r.run_id); };
 $('#msg').onkeydown = e => { if (e.key === 'Enter') $('#send').click(); };
-loadCfg(); loadRuns();
+async function boot() { if (await loadAuth()) { loadCfg(); loadRuns(); } }
+boot();
 </script></body></html>

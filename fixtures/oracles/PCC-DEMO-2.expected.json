@@ -1,0 +1,59 @@
+{
+  "story": "PCC-DEMO-2",
+  "_provenance": "Reviewer-style expected-results manifest (SYNTHETIC). Hand-derived from the story AC and fixtures/data/attribute_dictionary.json; NOT derived from application code.",
+  "source": "attribute_dictionary.json@synthetic-0.1 + PCC-DEMO-2 AC1-AC2",
+  "review": {
+    "status": "synthetic-pending-qa-lead-approval",
+    "reviewer": null,
+    "approved_at": null
+  },
+  "oracles": {
+    "ORC2-GRAM": {
+      "ac": [
+        "AC1"
+      ],
+      "actions": [
+        "api_product_after_import"
+      ],
+      "expected": {
+        "sku": "SKU-3002",
+        "weight_kg": 0.008
+      },
+      "tolerance": 0.001,
+      "description": "gram weight of SKU-3002 normalised to kg",
+      "derivation": "8 g x 0.001 = 0.008 kg"
+    },
+    "ORC2-LB": {
+      "ac": [
+        "AC1"
+      ],
+      "actions": [
+        "api_product_after_import"
+      ],
+      "expected": {
+        "sku": "SKU-1001",
+        "weight_kg": 2.268
+      },
+      "tolerance": 0.001,
+      "description": "pound weight of SKU-1001 normalised to kg",
+      "derivation": "5 lb x 0.45359237 = 2.268 kg"
+    },
+    "ORC2-UNKNOWN-UNIT": {
+      "ac": [
+        "AC2"
+      ],
+      "actions": [
+        "api_import"
+      ],
+      "expected": {
+        "imported": 1,
+        "rejected": 1,
+        "error_codes": [
+          "UNIT_UNKNOWN"
+        ]
+      },
+      "description": "row with unit 'm' rejected as UNIT_UNKNOWN",
+      "derivation": "'m' not in dictionary length units"
+    }
+  }
+}

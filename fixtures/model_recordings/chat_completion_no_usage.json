@@ -1,0 +1,18 @@
+{
+  "id": "rec-0001",
+  "object": "chat.completion",
+  "created": 1760100000,
+  "model": "grok-4.7",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "__CONTENT__",
+        "refusal": null
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "system_fingerprint": "fp_recorded_shape"
+}

@@ -17,7 +17,6 @@ jobs:
     timeout-minutes: 30
     env:
       PYTHONUNBUFFERED: "1"
-      QA_MODEL_PROVIDER: replay   # offline only; no model keys exist in CI
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -31,11 +30,19 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           python -m playwright install --with-deps chromium
-      - name: Unit and security tests
-        run: python -m pytest -q --ignore=tests/test_e2e_smoke.py $(ls tests/test_b1_stub_e2e.py 2>/dev/null | sed 's/^/--ignore=/') --junitxml=reports/unit.xml
-      - name: Integration tests (real Playwright against synthetic SUT, local stub)
+      - name: Unit, planning, provider, cost and security tests (no servers)
+        run: python -m pytest -q -m "not integration" --junitxml=reports/unit.xml
+      - name: Integration tests (real Chromium vs synthetic SUT, local model stub on 127.0.0.1)
         if: always()
-        run: python -m pytest -q tests/test_e2e_smoke.py $(ls tests/test_b1_stub_e2e.py 2>/dev/null) --junitxml=reports/integration.xml
+        run: python -m pytest -q -m integration --junitxml=reports/integration.xml
+      - name: Category coverage check (each category has tests)
+        if: always()
+        run: |
+          for m in provider planning approval execution audit cost security; do
+            n=$(python -m pytest -q --collect-only -m "$m" | grep -c "::" || true)
+            echo "$m: $n tests" | tee -a "$GITHUB_STEP_SUMMARY"
+            test "$n" -gt 0
+          done
       - name: Smoke demo (headless UI, replay model)
         if: always()
         run: python scripts/demo_and_screenshots.py

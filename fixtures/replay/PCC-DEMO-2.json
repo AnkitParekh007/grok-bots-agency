@@ -1,0 +1,131 @@
+{
+  "_provenance": "STUB/REPLAY recording (hand-authored, Milestone B1). NOT produced by a live model. Served by ReplayModelProvider and by the local OpenAI-compatible stub.",
+  "story": "PCC-DEMO-2",
+  "responses": {
+    "plan_story": {
+      "understanding": {
+        "summary": "STUB/REPLAY (not model reasoning): weight normalisation to kg and rejection of unknown units; ETIM classification requested but no skill/oracle exists.",
+        "domain": "supplier import / units of measure",
+        "assumptions": [
+          "'m' is not a dictionary length unit (synthetic-0.1)"
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "text": "lb and g weights normalised to kg, 3 decimals",
+          "source_quote": "Weights supplied in lb or g are converted to kilograms"
+        },
+        {
+          "id": "AC2",
+          "text": "unknown units rejected with UNIT_UNKNOWN, not imported",
+          "source_quote": "rejected with error code UNIT_UNKNOWN"
+        },
+        {
+          "id": "AC3",
+          "text": "ETIM class assigned from supplier category",
+          "source_quote": "assigned an ETIM class based on the supplier category column"
+        }
+      ],
+      "behaviors": [
+        {
+          "id": "B-1",
+          "ac_refs": [
+            "AC1"
+          ],
+          "description": "gram weight normalised",
+          "testable": true
+        },
+        {
+          "id": "B-2",
+          "ac_refs": [
+            "AC1"
+          ],
+          "description": "pound weight normalised",
+          "testable": true
+        },
+        {
+          "id": "B-3",
+          "ac_refs": [
+            "AC2"
+          ],
+          "description": "unknown unit row rejected",
+          "testable": true
+        },
+        {
+          "id": "B-4",
+          "ac_refs": [
+            "AC3"
+          ],
+          "description": "ETIM class assignment",
+          "testable": false
+        }
+      ],
+      "selected_skills": [
+        "attribute_mapping_validation",
+        "pim_import_testing"
+      ],
+      "test_cases": [
+        {
+          "id": "TC-01",
+          "title": "API: gram weight normalised to kg (SKU-3002)",
+          "type": "api",
+          "category": "positive",
+          "behavior_ref": "B-1",
+          "skill": "attribute_mapping_validation",
+          "action": "api_product_after_import",
+          "params": {
+            "file": "supplier_unknown_unit.csv",
+            "sku": "SKU-3002"
+          },
+          "ac_refs": [
+            "AC1"
+          ],
+          "oracle_ref": "ORC2-GRAM"
+        },
+        {
+          "id": "TC-02",
+          "title": "API: pound weight normalised to kg (SKU-1001)",
+          "type": "api",
+          "category": "positive",
+          "behavior_ref": "B-2",
+          "skill": "attribute_mapping_validation",
+          "action": "api_product_after_import",
+          "params": {
+            "file": "supplier_valid.csv",
+            "sku": "SKU-1001"
+          },
+          "ac_refs": [
+            "AC1"
+          ],
+          "oracle_ref": "ORC2-LB"
+        },
+        {
+          "id": "TC-03",
+          "title": "API: unknown unit row rejected with UNIT_UNKNOWN",
+          "type": "api",
+          "category": "negative",
+          "behavior_ref": "B-3",
+          "skill": "pim_import_testing",
+          "action": "api_import",
+          "params": {
+            "file": "supplier_unknown_unit.csv"
+          },
+          "ac_refs": [
+            "AC2"
+          ],
+          "oracle_ref": "ORC2-UNKNOWN-UNIT"
+        }
+      ],
+      "coverage_gaps": [
+        {
+          "ac_refs": [
+            "AC3"
+          ],
+          "kind": "no_skill_action",
+          "reason": "No registered skill action or approved oracle for ETIM classification; needs an ETIM skill and reviewer-approved class mapping."
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "_provenance": "STUB/REPLAY recording (hand-authored, Milestone B1). NOT produced by a live model. Served by ReplayModelProvider and by the local OpenAI-compatible stub.",
+  "story": "PCC-DEMO-4",
+  "responses": {
+    "plan_story": {
+      "understanding": {
+        "summary": "STUB/REPLAY (not model reasoning): header-only file edge case and UI count; file size limit not testable with current fixtures/oracles.",
+        "domain": "supplier import",
+        "assumptions": []
+      },
+      "acceptance_criteria": [
+        {
+          "id": "AC1",
+          "text": "header-only file imports nothing, 0/0 reported",
+          "source_quote": "contains only the header row imports nothing"
+        },
+        {
+          "id": "AC2",
+          "text": "product list shows 0",
+          "source_quote": "The product list page then shows 0 products."
+        },
+        {
+          "id": "AC3",
+          "text": "files over 10 MB rejected",
+          "source_quote": "Files larger than 10 MB are rejected before processing."
+        }
+      ],
+      "behaviors": [
+        {
+          "id": "B-1",
+          "ac_refs": [
+            "AC1"
+          ],
+          "description": "empty import via API",
+          "testable": true
+        },
+        {
+          "id": "B-2",
+          "ac_refs": [
+            "AC2"
+          ],
+          "description": "UI count after empty import",
+          "testable": true
+        },
+        {
+          "id": "B-3",
+          "ac_refs": [
+            "AC3"
+          ],
+          "description": "size limit",
+          "testable": false
+        }
+      ],
+      "selected_skills": [
+        "pim_import_testing"
+      ],
+      "test_cases": [
+        {
+          "id": "TC-01",
+          "title": "API: header-only CSV reports 0 imported / 0 rejected",
+          "type": "api",
+          "category": "edge",
+          "behavior_ref": "B-1",
+          "skill": "pim_import_testing",
+          "action": "api_import",
+          "params": {
+            "file": "supplier_header_only.csv"
+          },
+          "ac_refs": [
+            "AC1"
+          ],
+          "oracle_ref": "ORC4-EMPTY"
+        },
+        {
+          "id": "TC-02",
+          "title": "Browser: product list shows 0 after header-only upload",
+          "type": "browser",
+          "category": "edge",
+          "behavior_ref": "B-2",
+          "skill": "pim_import_testing",
+          "action": "ui_import_and_count",
+          "params": {
+            "file": "supplier_header_only.csv"
+          },
+          "ac_refs": [
+            "AC2"
+          ],
+          "oracle_ref": "ORC4-UI-ZERO"
+        }
+      ],
+      "coverage_gaps": [
+        {
+          "ac_refs": [
+            "AC3"
+          ],
+          "kind": "no_approved_oracle",
+          "reason": "No >10 MB fixture and no approved oracle for the size-limit error; requires reviewer input."
+        }
+      ]
+    }
+  }
+}

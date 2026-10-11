@@ -1,5 +1,5 @@
 import html, json
-from .util import canon, now, sha256
+from .util import canon, now, sha256, redact
 
 
 def write_report(agent, run_id):
@@ -13,16 +13,22 @@ def write_report(agent, run_id):
                   "note": "Test plan and AC extraction were REPLAYED from a recording; no live LLM was called." if run["model_provider"] == "replay" else ""},
         "oracle_source": agent._oracles(run["story_key"]).get("source"),
         "oracle_review": agent._oracles(run["story_key"]).get("review"),
-        "plan_hash": run["plan_hash"],
+        "plan_hash": run["plan_hash"], "catalog_version": run.get("catalog_version"),
         "approval": agent.approvals.latest(run_id),
         "acceptance_criteria": run["ac_json"]["acceptance_criteria"],
         "summary": run["summary_json"], "results": results,
-        "per_ac": {a["id"]: ("failed" if any(r["status"] != "passed" for r in results if a["id"] in r["ac_refs"]) else "passed")
-                   for a in run["ac_json"]["acceptance_criteria"]},
+        "per_ac": {a["id"]: ac_verdict([r for r in results if a["id"] in r["ac_refs"]]) for a in run["ac_json"]["acceptance_criteria"]},
+        "not_run": sum(r["status"] == "not_run" for r in results),
+        "run_status_at_report": "cancelled" if agent.is_cancelled(run_id) else run["status"],
+        "coverage_gaps": (run.get("planning_json") or {}).get("coverage_gaps", []),
+        "understanding": (run.get("planning_json") or {}).get("understanding"),
+        "usage": agent.store.run_usage(run_id)["totals"],
+        "approval_identity_note": "authenticated local identity" if (agent.approvals.latest(run_id) or {}).get("identity")
+                                  else "UNAUTHENTICATED demo approver label (local demo mode)",
         "audit_entries": len(audit), "audit_denied": sum(a["decision"] == "deny" for a in audit),
     }
     rep["artifacts"] = agent.artifacts.manifest(run_id)
-    body = json.dumps(rep, indent=2, default=str)
+    body = redact(json.dumps(rep, indent=2, default=str))
     digest = sha256(body)
     agent.artifacts.write_bytes(run_id, "report.json", body.encode())
     agent.artifacts.write_bytes(run_id, "report.json.sha256", f"{digest}  report.json\n".encode())
@@ -32,7 +38,7 @@ def write_report(agent, run_id):
         f"<td><b>{r['status'].upper()}</b></td><td><pre>{e(json.dumps(r['expected']))}</pre></td><td><pre>{e(json.dumps(r['actual']))}</pre></td>"
         f"<td>{e(json.dumps(r['diffs']) if r['diffs'] else (r['error'] or ''))}</td>"
         f"<td>{'<a href=\"artifacts/'+r['screenshot']+'\"><img src=\"artifacts/'+r['screenshot']+'\" width=160></a>' if r.get('screenshot') else ''}"
-        f"<br><a href='artifacts/{r['trace']}'>trace</a> · <a href='artifacts/{r['log']}'>log</a></td></tr>" for r in results)
+        f"{evidence_links(r)}</td></tr>" for r in results)
     acs = "".join(f"<tr><td>{a['id']}</td><td>{e(a['text'])}</td><td><i>{e(a['source_quote'])}</i></td><td>{rep['per_ac'][a['id']].upper()}</td></tr>"
                   for a in rep["acceptance_criteria"])
     s = rep["summary"]
@@ -47,7 +53,26 @@ tr.failed td,tr.error td{{background:#fde8e8}} tr.passed td{{background:#e8f8ec}
 <h2>Summary: {s['passed']} passed / {s['failed']} failed / {s['error']} error / {s['blocked']} blocked of {s['total']}</h2>
 <h3>Acceptance criteria traceability</h3><table><tr><th>AC</th><th>Interpretation</th><th>Story quote</th><th>Verdict</th></tr>{acs}</table>
 <h3>Test results</h3><table><tr><th>ID</th><th>Test</th><th>AC</th><th>Status</th><th>Expected (oracle)</th><th>Actual</th><th>Mismatch</th><th>Evidence</th></tr>{rows}</table>
+<h3>Coverage gaps (not tested)</h3><ul>{''.join(f"<li>{e(','.join(g['ac_refs']) or '-')} [{e(g['kind'])}] {e(g['reason'])}</li>" for g in rep['coverage_gaps']) or '<li>none</li>'}</ul>
+<p>Approver identity: {e(rep['approval_identity_note'])}</p>
+<p>Model usage: {rep['usage']['calls']} call(s), {rep['usage']['total_tokens']} tokens, cost ${rep['usage']['cost_usd']:.6f} (replay/mock = $0)</p>
+<p>Not run (cancelled): {rep['not_run']}</p>
 <p>Audit: {rep['audit_entries']} tool calls logged ({rep['audit_denied']} denied) — <a href="audit.jsonl">audit.jsonl</a></p>
 <p>report.json sha256: <code>{digest}</code></p></body></html>"""
-    agent.artifacts.write_bytes(run_id, "report.html", doc.encode())
+    agent.artifacts.write_bytes(run_id, "report.html", redact(doc).encode())
     return {"sha256": digest}
+
+
+def ac_verdict(rs):
+    if not rs:
+        return "untested (coverage gap)"
+    st = {r["status"] for r in rs}
+    for v in ("failed", "error", "blocked", "not_run"):
+        if v in st:
+            return v
+    return "passed"
+
+
+def evidence_links(r):
+    out = [f"<a href='artifacts/{r[k]}'>{k}</a>" for k in ("trace", "log") if r.get(k)]
+    return "<br>" + " · ".join(out) if out else ""

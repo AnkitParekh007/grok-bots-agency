@@ -5,6 +5,8 @@ from qa_agent.gateway import PolicyDenied
 from qa_agent.environments import EnvironmentRefused
 from qa_agent import ROOT
 
+pytestmark = [pytest.mark.security, pytest.mark.audit]
+
 ENV = {"name": "synthetic-local", "base_url": "http://127.0.0.1:8601", "allowed_hosts": ["127.0.0.1", "localhost"]}
 
 

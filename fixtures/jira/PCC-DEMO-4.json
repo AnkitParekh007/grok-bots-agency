@@ -1,0 +1,22 @@
+{
+  "key": "PCC-DEMO-4",
+  "_provenance": "SYNTHETIC Jira-shaped fixture (Milestone B1). Not a real PCC story.",
+  "fields": {
+    "summary": "Edge cases: header-only supplier file and file size limit",
+    "issuetype": {
+      "name": "Story"
+    },
+    "project": {
+      "key": "PCC"
+    },
+    "status": {
+      "name": "Ready for QA"
+    },
+    "labels": [
+      "synthetic",
+      "supplier-import",
+      "edge-cases"
+    ],
+    "description": "As a catalogue manager I want empty supplier files handled cleanly.\n\nAcceptance criteria:\n1. Uploading a supplier CSV that contains only the header row imports nothing and reports 0 imported and 0 rejected rows.\n2. The product list page then shows 0 products.\n3. Files larger than 10 MB are rejected before processing."
+  }
+}
