@@ -164,7 +164,7 @@ def test_egress_to_api_x_ai_blocked_unless_approved(agent, key):
     row = agent.store.audit_rows("r-egress")[-1]
     assert row["tool"] == "model.request" and row["decision"] == "deny"
     p.base_url = "https://evil.example/v1"
-    with pytest.raises(PolicyDenied, match="not in approved model hosts"):
+    with pytest.raises(PolicyDenied, match="not in policy approved_hosts"):
         p.generate("plan_story", CTX, {}, run_id="r-egress")
     # with the approved flag + approval_ref the same host is allowed (MockTransport => still no real network)
     s2 = Script(("json", 200, ok_body()))

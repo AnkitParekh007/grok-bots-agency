@@ -16,9 +16,6 @@
       "model": "grok-4.7",
       "base_url": "https://api.x.ai/v1",
       "api_key_env": "XAI_API_KEY",
-      "approved_model_hosts": [
-        "api.x.ai"
-      ],
       "allowed_data_classes": [
         "synthetic"
       ],
@@ -31,7 +28,8 @@
         "input_per_mtok_usd": null,
         "cached_input_per_mtok_usd": null,
         "output_per_mtok_usd": null
-      }
+      },
+      "_egress_comment": "Approved external model hosts live in config/policy.json tools.model.request.approved_hosts (separate from this base_url). Non-loopback endpoints must use https."
     }
   },
   "issue_tracker": {

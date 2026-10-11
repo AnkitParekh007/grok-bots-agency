@@ -152,6 +152,8 @@ class GrokProvider(ModelProvider):
             raise ProviderNotApproved(f"grok provider not approved for external endpoint {host} (missing: {missing})")
         if not self.model or not self.base_url:
             raise ProviderConfigError("grok provider requires model and base_url")
+        if not self.is_local_stub and urlparse(self.base_url).scheme != "https":
+            raise ProviderConfigError(f"grok base_url must use https for non-loopback host {host}")
         self.key_env = cfg.get("api_key_env", "XAI_API_KEY")
         register_secret_env(self.key_env)
         if not os.environ.get(self.key_env):
@@ -168,7 +170,6 @@ class GrokProvider(ModelProvider):
         self.rng = random.Random()
         self.max_completion_tokens = int(cfg.get("max_completion_tokens", 8000))
         self.allowed_data_classes = list(cfg.get("allowed_data_classes", []))
-        self.approved_hosts = list(cfg.get("approved_model_hosts", ["api.x.ai"]))
         self.label = (f"STUB ENDPOINT ({self.model} via local OpenAI-compatible stub at {host}; NOT real model reasoning)"
                       if self.is_local_stub else f"LIVE MODEL ({self.model} via {host})")
 
@@ -215,7 +216,7 @@ class GrokProvider(ModelProvider):
             raise ProviderNotApproved("grok provider has no tool gateway bound; refusing unaudited egress")
         url = f"{self.base_url}/chat/completions"
         body = self.build_body(task, context, schema, repair_feedback)
-        ctx = {"provider_approved": self.provider_approved, "approved_model_hosts": self.approved_hosts}
+        ctx = {"provider_approved": self.provider_approved}   # host allowlist comes from policy.json, not this config
         cids = []
         for attempt in range(self.max_retries + 1):
             cid = f"{run_id or 'norun'}-{uuid.uuid4().hex[:12]}"

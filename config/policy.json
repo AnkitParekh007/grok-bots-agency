@@ -44,7 +44,11 @@
     },
     "model.request": {
       "requires_approval": false,
-      "network": "model_egress"
+      "network": "model_egress",
+      "approved_hosts": [
+        "api.x.ai"
+      ],
+      "require_https": true
     }
   }
 }

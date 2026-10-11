@@ -53,13 +53,17 @@ class ToolGateway:
             if not env or not url or not self.envs.is_url_allowed(env, url):
                 return f"url not allowed for environment: {url}"
         if rule.get("network") == "model_egress":
-            # Loopback (local stub) is allowed; any external model host must be explicitly listed AND the provider approved.
-            host = urlparse(args.get("url", "")).hostname or ""
+            # Loopback (local stub) is allowed; any external model host must use https, be listed in the POLICY file
+            # (not the provider config that also sets base_url) AND the provider must be approved.
+            u = urlparse(args.get("url", ""))
+            host = u.hostname or ""
             from .environments import _is_loopback
             if not _is_loopback(host):
-                approved_hosts = (ctx or {}).get("approved_model_hosts") or []
+                if rule.get("require_https", True) and u.scheme != "https":
+                    return f"model egress to {host} denied: non-loopback model endpoints must use https (got {u.scheme or 'none'})"
+                approved_hosts = rule.get("approved_hosts") or []
                 if host not in approved_hosts:
-                    return f"model egress to {host} not in approved model hosts"
+                    return f"model egress to {host} not in policy approved_hosts"
                 if (ctx or {}).get("provider_approved") is not True:
                     return f"model egress to {host} denied: provider not approved (approved flag + approval_ref required)"
         if "methods" in rule and args.get("method", "GET").upper() not in rule["methods"]:
