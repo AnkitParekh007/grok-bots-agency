@@ -13,8 +13,8 @@ Status: **DRAFT, awaiting sign-off.** The proposed numbers below are **not** an 
   - In `--provider grok` mode the harness refuses loopback/stub endpoints and counts any plan identical to a recorded answer as a hard-gate failure.
 - **Out of scope:** production or customer environments, Jira/Git integrations, and any write to external systems.
 - **Approval modes** (enforced in the runtime, see `qa_agent/eval_authorization.py`):
-  1. **Manual (default and unchanged).** The **first live-generated plan** must be reviewed and approved by an authenticated approver (`QA_AUTH_MODE=local`) in the workspace UI. This is required for the `LIVE MODEL` class whatever the authorization file says.
-  2. **Unattended (synthetic eval only).** This needs `unattended_eval_approval.enabled=true` plus a signed authorization file (template `UNATTENDED_EVAL_AUTHORIZATION.template.json`). The file lists approval_ref, approver identity, allowlisted stories, environment, skills, actions, max_runs, model classes and expiry. Uses are counted atomically, every decision is audited (`plan.approve_unattended`), and there is no HTTP route for it.
+  1. **Manual (default and unchanged).** The **first live-generated plan** is planned by the harness, persisted (run id + exact plan hash in `reports/eval/eval_state.json` and the DB), and the harness exits `PAUSED/AWAITING_FIRST_PLAN_APPROVAL`. An authenticated approver (local auth, not the requester) approves or rejects that exact plan hash with `python -m qa_agent.eval_authorization review` (token from `QA_TOKEN`). Re-running the harness resumes only after it verifies a manual, authenticated approval of the unchanged plan; rejection or an altered plan ends as `NOT_EVALUABLE`. The harness never approves the first plan itself, and the state survives restarts. This is always required for the `LIVE MODEL` class.
+  2. **Unattended (synthetic eval only).** This needs `unattended_eval_approval.enabled=true` plus a **server-side eval grant** created by an authenticated approver (`POST /api/eval-grants` in local auth mode, or `python -m qa_agent.eval_authorization create`). The creator identity comes from the auth session; identity fields in the request are ignored. A grant is bound to stories, environment, skills, actions and model classes, and has an expiry and a use limit. Uses are counted atomically, approvers can revoke a grant at any time, and creation, use, denial and revocation are all audited. Edited rows (hash mismatch) and rows without an audited creation are rejected. The earlier unsigned JSON authorization file has been **removed**; there is no file-based path.
 
 ## 2. Data classification
 | Item | Classification | Notes |
@@ -63,7 +63,7 @@ Our prompts are about 2.5k tokens, far below the 200k long-context threshold.
 
 **Configured ceilings** (`config/agent.json`):
 - `max_completion_tokens` = 8,000
-- `max_retries` = 3, so up to 4 HTTP attempts per model call
+- `max_retries` = 3 globally (unchanged), so up to 4 HTTP attempts per model call. The eval harness applies `config/eval_profile.json` (`max_retries: 1`, eval only). The reviewer recommends this only **after** pricing and reasoning limits and the external spend backstop are verified; it does not replace those approvals.
 - `repair.max_format_repairs` = 2, so up to 3 model calls per run
 
 **Worst case per HTTP attempt.** The prompt is taken as 4,000 tokens (measured about 2.4k, plus margin for the schema):
@@ -96,9 +96,9 @@ The repo config now defaults to $1 / $15 / $15 with scope `b2-live-eval-1`. A bi
 ## 8. Run plan
 1. Dry run on the stub: `python scripts/eval_b2.py --provider stub --runs 3` (CI already runs this).
 2. **Smoke (plan only, live):** `--provider grok --confirm-live-approved --stories PCC-DEMO-5 --runs 1 --no-execute`. The verdict is always `SMOKE/NOT_EVALUABLE`. Check the audit, usage and cost rows.
-3. **First manual approval:** start the workspace with `QA_AUTH_MODE=local QA_DATA_DIR=reports/eval/data` and plan one story. An authenticated approver reviews the plan and approves it in the UI.
-4. **Full evaluation (live):**
-   - Command: `--provider grok --confirm-live-approved --authorization <signed file> --sealed-gold-dir <custody dir>`.
+3. **First-plan handoff (live):** `--provider grok --confirm-live-approved --out reports/eval` plans the first plan and exits 4 (paused). The approver reviews it and runs `review ... --decision approved|rejected`, then creates the grant (`max_uses` ≥ 35).
+4. **Full evaluation (live, resume):**
+   - Command: `--provider grok --confirm-live-approved --out reports/eval --grant <grant_id> --sealed-gold-dir <custody dir>`.
    - This is 36 runs: a defect-ON phase (`SUT_DEFECTS=all`) and a defect-OFF phase (no defects).
    - **PASS requires** every required story, at least 3 runs, execution results for every run in both phases, the verified sealed gold, and every threshold measured and met.
    - Anything incomplete is `NOT_EVALUABLE`; any hard-gate or threshold miss is `FAIL`.
@@ -133,3 +133,8 @@ There are no other systems to roll back: no deployment, no CI secret, no externa
 | Legal / data protection (D1–D6) | | | |
 | QA lead (oracles + gold annotations, thresholds) | | | |
 | xAI account admin (org account, key, spend limit, ZDR decision) | | | |
+
+## Sealed holdout custody (PCC-DEMO-7)
+- The sealed gold stays at `/workspace/bluemeteor-sealed/` only (directory mode 0700, file 0600). It is not tracked in git (a test checks this) and is not referenced by CI, so CI cannot read it. It never goes into GitHub, CI logs or model prompts.
+- Handover: only to a **named QA lead / evaluator** (name: ______), through an approved private channel (name: ______), and only at scoring time. The sha256 in `fixtures/eval/eval_set.json` is verified when scoring.
+- **Prerequisites for a final (non-provisional) verdict:** a human-authored blinded story with its own sealed gold (`CONTAMINATION_AND_INDEPENDENCE.md`), and QA-lead approval of all oracles and gold annotations. Until both exist, any live PASS is provisional.

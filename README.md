@@ -135,7 +135,9 @@ With `all`, the expected result is 3 passed / 5 failed (TC-02, TC-05, TC-06, TC-
 - **PR #2 review changes:**
   - **Verdicts fail closed:** PASS / FAIL / NOT_EVALUABLE / SMOKE.
   - **Defect phases:** the harness runs a defect-ON and a defect-OFF phase, and failed or missing runs stay in every denominator.
-  - **Unattended approval** is scoped, runtime-enforced and audited (`qa_agent/eval_authorization.py`), and the first live plan is always approved manually.
+  - **First-plan handoff:** the harness pauses after the first plan (`PAUSED/AWAITING_FIRST_PLAN_APPROVAL`). It resumes only after an authenticated approver approves that exact plan hash (`python -m qa_agent.eval_authorization review`), and the state survives restarts.
+  - **Unattended approval** uses server-side eval grants created by authenticated approvers (`POST /api/eval-grants` or the CLI). Grants are scoped, expiring, use-limited, revocable and audited. The unsigned JSON file path has been removed.
+  - **Eval-only profile:** `config/eval_profile.json` sets `max_retries=1` for the harness only; the global default is unchanged.
   - **Held-out story:** PCC-DEMO-7, with gold sealed outside the repo.
   - **Contamination limits:** see `docs/b2/CONTAMINATION_AND_INDEPENDENCE.md`.
   - **Spend cap:** a persistent total cap (`budget.total_usd` per `budget.scope`).

@@ -20,9 +20,10 @@ Do these in order. Stop at any unchecked item. Nothing in this repo enables Grok
   - `approval_ref: "<sign-off reference>"`
   - `model: "grok-4.7"` (or the approved model)
   - `pricing`: input 2.00, cached 0.50, output 6.00 USD per 1M tokens, or the current verified price
-- [ ] `budget`: `per_run_usd: 1.0`, `daily_usd: 15.0`, `total_usd: 15.0`, `scope: "b2-live-eval-1"` (repo defaults). `providers.grok.max_retries: 1` is recommended.
-- [ ] `unattended_eval_approval.enabled: true` **only** once the authorization file is signed. Fill `docs/b2/UNATTENDED_EVAL_AUTHORIZATION.template.json` with ref, identity, expiry and `max_runs` ≥ 36, and store it outside the repo.
-- [ ] Sealed gold for PCC-DEMO-7 has been handed over from custody, and its hash matches `eval_set.json`.
+- [ ] `budget`: `per_run_usd: 1.0`, `daily_usd: 15.0`, `total_usd: 15.0`, `scope: "b2-live-eval-1"` (repo defaults). Leave the global `providers.grok.max_retries` at 3. The harness applies `config/eval_profile.json` (`max_retries: 1`, eval only), and only after pricing/reasoning limits and the external spend backstop are verified.
+- [ ] `unattended_eval_approval.enabled: true` only after sign-off. The grant is created later, by an authenticated approver, after the first-plan review (see Run).
+- [ ] Sealed gold for PCC-DEMO-7 has been handed to the named QA lead through the approved private channel (never GitHub, CI or a model), and its hash matches `eval_set.json`.
+- [ ] A human-authored blinded story and QA-lead oracle/gold approval are in place. Without them the verdict is provisional.
 - [ ] `config/policy.json` → `tools.model.request.approved_hosts == ["api.x.ai"]` and `require_https: true`.
 - [ ] `export XAI_API_KEY=...` in the shell that runs the harness only. Never put it in files, CI or chat.
 - [ ] `python -m pytest -q` is green and `python scripts/eval_b2.py --provider stub --runs 1` passes.
@@ -31,8 +32,10 @@ Do these in order. Stop at any unchecked item. Nothing in this repo enables Grok
 - [ ] Smoke: `python scripts/eval_b2.py --provider grok --confirm-live-approved --stories PCC-DEMO-5 --runs 1 --no-execute`.
   - The report shows `LIVE MODEL` in the model labels, `unpriced_calls: 0`, and cost > 0 from actual usage.
   - The audit has `model.request` rows with correlation IDs to `api.x.ai`.
-- [ ] First live plan approved manually: workspace in `QA_AUTH_MODE=local` with `QA_DATA_DIR=reports/eval/data`, approved by an authenticated approver.
-- [ ] Full: `python scripts/eval_b2.py --provider grok --confirm-live-approved --authorization <file> --sealed-gold-dir <dir>`. Only `PASS` counts; `NOT_EVALUABLE` means the evaluation is incomplete.
+- [ ] First plan: `python scripts/eval_b2.py --provider grok --confirm-live-approved --out reports/eval` exits 4 (`PAUSED/AWAITING_FIRST_PLAN_APPROVAL`) and prints the run id and plan hash.
+- [ ] The approver reviews the plan (report, or the UI with `QA_DATA_DIR=reports/eval/data`), then runs `QA_TOKEN=<token> python -m qa_agent.eval_authorization review --data-dir reports/eval/data --users-file <users.json> --run <id> --plan-hash <hash> --decision approved|rejected`.
+- [ ] The approver creates the grant: `QA_TOKEN=<token> python -m qa_agent.eval_authorization create --data-dir reports/eval/data --users-file <users.json> --spec <spec.json>` (stories, environment, skills, actions, `model_classes: ["LIVE MODEL"]`, `max_uses` ≥ 35, `expires_at`). Revoke with `revoke --grant <id>`.
+- [ ] Full (resume): `python scripts/eval_b2.py --provider grok --confirm-live-approved --out reports/eval --grant <grant_id> --sealed-gold-dir <dir>`. Only `PASS` counts; `NOT_EVALUABLE` means the evaluation is incomplete.
 - [ ] Independent reviewer spot checks are done (`INDEPENDENT_REVIEW_TEMPLATE.md`).
 - [ ] Check the stop conditions (approval doc §8) and archive `reports/eval/` and the audit export.
 
