@@ -17,9 +17,9 @@ button{padding:6px 12px;cursor:pointer}#approve{background:#2a8a3e;color:#fff;bo
 .user{background:#e6eefc;padding:8px;border-radius:6px;margin:6px 0}
 </style></head><body>
 <div id="side"><b>Bluemeteor QA Agent</b><div style="font-size:12px;color:#666">Milestone B1 · local · synthetic</div>
-<div id="cfg" style="margin:8px 0;font-size:12px"></div><div id="auth" style="margin:8px 0;font-size:12px"></div><b>History</b><div id="runs"></div></div>
+<div id="cfg" style="margin:8px 0;font-size:12px"></div><div id="envs" style="margin:8px 0;font-size:12px"></div><div id="auth" style="margin:8px 0;font-size:12px"></div><b>History</b><div id="runs"></div></div>
 <div id="main"><div id="chat"><p style="color:#666">Ask, e.g.: <i>Read the synthetic supplier import story, generate test cases, execute the approved tests, and give me the results.</i></p></div>
-<div id="bar"><select id="env"></select><input id="msg" placeholder="Message the QA agent"><button id="send">Send</button></div></div>
+<div id="bar"><select id="proj" title="Project"><option value="">(no project: demo)</option></select><select id="story" title="Story"><option value="">(story from message)</option></select><select id="repo" title="Repository (read-only)"><option value="">(no repository)</option></select><select id="env"></select><input id="msg" placeholder="Message the QA agent"><button id="send">Send</button></div></div>
 <script>
 let current = null, timer = null, plan_hash = null;
 const $ = s => document.querySelector(s), esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -33,13 +33,18 @@ async function login() { const r = await fetch('/api/login', {method:'POST', hea
 async function logout() { await fetch('/api/logout', {method:'POST'}); location.reload(); }
 async function loadCfg() { const c = await j('/api/config');
   $('#cfg').innerHTML = `Model: <span class="lbl">${esc(c.model_label)}</span><br>Skills: ${c.skills.map(s => esc(s.name)).join(', ')}<br>Budget: $${c.budget.per_run_usd}/run, $${c.budget.daily_usd}/day`;
-  $('#env').innerHTML = c.environments.map(e => `<option>${esc(e)}</option>`).join(''); }
+  $('#env').innerHTML = c.environments.map(e => `<option>${esc(e)}</option>`).join('');
+  const envs = await j('/api/environments'); $('#envs').innerHTML = '<b>Environments</b><br>' + envs.map(e => `${esc(e.name)}: <span class="badge ${e.executable ? 'passed' : 'blocked'}">${e.executable ? 'executable' : esc(e.status)}</span>`).join('<br>');
+  const ps = await j('/api/projects'); $('#proj').innerHTML = '<option value="">(no project: demo)</option>' + ps.map(p => `<option value="${esc(p.key)}">${esc(p.key)} · ${esc(p.name)}</option>`).join(''); }
+$('#proj').onchange = async () => { const p = $('#proj').value; $('#story').innerHTML = '<option value="">(story from message)</option>'; $('#repo').innerHTML = '<option value="">(no repository)</option>'; if (!p) return;
+  const ss = await j(`/api/projects/${encodeURIComponent(p)}/stories`); $('#story').innerHTML += ss.map(s => `<option value="${esc(s.key)}">${esc(s.key)} · ${esc(s.summary.slice(0,40))}</option>`).join('');
+  const rs = await j(`/api/projects/${encodeURIComponent(p)}/repositories`); $('#repo').innerHTML += rs.map(r => `<option>${esc(r.full_name)}</option>`).join(''); };
 async function loadRuns() { const rs = await j('/api/runs');
   $('#runs').innerHTML = rs.map(r => `<div class="run ${r.id === current ? 'sel' : ''}" onclick="show('${r.id}')">${esc(r.story_key || '?')} · <b>${esc(r.status)}</b><br><small>${esc(r.created.slice(0,19))} · ${esc(r.id)}</small></div>`).join(''); }
 async function show(id) { current = id; clearInterval(timer); await render(); timer = setInterval(render, 1000); }
 async function render() {
   if (!current) return; const r = await j('/api/runs/' + current); const base = '/api/runs/' + current;
-  let h = `<div class="user">${esc(r.request)}</div><div class="card"><b>Run ${esc(r.id)}</b> · status <b id="status">${esc(r.status)}</b> · env ${esc(r.environment)} · <span class="lbl">${esc(r.model_label)}</span>
+  let h = `<div class="user">${esc(r.request)}</div><div class="card"><b>Run ${esc(r.id)}</b> · status <b id="status">${esc(r.status)}</b> · env ${esc(r.environment)}${r.project ? ` · project ${esc(r.project)}` : ''}${r.repository ? ` · repo ${esc(r.repository)} (read-only)` : ''} · <span class="lbl">${esc(r.model_label)}</span>
    ${['planning','awaiting_approval','executing'].includes(r.status) ? `<button id="cancel" onclick="cancelRun()">Cancel run</button>` : ''}
    <div>Model usage: ${r.usage.calls} call(s), ${r.usage.total_tokens} tokens, $${r.usage.cost_usd.toFixed(6)}</div>
    <div id="events">${r.events.map(e => `<div class="ev">${esc(e.ts.slice(11,19))} [${esc(e.step)}] ${esc(e.message)}</div>`).join('')}</div></div>`;
@@ -63,7 +68,7 @@ async function render() {
 async function cancelRun() { await j(`/api/runs/${current}/cancel`, {method:'POST'}); render(); }
 async function decide(d) { try { await j(`/api/runs/${current}/approval`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({approver: $('#who').value, decision: d, plan_hash})}); } catch (e) { alert(e.message); } show(current); }
 $('#send').onclick = async () => { const m = $('#msg').value.trim(); if (!m) return; $('#msg').value = '';
-  const r = await j('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message: m, environment: $('#env').value})}); show(r.run_id); };
+  const r = await j('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message: m, environment: $('#env').value, project: $('#proj').value || null, story_key: $('#story').value || null, repository: $('#repo').value || null})}); show(r.run_id); };
 $('#msg').onkeydown = e => { if (e.key === 'Enter') $('#send').click(); };
 async function boot() { if (await loadAuth()) { loadCfg(); loadRuns(); } }
 boot();

@@ -19,6 +19,9 @@ from .store import verify_chain
 class ChatIn(BaseModel):
     message: str
     environment: str | None = None
+    project: str | None = None
+    story_key: str | None = None
+    repository: str | None = None
 
 
 class ApprovalIn(BaseModel):
@@ -111,11 +114,73 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
     @app.get("/api/config")
     def config(p: Principal = Depends(need("viewer"))):
         return {"model_label": agent.model.label, "model_provider": agent.model.name, "auth_mode": mode,
-                "environments": list(agent.envs.envs), "skills": agent.skills.list(), "budget": agent.budget}
+                "environments": [e["name"] for e in agent.envs.list_environments() if e["executable"]], "skills": agent.skills.list(), "budget": agent.budget}
 
     @app.post("/api/chat")
     def chat(body: ChatIn, p: Principal = Depends(need("requester"))):
-        return {"run_id": agent.start_run(body.message, body.environment, requested_by=p.name)}
+        try:
+            if body.project or body.repository:
+                agent.select(body.project, body.story_key, body.repository, body.environment)
+        except ValueError as e:
+            agent.gateway.record(None, "workspace.select", {"user": p.name, "project": body.project, "repository": body.repository}, "deny", str(e))
+            raise HTTPException(400, str(e))
+        return {"run_id": agent.start_run(body.message, body.environment, story_key=body.story_key, requested_by=p.name,
+                                          project=body.project, repository=body.repository)}
+
+    # ---- workspace selection (read-only providers, every call goes through the audited gateway) ----
+    from .integrations.http import IntegrationError
+
+    def _project(project):
+        pc = agent.projects.get(project)
+        if not pc:
+            raise HTTPException(404, "project not found")
+        return pc
+
+    def _read(tool, args, fn):
+        try:
+            return agent.gateway.invoke(None, tool, args, fn)
+        except IntegrationError as e:
+            raise HTTPException(502 if e.status is None else (403 if e.status in (401, 403) else 502), str(e))
+        except (KeyError, ValueError) as e:
+            raise HTTPException(404 if isinstance(e, KeyError) else 400, str(e).strip("'\""))
+
+    @app.get("/api/projects")
+    def projects(p: Principal = Depends(need("viewer"))):
+        return [{"key": k, "name": v.get("name"), "jira_project": v["jira_project"], "repositories": v.get("repositories", []),
+                 "environments": v.get("environments", []), "tracker": getattr(agent.tracker, "kind", None),
+                 "git": getattr(agent.git, "kind", None)} for k, v in agent.projects.items()]
+
+    @app.get("/api/projects/{project}/stories")
+    def stories(project: str, q: str | None = None, p: Principal = Depends(need("viewer"))):
+        jp = _project(project)["jira_project"]
+        return _read("tracker.search", {"project": jp, "text": q}, lambda: agent.tracker.search_issues(jp, q, 50))
+
+    @app.get("/api/projects/{project}/stories/{key}")
+    def story(project: str, key: str, p: Principal = Depends(need("viewer"))):
+        jp = _project(project)["jira_project"]
+        if not key.startswith(jp + "-"):
+            raise HTTPException(400, f"story {key} is not in project {jp}")
+        issue = _read("tracker.get_issue", {"key": key}, lambda: agent.tracker.get_issue(key))
+        return {"key": key, "summary": issue["fields"]["summary"], "labels": issue["fields"].get("labels", []),
+                "acceptance_criteria": _read("tracker.acceptance_criteria", {"key": key}, lambda: agent.tracker.acceptance_criteria(key)),
+                "comments": _read("tracker.get_comments", {"key": key}, lambda: agent.tracker.get_comments(key)),
+                "attachments": _read("tracker.list_attachments", {"key": key}, lambda: agent.tracker.list_attachments(key))}
+
+    @app.get("/api/projects/{project}/repositories")
+    def repositories(project: str, p: Principal = Depends(need("viewer"))):
+        allowed = set(_project(project).get("repositories", []))
+        return [r for r in _read("git.list_repos", {}, agent.git.list_repositories) if r["full_name"] in allowed]
+
+    @app.get("/api/projects/{project}/repositories/{owner}/{slug}/context")
+    def repository_context(project: str, owner: str, slug: str, p: Principal = Depends(need("viewer"))):
+        repo = f"{owner}/{slug}"
+        if repo not in _project(project).get("repositories", []):
+            raise HTTPException(404, "repository not linked to project")
+        return _read("git.repo_context", {"repo": repo}, lambda: agent.git.repo_context(repo))
+
+    @app.get("/api/environments")
+    def environments(p: Principal = Depends(need("viewer"))):
+        return _read("env.list", {}, agent.envs.list_environments)
 
     @app.get("/api/runs")
     def runs(p: Principal = Depends(need("viewer"))):
