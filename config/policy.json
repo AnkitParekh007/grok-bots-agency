@@ -1,5 +1,5 @@
 {
-  "_comment": "Default-deny tool policy. Any tool not listed here is denied and audited. requires_approval=true tools only run after a human approved the exact plan hash.",
+  "_comment": "Default-deny tool policy. Any tool not listed here is denied and audited. requires_approval=true tools only run after a human approved the exact plan hash. Integrations (tracker.*/git.*/integration.http) are read-only: no write tools exist and integration.http allows GET only.",
   "default": "deny",
   "tools": {
     "tracker.get_issue": {
@@ -49,6 +49,61 @@
         "api.x.ai"
       ],
       "require_https": true
+    },
+    "tracker.search": {
+      "requires_approval": false,
+      "read_only": true
+    },
+    "tracker.get_comments": {
+      "requires_approval": false,
+      "read_only": true
+    },
+    "tracker.list_attachments": {
+      "requires_approval": false,
+      "read_only": true
+    },
+    "tracker.get_attachment": {
+      "requires_approval": false,
+      "read_only": true
+    },
+    "tracker.acceptance_criteria": {
+      "requires_approval": false,
+      "read_only": true
+    },
+    "git.list_repos": {
+      "requires_approval": false,
+      "read_only": true
+    },
+    "git.get_repo": {
+      "requires_approval": false,
+      "read_only": true
+    },
+    "git.read_file": {
+      "requires_approval": false,
+      "read_only": true
+    },
+    "git.list_dir": {
+      "requires_approval": false,
+      "read_only": true
+    },
+    "git.search_code": {
+      "requires_approval": false,
+      "read_only": true
+    },
+    "git.repo_context": {
+      "requires_approval": false,
+      "read_only": true
+    },
+    "env.list": {
+      "requires_approval": false,
+      "read_only": true
+    },
+    "integration.http": {
+      "requires_approval": false,
+      "read_only": true,
+      "methods": [
+        "GET"
+      ]
     }
   }
 }

@@ -9,16 +9,51 @@ from typing import Any
 
 
 class IssueTrackerProvider(ABC):
+    """READ-ONLY. Implementations: MockJiraProvider (fixtures), JiraCloudProvider, JiraDataCenterProvider.
+    Write operations (add_comment / create_issue / transition) are intentionally absent."""
     @abstractmethod
     def get_issue(self, key: str) -> dict: ...
-    # Milestone C+: add_comment / create_issue (approval-gated, BL-140) - intentionally absent.
+
+    @abstractmethod
+    def acceptance_criteria(self, key: str) -> list[dict]: ...
+
+    @abstractmethod
+    def get_comments(self, key: str) -> list[dict]: ...
+
+    @abstractmethod
+    def list_attachments(self, key: str) -> list[dict]: ...
+
+    @abstractmethod
+    def get_attachment(self, key: str, attachment_id: str) -> dict: ...
+
+    @abstractmethod
+    def search_issues(self, project: str, text: str | None = None, max_results: int = 50) -> list[dict]:
+        """Project-scoped search only; raw JQL is never accepted from callers."""
 
 
 class GitProvider(ABC):
-    """Interface stub only. No consumer in Milestone A; no implementation shipped.
-    Milestone C: BitbucketReadProvider (Cloud or DC REST, read-only, scoped repos)."""
+    """READ-ONLY repository access. Implementations: SyntheticGitProvider (fixtures), BitbucketCloudProvider,
+    BitbucketDataCenterProvider. No clone, push, branch or PR operations."""
+    @abstractmethod
+    def list_repositories(self) -> list[dict]: ...
+
+    @abstractmethod
+    def get_repository(self, repo: str) -> dict: ...
+
     @abstractmethod
     def read_file(self, repo: str, path: str, ref: str = "main") -> str: ...
+
+    @abstractmethod
+    def list_dir(self, repo: str, path: str = "", ref: str = "main") -> list[dict]: ...
+
+    @abstractmethod
+    def supports_code_search(self) -> bool: ...
+
+    @abstractmethod
+    def search_code(self, repo: str, query: str, max_results: int = 25) -> list[dict]: ...
+
+    @abstractmethod
+    def repo_context(self, repo: str, ref: str | None = None) -> dict: ...
 
 
 class ModelProvider(ABC):
@@ -41,6 +76,10 @@ class EnvironmentProvider(ABC):
 
     @abstractmethod
     def is_url_allowed(self, env: dict, url: str) -> bool: ...
+
+    @abstractmethod
+    def list_environments(self) -> list[dict]:
+        """Every registered environment with its verification status and whether it is executable."""
 
 
 class SkillRegistry(ABC):

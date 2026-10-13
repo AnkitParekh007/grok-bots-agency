@@ -25,6 +25,8 @@ _SECRET_PATTERNS = [
     _re.compile(r"xai-[A-Za-z0-9_\-]{8,}"),
     _re.compile(r"sk-[A-Za-z0-9_\-]{16,}"),
     _re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._\-]{8,}"),
+    _re.compile(r"""(?i)(authorization["']?\s*[:=]\s*["']?basic\s+)[A-Za-z0-9+/=]{8,}"""),
+    _re.compile(r"ATATT[A-Za-z0-9_\-=]{8,}"),
 ]
 
 
@@ -32,6 +34,15 @@ def register_secret_env(name: str):
     """Register an env var whose *value* must never appear in logs, events, reports or API responses."""
     if name:
         _SECRET_ENV_NAMES.add(name)
+
+
+_SECRET_VALUES: set = set()
+
+
+def register_secret_value(value: str):
+    """Register a derived secret (e.g. a basic-auth blob) that must never appear in output."""
+    if value and len(value) >= 6:
+        _SECRET_VALUES.add(value)
 
 
 def redact(text):
@@ -42,6 +53,8 @@ def redact(text):
         v = _os.environ.get(n)
         if v and len(v) >= 6:
             s = s.replace(v, "[REDACTED]")
+    for v in _SECRET_VALUES:
+        s = s.replace(v, "[REDACTED]")
     for p in _SECRET_PATTERNS:
         s = p.sub(lambda m: (m.group(1) if m.groups() else "") + "[REDACTED]", s)
     return s

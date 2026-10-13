@@ -34,7 +34,8 @@
   },
   "issue_tracker": {
     "provider": "mock_jira",
-    "fixtures_dir": "fixtures/jira"
+    "fixtures_dir": "fixtures/jira",
+    "_comment": "provider: mock_jira (default, synthetic fixtures) | jira_cloud | jira_dc. Real providers need integrations.<name> enabled+approved+credentials+https allowlisted host."
   },
   "oracles_dir": "fixtures/oracles",
   "fixture_data_dir": "fixtures/data",
@@ -66,5 +67,113 @@
   "unattended_eval_approval": {
     "_comment": "Synthetic-eval harness only. Requires a server-side eval grant created by an authenticated approver (POST /api/eval-grants or python -m qa_agent.eval_authorization create). Normal approvals are unaffected.",
     "enabled": false
+  },
+  "git": {
+    "provider": "synthetic_git",
+    "repos_dir": "fixtures/repos",
+    "_comment": "provider: synthetic_git (default, fixtures/repos) | bitbucket_cloud | bitbucket_dc (read-only REST, never clones)."
+  },
+  "integrations": {
+    "_comment": "ALL DISABLED. Fill in only after Bluemeteor grants read-only service accounts. Credentials are env var NAMES, never values.",
+    "jira_cloud": {
+      "_comment": "Jira Cloud REST v3 (https://<site>.atlassian.net). auth basic = account email + API token.",
+      "enabled": false,
+      "approved": false,
+      "approval_ref": null,
+      "base_url": null,
+      "allowed_hosts": [],
+      "auth": {
+        "type": "basic",
+        "user_env": null,
+        "token_env": null
+      },
+      "timeout_s": 15,
+      "max_retries": 2,
+      "backoff_base_s": 0.5,
+      "max_backoff_s": 10,
+      "page_size": 50,
+      "max_pages": 10,
+      "projects": [],
+      "acceptance_criteria_field": null,
+      "max_attachment_bytes": 1000000
+    },
+    "jira_dc": {
+      "_comment": "Jira Data Center REST v2. auth bearer = personal access token.",
+      "enabled": false,
+      "approved": false,
+      "approval_ref": null,
+      "base_url": null,
+      "allowed_hosts": [],
+      "auth": {
+        "type": "bearer",
+        "token_env": null
+      },
+      "timeout_s": 15,
+      "max_retries": 2,
+      "backoff_base_s": 0.5,
+      "max_backoff_s": 10,
+      "page_size": 50,
+      "max_pages": 10,
+      "projects": [],
+      "acceptance_criteria_field": null,
+      "max_attachment_bytes": 1000000
+    },
+    "bitbucket_cloud": {
+      "_comment": "Bitbucket Cloud REST 2.0 (https://api.bitbucket.org/). repositories: WORKSPACE/slug. auth bearer = repository/workspace access token (read scopes).",
+      "enabled": false,
+      "approved": false,
+      "approval_ref": null,
+      "base_url": null,
+      "allowed_hosts": [],
+      "auth": {
+        "type": "bearer",
+        "token_env": null
+      },
+      "timeout_s": 15,
+      "max_retries": 2,
+      "backoff_base_s": 0.5,
+      "max_backoff_s": 10,
+      "page_size": 50,
+      "max_pages": 10,
+      "repositories": [],
+      "code_search_enabled": false,
+      "max_file_bytes": 500000
+    },
+    "bitbucket_dc": {
+      "_comment": "Bitbucket Data Center REST 1.0. repositories: PROJECT/slug. auth bearer = HTTP access token (repo read). Code search unsupported.",
+      "enabled": false,
+      "approved": false,
+      "approval_ref": null,
+      "base_url": null,
+      "allowed_hosts": [],
+      "auth": {
+        "type": "bearer",
+        "token_env": null
+      },
+      "timeout_s": 15,
+      "max_retries": 2,
+      "backoff_base_s": 0.5,
+      "max_backoff_s": 10,
+      "page_size": 50,
+      "max_pages": 10,
+      "repositories": [],
+      "max_file_bytes": 500000
+    }
+  },
+  "projects": {
+    "_comment": "Workspace project selection. Each project binds a tracker project key, repositories and environments.",
+    "PCC": {
+      "name": "PCC synthetic demo",
+      "jira_project": "PCC",
+      "repositories": [
+        "SYN/pim-import-service"
+      ],
+      "environments": [
+        "synthetic-local",
+        "bluemeteor-dev",
+        "bluemeteor-playground"
+      ],
+      "data_class": "synthetic"
+    }
   }
 }
