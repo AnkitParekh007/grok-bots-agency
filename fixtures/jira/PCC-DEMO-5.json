@@ -1,0 +1,23 @@
+{
+  "key": "PCC-DEMO-5",
+  "_provenance": "SYNTHETIC Jira-shaped fixture (Milestone B2 evaluation set). Independently authored; not a real PCC story. ETIM codes are synthetic (EC-SYN-*), not from a real ETIM release.",
+  "fields": {
+    "issuetype": {
+      "name": "Story"
+    },
+    "project": {
+      "key": "PCC"
+    },
+    "status": {
+      "name": "Ready for QA"
+    },
+    "summary": "ETIM class and feature mapping for supplier imports",
+    "labels": [
+      "synthetic",
+      "etim",
+      "b2-eval",
+      "untestable-requirement"
+    ],
+    "description": "As a classification specialist I want ETIM classes and features from supplier files mapped to our attributes so that products are classified on import.\n\nAcceptance criteria:\n1. The supplier column \"etim_class\" is mapped to the dictionary attribute \"etim_class\" for every imported SKU.\n2. The legacy supplier column \"etim\" is also accepted and mapped to the attribute \"etim_class\".\n3. The supplier column \"ip_rating\" is mapped to the ETIM feature attribute \"ip_rating\".\n4. Every ETIM class code is validated against the latest official ETIM release published by ETIM International."
+  }
+}

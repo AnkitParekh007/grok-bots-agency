@@ -24,7 +24,7 @@ class PlanInvalid(Exception):
     pass
 
 
-from .providers.models import BudgetExceeded  # re-exported for callers/tests
+from .providers.models import BudgetExceeded, ProviderConfigError  # re-exported for callers/tests
 
 
 class _BudgetLedger:
@@ -34,7 +34,8 @@ class _BudgetLedger:
 
     def reserve(self, http_attempt, est):
         uid, reason = self.a.store.reserve_spend(self.run_id, self.provider, self.model, self.task, self.attempt, http_attempt,
-                                                 est, self.a.budget["per_run_usd"], self.a.budget["daily_usd"])
+                                                 est, self.a.budget["per_run_usd"], self.a.budget["daily_usd"],
+                                                 self.a.budget["total_usd"], self.a.budget["scope"])
         if reason:
             self.a.store.telemetry(self.run_id, "budget_denied", self.provider, reason)
             self.a.gateway.record(self.run_id, "model.budget_gate", {"estimate_usd": est, "http_attempt": http_attempt}, "deny", reason)
@@ -61,7 +62,16 @@ class QAAgent:
         self.tracker = MockJiraProvider(ROOT / self.cfg["issue_tracker"]["fixtures_dir"])
         self.skills = LocalSkillRegistry()
         self.model = build_model_provider(self.cfg, ROOT, gateway=self.gateway)  # fail-closed if not approved/configured
-        self.budget = {"per_run_usd": 10.0, "daily_usd": 150.0, **self.cfg.get("budget", {})}
+        self.budget = {"per_run_usd": 1.0, "daily_usd": 15.0, **self.cfg.get("budget", {})}
+        if getattr(self.model, "per_attempt_budget", False):
+            # billable provider: every cap must be explicitly configured, positive and numeric (fail closed)
+            for k in ("per_run_usd", "daily_usd", "total_usd"):
+                v = self.budget.get(k)
+                if not isinstance(v, (int, float)) or isinstance(v, bool) or v <= 0:
+                    raise ProviderConfigError(f"budget.{k} must be a positive number for a billable provider (got {v!r})")
+            if not isinstance(self.budget.get("scope"), str) or not self.budget["scope"].strip():
+                raise ProviderConfigError("budget.scope (persistent total-cap scope id) is required for a billable provider")
+        self.budget.setdefault("total_usd", None); self.budget.setdefault("scope", None)
         self.max_repairs = int(self.cfg.get("repair", {}).get("max_format_repairs", 2))
         self.exec_cfg = self.cfg.get("execution", {})
         self.exec_lock = threading.Lock()
@@ -108,6 +118,78 @@ class QAAgent:
                 self.exec_lock.release()
             raise
         return self._spawn(run_id, self._execute_locked, run_id, wait=wait)
+
+    def review_plan(self, run_id, principal, decision, plan_hash, comment=""):
+        """Manual review with DEFERRED execution (eval first-plan handoff; CLI). Same rules as the HTTP approval in local
+        mode: authenticated approver, no self-approval, exact plan hash, not expired. Does not start execution."""
+        run = self.store.get_run(run_id)
+        def deny(reason):
+            self.gateway.record(run_id, "plan.review", {"user": getattr(principal, "name", None), "plan_hash": plan_hash}, "deny", reason)
+            raise ConflictError(reason)
+        if principal is None or not principal.authenticated or principal.mode != "local":
+            deny("authenticated local approver required")
+        from .auth import has_role
+        if not has_role(principal, "approver"):
+            deny(f"role {principal.role} cannot approve")
+        if not run or run["status"] != "awaiting_approval":
+            deny(f"run not awaiting approval (status={run and run['status']})")
+        if run.get("requested_by") and run["requested_by"] == principal.name:
+            deny("requester cannot approve their own run")
+        if not plan_hash or plan_hash != run["plan_hash"]:
+            deny("stale or missing plan hash: the plan reviewed is not the plan stored")
+        if self._plan_expired(run):
+            deny("plan expired; re-plan required")
+        self.approvals.record(run_id, run["plan_hash"], principal.name, decision, comment, identity=principal.name, auth_mode="local")
+        self.store.update_run(run_id, status="approved" if decision == "approved" else "rejected")
+        self.gateway.record(run_id, "plan.review", {"user": principal.name, "plan_hash": plan_hash, "decision": decision}, "allow",
+                            "manual review by authenticated approver (execution deferred)")
+        self.store.event(run_id, "approval", f"Plan {decision} by {principal.name} (authenticated, manual review; execution deferred)")
+        return {"run_id": run_id, "decision": decision, "plan_hash": run["plan_hash"], "approver": principal.name}
+
+    def execute_approved(self, run_id, wait=True):
+        """Execute a run whose exact plan was approved via review_plan()."""
+        run = self.store.get_run(run_id)
+        a = self.approvals.latest(run_id)
+        if not run or run["status"] != "approved" or not self.approvals.is_approved(run_id, run["plan_hash"]) \
+                or not a or not a.get("identity"):
+            self.gateway.record(run_id, "plan.execute", {"status": run and run["status"]}, "deny", "no verified approval for this exact plan")
+            raise ConflictError("run has no verified approval for its exact plan")
+        if not self.exec_lock.acquire(blocking=False):
+            raise ConflictError("another execution is active against the shared synthetic SUT")
+        self.store.update_run(run_id, status="executing")
+        return self._spawn(run_id, self._execute_locked, run_id, wait=wait)
+
+    def approve_unattended(self, run_id, grant_id, wait=False):
+        """Synthetic-eval-only unattended approval under a server-side grant. Never exposed over HTTP."""
+        from . import eval_authorization as EA
+        run = self.store.get_run(run_id)
+        def deny(reason):
+            self.gateway.record(run_id, "plan.approve_unattended", {"grant_id": grant_id}, "deny", reason)
+            self.store.event(run_id, "approval", f"Unattended approval refused: {reason}")
+            raise EA.AuthorizationError(reason)
+        if not self.cfg.get("unattended_eval_approval", {}).get("enabled") is True:
+            deny("unattended eval approval disabled in agent config (unattended_eval_approval.enabled=false)")
+        if not run or run["status"] != "awaiting_approval":
+            deny(f"run not awaiting approval (status={run and run['status']})")
+        try:
+            g = EA.load_grant(self.store, grant_id)
+            EA.check(g, run, self.envs.resolve(run["environment"]))
+        except EA.AuthorizationError as e:
+            deny(str(e))
+        except Exception as e:
+            deny(f"{type(e).__name__}: {e}")
+        mc = EA.model_class(run.get("model_label"))
+        if (mc == "LIVE MODEL" or g["require_first_manual_approval"]) and not self.store.has_manual_authenticated_approval(mc):
+            deny(f"no prior MANUAL approval by an authenticated approver for a {mc!r} plan; the first plan must be human-reviewed")
+        ok, used = self.store.claim_grant_use(grant_id, run_id)
+        if not ok:
+            deny(f"grant {grant_id} exhausted or revoked ({used}/{g['max_uses']} uses)")
+        self.gateway.record(run_id, "plan.approve_unattended", {"grant_id": grant_id, "use": used + 1, "max_uses": g["max_uses"],
+                            "model_class": mc, "grant_creator": g["created_by"]}, "allow", "within server-side eval grant")
+        return self.approve(run_id, f"unattended-eval-grant:{g['created_by']}", "approved",
+                            comment=f"unattended synthetic-eval approval under grant {grant_id} ({used + 1}/{g['max_uses']})",
+                            wait=wait, identity=g["created_by"], auth_mode="unattended-synthetic-eval",
+                            plan_hash=run["plan_hash"], approver_label=grant_id)
 
     def _plan_expired(self, run):
         ts = run.get("plan_created_at")

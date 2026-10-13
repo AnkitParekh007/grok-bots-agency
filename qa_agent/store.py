@@ -18,6 +18,10 @@ CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, 
 CREATE TABLE IF NOT EXISTS usage(id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, ts TEXT, day TEXT, provider TEXT,
   model TEXT, task TEXT, attempt INTEGER, prompt_tokens INTEGER, cached_tokens INTEGER, completion_tokens INTEGER,
   reasoning_tokens INTEGER, total_tokens INTEGER, cost_usd REAL, priced INTEGER, outcome TEXT);
+CREATE TABLE IF NOT EXISTS eval_grants(grant_id TEXT PRIMARY KEY, created_by TEXT, created_at TEXT, stories TEXT, environment TEXT,
+  skills TEXT, actions TEXT, model_classes TEXT, expires_at TEXT, max_uses INTEGER, uses INTEGER DEFAULT 0,
+  require_first_manual_approval INTEGER, purpose TEXT, grant_hash TEXT, revoked_at TEXT, revoked_by TEXT);
+CREATE TABLE IF NOT EXISTS eval_grant_uses(id INTEGER PRIMARY KEY AUTOINCREMENT, grant_id TEXT, run_id TEXT UNIQUE, ts TEXT);
 CREATE TABLE IF NOT EXISTS telemetry(id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, ts TEXT, kind TEXT, provider TEXT, detail TEXT);
 CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT,'audit is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit BEGIN SELECT RAISE(ABORT,'audit is append-only'); END;
@@ -50,7 +54,7 @@ class Store:
                "approvals": [("identity", "TEXT"), ("auth_mode", "TEXT"), ("approver_label", "TEXT")],
                "audit": [("prev_hash", "TEXT"), ("entry_hash", "TEXT"),
                           ("seq", "INTEGER"), ("payload_hash", "TEXT")],
-               "usage": [("http_attempt", "INTEGER"), ("est_usd", "REAL")]}
+               "usage": [("http_attempt", "INTEGER"), ("est_usd", "REAL"), ("budget_scope", "TEXT")]}
         for t, cs in add.items():
             have = cols(t)
             for c, typ in cs:
@@ -145,7 +149,8 @@ class Store:
                 u.get("prompt_tokens", 0), u.get("cached_tokens", 0), u.get("completion_tokens", 0), u.get("reasoning_tokens", 0),
                 u.get("total_tokens", 0), cost, 1 if priced else 0, outcome))
 
-    def reserve_spend(self, run_id, provider, model, task, attempt, http_attempt, est, per_run_cap, daily_cap):
+    def reserve_spend(self, run_id, provider, model, task, attempt, http_attempt, est, per_run_cap, daily_cap,
+                      total_cap=None, scope=None):
         """Atomically check caps and insert a 'reserved' row charged at the worst-case estimate.
         BEGIN IMMEDIATE takes SQLite's write lock, so concurrent reservations (threads or processes sharing this DB)
         are serialized: two runs cannot both pass the cap check against the same remaining budget."""
@@ -160,13 +165,17 @@ class Store:
                     reason = f"per-run cap ${per_run_cap} would be exceeded (spent ${run_spent:.4f} + est ${est:.4f})"
                 elif day_spent + est > daily_cap:
                     reason = f"daily cap ${daily_cap} would be exceeded (spent ${day_spent:.4f} + est ${est:.4f})"
+                elif total_cap is not None:
+                    total = self.db.execute("SELECT COALESCE(SUM(cost_usd),0) FROM usage WHERE budget_scope=?", (scope,)).fetchone()[0]
+                    if total + est > total_cap:
+                        reason = f"total cap ${total_cap} for scope {scope!r} would be exceeded (spent ${total:.4f} + est ${est:.4f})"
                 if reason:
                     self.db.execute("ROLLBACK")
                     return None, reason
                 cur = self.db.execute(
-                    "INSERT INTO usage(run_id,ts,day,provider,model,task,attempt,http_attempt,cost_usd,est_usd,priced,outcome)"
-                    " VALUES(?,?,?,?,?,?,?,?,?,?,0,'reserved')",
-                    (run_id, now(), day, provider, model, task, attempt, http_attempt, est, est))
+                    "INSERT INTO usage(run_id,ts,day,provider,model,task,attempt,http_attempt,cost_usd,est_usd,priced,outcome,budget_scope)"
+                    " VALUES(?,?,?,?,?,?,?,?,?,?,0,'reserved',?)",
+                    (run_id, now(), day, provider, model, task, attempt, http_attempt, est, est, scope))
                 self.db.execute("COMMIT")
                 return cur.lastrowid, None
             except BaseException:
@@ -190,6 +199,54 @@ class Store:
         tot["cost_usd"] = round(sum(r["cost_usd"] or 0 for r in rows), 6)
         tot["calls"] = len(rows)
         return {"totals": tot, "calls": rows}
+
+    GRANT_LISTS = ("stories", "skills", "actions", "model_classes")
+
+    def insert_grant(self, g):
+        row = {**g, **{k: json.dumps(g[k]) for k in self.GRANT_LISTS}, "require_first_manual_approval": 1 if g["require_first_manual_approval"] else 0}
+        self.x("INSERT INTO eval_grants(grant_id,created_by,created_at,stories,environment,skills,actions,model_classes,expires_at,"
+               "max_uses,uses,require_first_manual_approval,purpose,grant_hash) VALUES(:grant_id,:created_by,:created_at,:stories,"
+               ":environment,:skills,:actions,:model_classes,:expires_at,:max_uses,0,:require_first_manual_approval,:purpose,:grant_hash)", row)
+
+    def get_grant(self, grant_id):
+        r = self.q("SELECT * FROM eval_grants WHERE grant_id=?", (grant_id,))
+        if not r:
+            return None
+        g = dict(r[0])
+        for k in self.GRANT_LISTS:
+            g[k] = json.loads(g[k])
+        g["require_first_manual_approval"] = bool(g["require_first_manual_approval"])
+        return g
+
+    def revoke_grant(self, grant_id, by):
+        with self.lock:
+            cur = self.db.execute("UPDATE eval_grants SET revoked_at=?, revoked_by=? WHERE grant_id=? AND revoked_at IS NULL", (now(), by, grant_id))
+            return cur.rowcount == 1
+
+    def claim_grant_use(self, grant_id, run_id):
+        """Atomic: increments uses only if not revoked and under the limit (BEGIN IMMEDIATE). Returns (ok, uses_before)."""
+        with self.lock:
+            self.db.execute("BEGIN IMMEDIATE")
+            try:
+                before = self.db.execute("SELECT uses FROM eval_grants WHERE grant_id=?", (grant_id,)).fetchone()
+                cur = self.db.execute("UPDATE eval_grants SET uses=uses+1 WHERE grant_id=? AND revoked_at IS NULL AND uses < max_uses", (grant_id,))
+                if cur.rowcount != 1:
+                    self.db.execute("ROLLBACK")
+                    return False, before[0] if before else None
+                self.db.execute("INSERT INTO eval_grant_uses(grant_id,run_id,ts) VALUES(?,?,?)", (grant_id, run_id, now()))
+                self.db.execute("COMMIT")
+                return True, before[0]
+            except BaseException:
+                self.db.execute("ROLLBACK")
+                raise
+
+    def has_manual_authenticated_approval(self, model_class_prefix):
+        rows = self.q("SELECT r.model_label FROM approvals a JOIN runs r ON r.id=a.run_id WHERE a.decision='approved' "
+                      "AND a.auth_mode='local' AND a.identity IS NOT NULL")
+        return any((x["model_label"] or "").split(" (")[0].strip() == model_class_prefix for x in rows)
+
+    def scope_spend(self, scope):
+        return self.q("SELECT COALESCE(SUM(cost_usd),0) s FROM usage WHERE budget_scope=?", (scope,))[0]["s"]
 
     def run_spend(self, run_id):
         return self.q("SELECT COALESCE(SUM(cost_usd),0) s FROM usage WHERE run_id=?", (run_id,))[0]["s"]

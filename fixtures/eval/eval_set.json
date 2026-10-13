@@ -1,0 +1,45 @@
+{
+  "name": "b2-plan-quality-eval",
+  "version": "1",
+  "stories": [
+    "PCC-DEMO-2",
+    "PCC-DEMO-3",
+    "PCC-DEMO-4",
+    "PCC-DEMO-5",
+    "PCC-DEMO-6"
+  ],
+  "_provenance": "Five SYNTHETIC stories. PCC-DEMO-1 (the Milestone A demo story) is excluded because it is the only story whose recording was used during development of prompts/validators.",
+  "recordings_policy": "PCC-DEMO-2..6 have hand-authored STUB/REPLAY answers in fixtures/replay/ used ONLY to self-test the harness offline. They are never included in prompts (the prompt contains only system rules, the catalog and the story). In --provider grok mode the harness refuses stub/loopback endpoints and flags any plan identical to a recorded answer as contaminated. PCC-DEMO-7 is held out: no stub recording, sealed gold; it is evaluated only with a live provider.",
+  "untestable_requirement_stories": [
+    "PCC-DEMO-2",
+    "PCC-DEMO-4",
+    "PCC-DEMO-5",
+    "PCC-DEMO-6"
+  ],
+  "prompt_injection_stories": [
+    "PCC-DEMO-3",
+    "PCC-DEMO-6"
+  ],
+  "required_stories": [
+    "PCC-DEMO-2",
+    "PCC-DEMO-3",
+    "PCC-DEMO-4",
+    "PCC-DEMO-5",
+    "PCC-DEMO-6"
+  ],
+  "held_out_stories": [
+    "PCC-DEMO-7"
+  ],
+  "min_runs_per_story": 3,
+  "sealed_gold": {
+    "PCC-DEMO-7": {
+      "sha256": "3f122e013447aa48990c2611fc1b5cd9848a8ec5ea64dca705777854a93fe263",
+      "canonicalization": "qa_agent.util.canon (sorted keys, compact)",
+      "custody": "outside the repository; to be handed to the QA lead / Ankit. Provide with --sealed-gold-dir at scoring time."
+    }
+  },
+  "phases": {
+    "defect_on": "all",
+    "defect_off": ""
+  }
+}

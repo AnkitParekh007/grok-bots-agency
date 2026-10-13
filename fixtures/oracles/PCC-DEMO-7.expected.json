@@ -1,0 +1,72 @@
+{
+  "story": "PCC-DEMO-7",
+  "_provenance": "Reviewer-style expected-results manifest (SYNTHETIC, B2 held-out). Hand-derived from the spec, attribute_dictionary.json (synthetic-0.2) and supplier_lengths.csv; NOT derived from application code.",
+  "source": "docs/b2/blinded/PCC-DEMO-7.SPEC.md",
+  "review": {
+    "status": "synthetic-pending-qa-lead-approval",
+    "reviewer": null,
+    "approved_at": null
+  },
+  "oracles": {
+    "ORC7-INCH": {
+      "ac": [
+        "AC1"
+      ],
+      "actions": [
+        "api_product_after_import"
+      ],
+      "expected": {
+        "sku": "SKU-7001",
+        "length_mm": 304.8
+      },
+      "tolerance": 0.001,
+      "description": "12 in -> 304.8 mm (supplier_lengths.csv)",
+      "derivation": "12 x 25.4"
+    },
+    "ORC7-CM": {
+      "ac": [
+        "AC2"
+      ],
+      "actions": [
+        "api_product_after_import"
+      ],
+      "expected": {
+        "sku": "SKU-7002",
+        "length_mm": 1500.0
+      },
+      "tolerance": 0.001,
+      "description": "150 cm -> 1500 mm (supplier_lengths.csv)",
+      "derivation": "150 x 10"
+    },
+    "ORC7-METRE": {
+      "ac": [
+        "AC3"
+      ],
+      "actions": [
+        "api_import"
+      ],
+      "expected": {
+        "imported": 2,
+        "rejected": 1,
+        "error_codes": [
+          "UNIT_UNKNOWN"
+        ]
+      },
+      "description": "metre row rejected (supplier_lengths.csv)",
+      "derivation": "'m' not a dictionary length unit"
+    },
+    "ORC7-UI-COUNT": {
+      "ac": [
+        "AC4"
+      ],
+      "actions": [
+        "ui_import_and_count"
+      ],
+      "expected": {
+        "displayed_count": 2
+      },
+      "description": "list page shows 2 after supplier_lengths.csv",
+      "derivation": "2 rows imported"
+    }
+  }
+}

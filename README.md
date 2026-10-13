@@ -121,6 +121,27 @@ With `all`, the expected result is 3 passed / 5 failed (TC-02, TC-05, TC-06, TC-
   - The `viewer` role can no longer read other users' runs.
 - **Demo mode is single-user:** `demo` mode applies no per-run checks and must only be used by one trusted person on localhost.
 
+### B2 prep: evaluation set, quality metrics, live-eval approval pack
+- **Evaluation set:** `fixtures/eval/eval_set.json` has five SYNTHETIC stories, PCC-DEMO-2…6.
+  - PCC-DEMO-5 covers ETIM class/feature mapping and includes one untestable AC.
+  - PCC-DEMO-6 covers required fields and import errors, with prompt injection and one untestable AC.
+  - Each story has a gold annotation in `fixtures/eval/gold/`. Oracles and gold are pending QA-lead review.
+  - New seeded defects: `etim_alias_ignored` and `name_not_required`.
+- **Metrics and PROPOSED thresholds:** `qa_agent/eval_metrics.py`.
+- **Harness:** `python scripts/eval_b2.py --provider stub|replay|grok`, which writes `reports/eval/eval_report.{json,md}`.
+  - In stub and replay modes it is a harness self-test, **not real model reasoning**.
+  - Grok mode requires `--confirm-live-approved` and the approvals in `docs/b2/`. It fails closed with the default config.
+- **Approval pack:** `docs/b2/LIVE_EVAL_APPROVAL_REQUEST.md` and `docs/b2/ENABLE_LIVE_EVAL.md`.
+- **PR #2 review changes:**
+  - **Verdicts fail closed:** PASS / FAIL / NOT_EVALUABLE / SMOKE.
+  - **Defect phases:** the harness runs a defect-ON and a defect-OFF phase, and failed or missing runs stay in every denominator.
+  - **First-plan handoff:** the harness pauses after the first plan (`PAUSED/AWAITING_FIRST_PLAN_APPROVAL`). It resumes only after an authenticated approver approves that exact plan hash (`python -m qa_agent.eval_authorization review`), and the state survives restarts.
+  - **Unattended approval** uses server-side eval grants created by authenticated approvers (`POST /api/eval-grants` or the CLI). Grants are scoped, expiring, use-limited, revocable and audited. The unsigned JSON file path has been removed.
+  - **Eval-only profile:** `config/eval_profile.json` sets `max_retries=1` for the harness only; the global default is unchanged.
+  - **Held-out story:** PCC-DEMO-7, with gold sealed outside the repo.
+  - **Contamination limits:** see `docs/b2/CONTAMINATION_AND_INDEPENDENCE.md`.
+  - **Spend cap:** a persistent total cap (`budget.total_usd` per `budget.scope`).
+
 ### Trust limits of the local hash chain
 The chain catches accidental or partial tampering, such as an edited row, a deleted row, or an out-of-order or duplicated sequence number, **if the verifier holds a previously recorded head hash or export manifest**. Someone with write access to `data/` can rebuild the whole chain consistently, so locally it is *tamper-evident only relative to an externally kept head*. For enterprise use, ship exports or heads to a store the agent host cannot rewrite (WORM/object lock or an external log service) and sign them.
 

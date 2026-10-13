@@ -35,10 +35,16 @@ jobs:
       - name: Integration tests (real Chromium vs synthetic SUT, local model stub on 127.0.0.1)
         if: always()
         run: python -m pytest -q -m integration --junitxml=reports/integration.xml
+      - name: B2 eval harness self-test (local STUB only, not real model reasoning)
+        if: always()
+        run: |
+          python scripts/eval_b2.py --provider stub --out reports/eval \
+            --self-test-simulated-review
+          cat reports/eval/eval_report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Category coverage check (each category has tests)
         if: always()
         run: |
-          for m in provider planning approval execution audit cost security; do
+          for m in provider planning approval execution audit cost security eval; do
             n=$(python -m pytest -q --collect-only -m "$m" | grep -c "::" || true)
             echo "$m: $n tests" | tee -a "$GITHUB_STEP_SUMMARY"
             test "$n" -gt 0

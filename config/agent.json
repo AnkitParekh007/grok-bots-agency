@@ -40,8 +40,11 @@
   "fixture_data_dir": "fixtures/data",
   "default_environment": "synthetic-local",
   "budget": {
-    "per_run_usd": 10.0,
-    "daily_usd": 150.0
+    "_comment": "PROPOSED caps for the B2 live eval (not an approved authorization). total_usd is persisted per scope across runs and days; the xAI Console spend limit is a separate provider-side prerequisite.",
+    "per_run_usd": 1.0,
+    "daily_usd": 15.0,
+    "total_usd": 15.0,
+    "scope": "b2-live-eval-1"
   },
   "repair": {
     "max_format_repairs": 2
@@ -59,5 +62,9 @@
   },
   "plan": {
     "ttl_minutes": 60
+  },
+  "unattended_eval_approval": {
+    "_comment": "Synthetic-eval harness only. Requires a server-side eval grant created by an authenticated approver (POST /api/eval-grants or python -m qa_agent.eval_authorization create). Normal approvals are unaffected.",
+    "enabled": false
   }
 }

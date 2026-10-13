@@ -1,0 +1,76 @@
+{
+  "story": "PCC-DEMO-6",
+  "_provenance": "Reviewer-style expected-results manifest (SYNTHETIC, B2 eval set). Hand-derived from the story AC and fixtures/data/attribute_dictionary.json (synthetic-0.2) and the data files; NOT derived from application code.",
+  "source": "attribute_dictionary.json@synthetic-0.2 required=[sku,name] + PCC-DEMO-6 AC1-AC4",
+  "review": {
+    "status": "synthetic-pending-qa-lead-approval",
+    "reviewer": null,
+    "approved_at": null
+  },
+  "oracles": {
+    "ORC6-PARTIAL": {
+      "ac": [
+        "AC1",
+        "AC2"
+      ],
+      "actions": [
+        "api_import"
+      ],
+      "expected": {
+        "imported": 2,
+        "rejected": 1,
+        "error_codes": [
+          "NAME_REQUIRED"
+        ]
+      },
+      "description": "supplier_missing_name.csv: 2 imported, 1 rejected NAME_REQUIRED",
+      "derivation": "row 3 has empty name; dictionary required=[sku,name]"
+    },
+    "ORC6-VALID-ROW": {
+      "ac": [
+        "AC2"
+      ],
+      "actions": [
+        "api_product_after_import"
+      ],
+      "expected": {
+        "sku": "SKU-6001"
+      },
+      "description": "valid row SKU-6001 present after partial import",
+      "derivation": "row 2 complete"
+    },
+    "ORC6-UI-ERR": {
+      "ac": [
+        "AC3"
+      ],
+      "actions": [
+        "ui_import_error"
+      ],
+      "expected": {
+        "error_visible": true,
+        "error_codes": [
+          "NAME_REQUIRED"
+        ]
+      },
+      "description": "upload screen shows NAME_REQUIRED",
+      "derivation": "AC3"
+    },
+    "ORC6-SKU-REQ": {
+      "ac": [
+        "AC4"
+      ],
+      "actions": [
+        "api_import"
+      ],
+      "expected": {
+        "imported": 1,
+        "rejected": 1,
+        "error_codes": [
+          "SKU_REQUIRED"
+        ]
+      },
+      "description": "supplier_missing_sku.csv: blank SKU row rejected",
+      "derivation": "dictionary required sku"
+    }
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "story": "PCC-DEMO-5",
+  "_provenance": "Reviewer-style expected-results manifest (SYNTHETIC, B2 eval set). Hand-derived from the story AC and fixtures/data/attribute_dictionary.json (synthetic-0.2) and the data files; NOT derived from application code.",
+  "source": "attribute_dictionary.json@synthetic-0.2 + PCC-DEMO-5 AC1-AC3",
+  "review": {
+    "status": "synthetic-pending-qa-lead-approval",
+    "reviewer": null,
+    "approved_at": null
+  },
+  "oracles": {
+    "ORC5-CLASS-5001": {
+      "ac": [
+        "AC1"
+      ],
+      "actions": [
+        "api_product_after_import"
+      ],
+      "expected": {
+        "sku": "SKU-5001",
+        "attributes.etim_class": "EC-SYN-0001"
+      },
+      "description": "etim_class column mapped for SKU-5001 (supplier_etim.csv)",
+      "derivation": "dictionary alias etim_class->etim_class"
+    },
+    "ORC5-ALIAS-5101": {
+      "ac": [
+        "AC2"
+      ],
+      "actions": [
+        "api_product_after_import"
+      ],
+      "expected": {
+        "sku": "SKU-5101",
+        "attributes.etim_class": "EC-SYN-0003"
+      },
+      "description": "legacy 'etim' column mapped for SKU-5101 (supplier_etim_alias.csv)",
+      "derivation": "dictionary alias etim->etim_class"
+    },
+    "ORC5-IP-5002": {
+      "ac": [
+        "AC3"
+      ],
+      "actions": [
+        "api_product_after_import"
+      ],
+      "expected": {
+        "sku": "SKU-5002",
+        "attributes.ip_rating": "IP20"
+      },
+      "description": "ip_rating feature mapped for SKU-5002 (supplier_etim.csv)",
+      "derivation": "dictionary alias ip_rating"
+    }
+  }
+}

@@ -169,6 +169,34 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
         owned_run(run_id, p, "usage")
         return agent.store.run_usage(run_id)
 
+    # ---- server-side eval grants (synthetic eval only; local auth only; creator identity from session) ----
+    @app.post("/api/eval-grants")
+    def create_eval_grant(body: dict, p: Principal = Depends(need("approver"))):
+        from .eval_authorization import create_grant, AuthorizationError
+        if mode != "local":
+            raise HTTPException(403, "eval grants require local authentication mode")
+        try:
+            return create_grant(agent.store, agent.gateway, p, body)   # any identity fields in body are ignored
+        except AuthorizationError as e:
+            raise HTTPException(400, str(e))
+
+    @app.get("/api/eval-grants")
+    def list_eval_grants(p: Principal = Depends(need("approver"))):
+        if mode != "local":
+            raise HTTPException(403, "eval grants require local authentication mode")
+        return agent.store.q("SELECT * FROM eval_grants ORDER BY created_at")
+
+    @app.post("/api/eval-grants/{grant_id}/revoke")
+    def revoke_eval_grant(grant_id: str, p: Principal = Depends(need("approver"))):
+        from .eval_authorization import revoke_grant, AuthorizationError
+        if mode != "local":
+            raise HTTPException(403, "eval grants require local authentication mode")
+        try:
+            revoke_grant(agent.store, agent.gateway, p, grant_id)
+        except AuthorizationError as e:
+            raise HTTPException(409, str(e))
+        return {"revoked": grant_id}
+
     @app.get("/api/telemetry")
     def telemetry(p: Principal = Depends(need("approver" if mode == "local" else "viewer"))):   # cross-run data
         return {"by_kind": agent.store.telemetry_summary(), "day_spend_usd": agent.store.day_spend()}
