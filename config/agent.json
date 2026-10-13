@@ -64,7 +64,7 @@
     "ttl_minutes": 60
   },
   "unattended_eval_approval": {
-    "_comment": "Synthetic-eval harness only. Requires a signed authorization file (see docs/b2/UNATTENDED_EVAL_AUTHORIZATION.template.json). Normal approvals are unaffected.",
+    "_comment": "Synthetic-eval harness only. Requires a server-side eval grant created by an authenticated approver (POST /api/eval-grants or python -m qa_agent.eval_authorization create). Normal approvals are unaffected.",
     "enabled": false
   }
 }

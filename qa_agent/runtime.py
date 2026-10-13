@@ -119,12 +119,52 @@ class QAAgent:
             raise
         return self._spawn(run_id, self._execute_locked, run_id, wait=wait)
 
-    def approve_unattended(self, run_id, authorization_path, wait=False):
-        """Synthetic-eval-only unattended approval. Never exposed over HTTP. See qa_agent/eval_authorization.py."""
+    def review_plan(self, run_id, principal, decision, plan_hash, comment=""):
+        """Manual review with DEFERRED execution (eval first-plan handoff; CLI). Same rules as the HTTP approval in local
+        mode: authenticated approver, no self-approval, exact plan hash, not expired. Does not start execution."""
+        run = self.store.get_run(run_id)
+        def deny(reason):
+            self.gateway.record(run_id, "plan.review", {"user": getattr(principal, "name", None), "plan_hash": plan_hash}, "deny", reason)
+            raise ConflictError(reason)
+        if principal is None or not principal.authenticated or principal.mode != "local":
+            deny("authenticated local approver required")
+        from .auth import has_role
+        if not has_role(principal, "approver"):
+            deny(f"role {principal.role} cannot approve")
+        if not run or run["status"] != "awaiting_approval":
+            deny(f"run not awaiting approval (status={run and run['status']})")
+        if run.get("requested_by") and run["requested_by"] == principal.name:
+            deny("requester cannot approve their own run")
+        if not plan_hash or plan_hash != run["plan_hash"]:
+            deny("stale or missing plan hash: the plan reviewed is not the plan stored")
+        if self._plan_expired(run):
+            deny("plan expired; re-plan required")
+        self.approvals.record(run_id, run["plan_hash"], principal.name, decision, comment, identity=principal.name, auth_mode="local")
+        self.store.update_run(run_id, status="approved" if decision == "approved" else "rejected")
+        self.gateway.record(run_id, "plan.review", {"user": principal.name, "plan_hash": plan_hash, "decision": decision}, "allow",
+                            "manual review by authenticated approver (execution deferred)")
+        self.store.event(run_id, "approval", f"Plan {decision} by {principal.name} (authenticated, manual review; execution deferred)")
+        return {"run_id": run_id, "decision": decision, "plan_hash": run["plan_hash"], "approver": principal.name}
+
+    def execute_approved(self, run_id, wait=True):
+        """Execute a run whose exact plan was approved via review_plan()."""
+        run = self.store.get_run(run_id)
+        a = self.approvals.latest(run_id)
+        if not run or run["status"] != "approved" or not self.approvals.is_approved(run_id, run["plan_hash"]) \
+                or not a or not a.get("identity"):
+            self.gateway.record(run_id, "plan.execute", {"status": run and run["status"]}, "deny", "no verified approval for this exact plan")
+            raise ConflictError("run has no verified approval for its exact plan")
+        if not self.exec_lock.acquire(blocking=False):
+            raise ConflictError("another execution is active against the shared synthetic SUT")
+        self.store.update_run(run_id, status="executing")
+        return self._spawn(run_id, self._execute_locked, run_id, wait=wait)
+
+    def approve_unattended(self, run_id, grant_id, wait=False):
+        """Synthetic-eval-only unattended approval under a server-side grant. Never exposed over HTTP."""
         from . import eval_authorization as EA
         run = self.store.get_run(run_id)
-        def deny(reason, args=None):
-            self.gateway.record(run_id, "plan.approve_unattended", {"authorization": str(authorization_path), **(args or {})}, "deny", reason)
+        def deny(reason):
+            self.gateway.record(run_id, "plan.approve_unattended", {"grant_id": grant_id}, "deny", reason)
             self.store.event(run_id, "approval", f"Unattended approval refused: {reason}")
             raise EA.AuthorizationError(reason)
         if not self.cfg.get("unattended_eval_approval", {}).get("enabled") is True:
@@ -132,27 +172,24 @@ class QAAgent:
         if not run or run["status"] != "awaiting_approval":
             deny(f"run not awaiting approval (status={run and run['status']})")
         try:
-            auth = EA.load_authorization(authorization_path)
-            env = self.envs.resolve(run["environment"]) if hasattr(self.envs, "resolve") else {}
-            EA.check(auth, run, env)
+            g = EA.load_grant(self.store, grant_id)
+            EA.check(g, run, self.envs.resolve(run["environment"]))
         except EA.AuthorizationError as e:
             deny(str(e))
-        except Exception as e:   # unknown environment etc. => fail closed
+        except Exception as e:
             deny(f"{type(e).__name__}: {e}")
         mc = EA.model_class(run.get("model_label"))
-        need_manual = mc == "LIVE MODEL" or auth.get("require_first_manual_approval", True) is not False
-        if need_manual and not self.store.has_manual_authenticated_approval(mc):
-            deny(f"no prior MANUAL approval by an authenticated approver for a {mc!r} plan; the first plan must be human-reviewed",
-                 {"approval_ref": auth["approval_ref"]})
-        ok, used = self.store.claim_authorization_use(auth["approval_ref"], run_id, auth["max_runs"])
+        if (mc == "LIVE MODEL" or g["require_first_manual_approval"]) and not self.store.has_manual_authenticated_approval(mc):
+            deny(f"no prior MANUAL approval by an authenticated approver for a {mc!r} plan; the first plan must be human-reviewed")
+        ok, used = self.store.claim_grant_use(grant_id, run_id)
         if not ok:
-            deny(f"authorization {auth['approval_ref']} exhausted ({used}/{auth['max_runs']} runs used)", {"approval_ref": auth["approval_ref"]})
-        self.gateway.record(run_id, "plan.approve_unattended", {"approval_ref": auth["approval_ref"], "use": used + 1,
-                            "max_runs": auth["max_runs"], "model_class": mc}, "allow", "within synthetic-eval authorization")
-        return self.approve(run_id, f"unattended-eval:{auth['approver_identity']}", "approved",
-                            comment=f"unattended synthetic-eval approval under {auth['approval_ref']} ({used + 1}/{auth['max_runs']})",
-                            wait=wait, identity=auth["approver_identity"], auth_mode="unattended-synthetic-eval",
-                            plan_hash=run["plan_hash"], approver_label=auth["approval_ref"])
+            deny(f"grant {grant_id} exhausted or revoked ({used}/{g['max_uses']} uses)")
+        self.gateway.record(run_id, "plan.approve_unattended", {"grant_id": grant_id, "use": used + 1, "max_uses": g["max_uses"],
+                            "model_class": mc, "grant_creator": g["created_by"]}, "allow", "within server-side eval grant")
+        return self.approve(run_id, f"unattended-eval-grant:{g['created_by']}", "approved",
+                            comment=f"unattended synthetic-eval approval under grant {grant_id} ({used + 1}/{g['max_uses']})",
+                            wait=wait, identity=g["created_by"], auth_mode="unattended-synthetic-eval",
+                            plan_hash=run["plan_hash"], approver_label=grant_id)
 
     def _plan_expired(self, run):
         ts = run.get("plan_created_at")

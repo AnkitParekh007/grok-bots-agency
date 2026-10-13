@@ -18,7 +18,10 @@ CREATE TABLE IF NOT EXISTS audit(id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, 
 CREATE TABLE IF NOT EXISTS usage(id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, ts TEXT, day TEXT, provider TEXT,
   model TEXT, task TEXT, attempt INTEGER, prompt_tokens INTEGER, cached_tokens INTEGER, completion_tokens INTEGER,
   reasoning_tokens INTEGER, total_tokens INTEGER, cost_usd REAL, priced INTEGER, outcome TEXT);
-CREATE TABLE IF NOT EXISTS eval_authorization_uses(id INTEGER PRIMARY KEY AUTOINCREMENT, approval_ref TEXT, run_id TEXT UNIQUE, ts TEXT);
+CREATE TABLE IF NOT EXISTS eval_grants(grant_id TEXT PRIMARY KEY, created_by TEXT, created_at TEXT, stories TEXT, environment TEXT,
+  skills TEXT, actions TEXT, model_classes TEXT, expires_at TEXT, max_uses INTEGER, uses INTEGER DEFAULT 0,
+  require_first_manual_approval INTEGER, purpose TEXT, grant_hash TEXT, revoked_at TEXT, revoked_by TEXT);
+CREATE TABLE IF NOT EXISTS eval_grant_uses(id INTEGER PRIMARY KEY AUTOINCREMENT, grant_id TEXT, run_id TEXT UNIQUE, ts TEXT);
 CREATE TABLE IF NOT EXISTS telemetry(id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, ts TEXT, kind TEXT, provider TEXT, detail TEXT);
 CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT,'audit is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit BEGIN SELECT RAISE(ABORT,'audit is append-only'); END;
@@ -197,18 +200,42 @@ class Store:
         tot["calls"] = len(rows)
         return {"totals": tot, "calls": rows}
 
-    def claim_authorization_use(self, approval_ref, run_id, max_runs):
-        """Atomically count and record one unattended-approval use (BEGIN IMMEDIATE). Returns (ok, used_before)."""
+    GRANT_LISTS = ("stories", "skills", "actions", "model_classes")
+
+    def insert_grant(self, g):
+        row = {**g, **{k: json.dumps(g[k]) for k in self.GRANT_LISTS}, "require_first_manual_approval": 1 if g["require_first_manual_approval"] else 0}
+        self.x("INSERT INTO eval_grants(grant_id,created_by,created_at,stories,environment,skills,actions,model_classes,expires_at,"
+               "max_uses,uses,require_first_manual_approval,purpose,grant_hash) VALUES(:grant_id,:created_by,:created_at,:stories,"
+               ":environment,:skills,:actions,:model_classes,:expires_at,:max_uses,0,:require_first_manual_approval,:purpose,:grant_hash)", row)
+
+    def get_grant(self, grant_id):
+        r = self.q("SELECT * FROM eval_grants WHERE grant_id=?", (grant_id,))
+        if not r:
+            return None
+        g = dict(r[0])
+        for k in self.GRANT_LISTS:
+            g[k] = json.loads(g[k])
+        g["require_first_manual_approval"] = bool(g["require_first_manual_approval"])
+        return g
+
+    def revoke_grant(self, grant_id, by):
+        with self.lock:
+            cur = self.db.execute("UPDATE eval_grants SET revoked_at=?, revoked_by=? WHERE grant_id=? AND revoked_at IS NULL", (now(), by, grant_id))
+            return cur.rowcount == 1
+
+    def claim_grant_use(self, grant_id, run_id):
+        """Atomic: increments uses only if not revoked and under the limit (BEGIN IMMEDIATE). Returns (ok, uses_before)."""
         with self.lock:
             self.db.execute("BEGIN IMMEDIATE")
             try:
-                used = self.db.execute("SELECT COUNT(*) FROM eval_authorization_uses WHERE approval_ref=?", (approval_ref,)).fetchone()[0]
-                if used >= max_runs:
+                before = self.db.execute("SELECT uses FROM eval_grants WHERE grant_id=?", (grant_id,)).fetchone()
+                cur = self.db.execute("UPDATE eval_grants SET uses=uses+1 WHERE grant_id=? AND revoked_at IS NULL AND uses < max_uses", (grant_id,))
+                if cur.rowcount != 1:
                     self.db.execute("ROLLBACK")
-                    return False, used
-                self.db.execute("INSERT INTO eval_authorization_uses(approval_ref,run_id,ts) VALUES(?,?,?)", (approval_ref, run_id, now()))
+                    return False, before[0] if before else None
+                self.db.execute("INSERT INTO eval_grant_uses(grant_id,run_id,ts) VALUES(?,?,?)", (grant_id, run_id, now()))
                 self.db.execute("COMMIT")
-                return True, used
+                return True, before[0]
             except BaseException:
                 self.db.execute("ROLLBACK")
                 raise
