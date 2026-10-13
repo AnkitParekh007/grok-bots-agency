@@ -1,0 +1,14 @@
+{
+  "_comment": "Eval-only overrides, applied ONLY by scripts/eval_b2.py on top of config/agent.json. The global runtime default (providers.grok.max_retries=3) is unchanged. Caps are PROPOSED, not approved. Do not treat max_retries=1 as a substitute for verifying pricing/reasoning limits and the external spend backstop.",
+  "providers": {
+    "grok": {
+      "max_retries": 1
+    }
+  },
+  "budget": {
+    "per_run_usd": 1.0,
+    "daily_usd": 15.0,
+    "total_usd": 15.0,
+    "scope": "b2-live-eval-1"
+  }
+}

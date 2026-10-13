@@ -39,7 +39,7 @@ jobs:
         if: always()
         run: |
           python scripts/eval_b2.py --provider stub --out reports/eval \
-            --authorization fixtures/eval/authorizations/stub-selftest.json
+            --self-test-simulated-review
           cat reports/eval/eval_report.md >> "$GITHUB_STEP_SUMMARY"
       - name: Category coverage check (each category has tests)
         if: always()

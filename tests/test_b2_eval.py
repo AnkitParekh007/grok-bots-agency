@@ -170,7 +170,7 @@ def test_harness_grok_fails_closed_with_default_config(tmp_path, monkeypatch):
 def test_harness_stub_subset_is_smoke_never_pass(tmp_path, monkeypatch):
     monkeypatch.setenv("XAI_API_KEY", "stub-not-a-real-key-000000")
     rc = load_harness().main(["--provider", "stub", "--out", str(tmp_path), "--runs", "1", "--stories", "PCC-DEMO-5,PCC-DEMO-6",
-                              "--authorization", str(ROOT / "fixtures/eval/authorizations/stub-selftest.json")])
+                              "--self-test-simulated-review"])
     rep = json.loads((tmp_path / "eval_report.json").read_text())
     assert rc == 3 and rep["verdict"] == "SMOKE/NOT_EVALUABLE" and rep["mode"] == "smoke" and "NOT real model reasoning" in rep["banner"]
     assert any("required story PCC-DEMO-2 not run" in m for m in rep["completeness"]["missing"])

@@ -1,17 +1,26 @@
 #!/usr/bin/env python3
 """B2 plan-quality evaluation harness (fail-closed verdicts: PASS / FAIL / NOT_EVALUABLE / SMOKE/NOT_EVALUABLE).
 
-  python scripts/eval_b2.py --provider stub --authorization fixtures/eval/authorizations/stub-selftest.json   # full self-test
-  python scripts/eval_b2.py --provider stub --no-execute --stories PCC-DEMO-5 --runs 1                       # smoke
-  python scripts/eval_b2.py --provider grok --confirm-live-approved --authorization <signed file> \\
-         --sealed-gold-dir <custody dir>                                                                      # ONLY after sign-off
+  python scripts/eval_b2.py --provider stub --self-test-simulated-review          # full self-test (stub/replay only)
+  python scripts/eval_b2.py --provider stub --no-execute --stories PCC-DEMO-5 --runs 1   # smoke
+  Live (ONLY after sign-off), resumable:
+    1) python scripts/eval_b2.py --provider grok --confirm-live-approved --out reports/eval
+         -> plans the FIRST live plan, persists run id + exact plan hash, exits PAUSED (exit 4)
+    2) authenticated approver reviews the plan (workspace UI with QA_DATA_DIR=reports/eval/data, or report files) and runs
+         QA_TOKEN=<approver token> python -m qa_agent.eval_authorization review --data-dir reports/eval/data \\
+             --users-file <users.json> --run <run_id> --plan-hash <hash> --decision approved|rejected
+       and creates a server-side grant (POST /api/eval-grants or `python -m qa_agent.eval_authorization create ...`)
+    3) python scripts/eval_b2.py --provider grok --confirm-live-approved --out reports/eval --grant <grant_id> \\
+             --sealed-gold-dir <custody dir>        -> resumes after verifying the approval; never auto-approves the first plan
 
 * replay/stub = HARNESS SELF-TEST: hand-authored recordings, NOT model reasoning. Held-out stories are skipped there.
 * A full evaluation needs: every required story, >= min_runs_per_story runs, a defect-ON and a defect-OFF phase with
   execution results for every run, and (live) the sealed gold for held-out stories. Anything less is never PASS.
 * Failed/missing runs stay in every denominator (scored as zero / not detected / incomplete).
-* Execution needs approval. The harness never bypasses it: without --authorization runs stop at awaiting_approval
-  (=> NOT_EVALUABLE). With it, approval goes through QAAgent.approve_unattended (scoped, audited, runtime-enforced).
+* Execution needs approval. The FIRST plan is always human-reviewed (pause/resume, state survives restarts). Later runs
+  use QAAgent.approve_unattended with a server-side grant created by an authenticated approver (scoped, use-limited,
+  revocable, audited). Without a grant, runs stop at awaiting_approval (=> NOT_EVALUABLE).
+* Eval-only overrides come from config/eval_profile.json (e.g. max_retries=1); the global runtime default is unchanged.
 * Cost/tokens are reported from actual usage only.
 """
 import argparse, contextlib, copy, hashlib, json, os, socket, subprocess, sys, time
@@ -55,13 +64,21 @@ def serve(module, env_extra=None, probe="/"):
         p.terminate(); p.wait(10)
 
 
+def eval_profile_overrides(cfg):
+    prof = load_json(ROOT / "config/eval_profile.json")
+    for k, v in prof.get("providers", {}).items():
+        cfg["providers"].setdefault(k, {}).update(v)
+    cfg["budget"] = {**cfg.get("budget", {}), **prof.get("budget", {})}
+    return cfg
+
+
 def agent_config(provider, stub_url=None):
-    cfg = copy.deepcopy(load_json(ROOT / "config/agent.json"))
+    cfg = eval_profile_overrides(copy.deepcopy(load_json(ROOT / "config/agent.json")))
     if provider == "replay":
         cfg["model"]["provider"] = "replay"
     elif provider == "stub":
         cfg["model"]["provider"] = "grok"
-        cfg["providers"]["grok"].update(enabled=True, base_url=stub_url + "/v1", pricing=dict(STUB_PRICING), timeout_s=30, max_retries=1)
+        cfg["providers"]["grok"].update(enabled=True, base_url=stub_url + "/v1", pricing=dict(STUB_PRICING), timeout_s=30)
         cfg["budget"].update(scope="stub-selftest", total_usd=1000.0, daily_usd=1000.0)   # FAKE prices; isolated scope
     elif provider == "grok":
         cfg["model"]["provider"] = "grok"
@@ -69,7 +86,7 @@ def agent_config(provider, stub_url=None):
         if host in ("127.0.0.1", "localhost", "::1"):
             raise SystemExit("refusing: --provider grok points at a loopback/stub endpoint; live eval must not use recorded answers")
     if provider in ("stub", "replay"):
-        cfg.setdefault("unattended_eval_approval", {})["enabled"] = True   # self-test only; still needs the authorization file
+        cfg.setdefault("unattended_eval_approval", {})["enabled"] = True   # self-test only; still needs a server-side grant
     return cfg
 
 
@@ -86,10 +103,13 @@ def load_sealed_gold(es, key, sealed_dir):
     return g, None
 
 
-def run_story(agent, key, gold, phase, execute, authorization, recorded, provider):
+def run_story(agent, key, gold, phase, execute, grant, recorded, provider, first=None):
     t0 = time.monotonic()
-    rid = agent.start_run(f"Plan {key}", story_key=key, wait=True)
-    latency = round(time.monotonic() - t0, 3)
+    if first:   # the human-reviewed first plan, planned in an earlier invocation
+        rid, latency = first["run_id"], first.get("latency_s", 0.0)
+    else:
+        rid = agent.start_run(f"Plan {key}", story_key=key, wait=True)
+        latency = round(time.monotonic() - t0, 3)
     run = agent.store.get_run(rid)
     kinds = [t["kind"] for t in agent.store.q("SELECT kind FROM telemetry WHERE run_id=?", (rid,))]
     usage = agent.store.run_usage(rid)
@@ -97,10 +117,11 @@ def run_story(agent, key, gold, phase, execute, authorization, recorded, provide
     rec = {"run_id": rid, "story": key, "phase": phase, "status": run["status"], "error": run.get("error"),
            "model_label": run.get("model_label"), "latency_s": latency,
            "policy_violations": kinds.count("policy_violation"), "format_errors": kinds.count("format_error"),
-           "schema_valid_first_try": run["status"] == "awaiting_approval" and kinds.count("format_error") == 0,
+           "schema_valid_first_try": (run["status"] == "awaiting_approval" or bool(first)) and kinds.count("format_error") == 0,
            "tokens_total_actual": sum(c["total_tokens"] or 0 for c in priced),
            "cost_usd_actual": round(sum(c["cost_usd"] or 0 for c in priced), 6), "unpriced_calls": len(usage["calls"]) - len(priced),
-           "planned": run["status"] == "awaiting_approval", "execution": None, "execution_missing_reason": None}
+           "planned": run["status"] == "awaiting_approval" or bool(first), "execution": None, "execution_missing_reason": None,
+           "first_plan_human_reviewed": bool(first)}
     if not rec["planned"]:
         rec["quality"] = dict(ZERO_Q, injection_flagged=False if gold.get("injection") else None, contaminated=False, near_copy=None)
         rec["execution_missing_reason"] = "planning failed"
@@ -113,15 +134,19 @@ def run_story(agent, key, gold, phase, execute, authorization, recorded, provide
     if not execute:
         rec["execution_missing_reason"] = "plan-only (smoke)"
         return rec
-    if not authorization:
-        rec["execution_missing_reason"] = "awaiting human approval (no --authorization)"
-        return rec
     from qa_agent.eval_authorization import AuthorizationError
-    try:
-        agent.approve_unattended(rid, authorization, wait=True)
-    except (AuthorizationError, ValueError) as e:
-        rec["execution_missing_reason"] = f"approval refused: {e}"
+    if first:
+        if run["status"] == "approved":
+            agent.execute_approved(rid, wait=True)
+    elif not grant:
+        rec["execution_missing_reason"] = "awaiting human approval (no --grant)"
         return rec
+    else:
+        try:
+            agent.approve_unattended(rid, grant, wait=True)
+        except (AuthorizationError, ValueError) as e:
+            rec["execution_missing_reason"] = f"approval refused: {e}"
+            return rec
     fin = agent.store.get_run(rid)
     rec["execution"] = {"status": fin["status"], **detection(plan, agent.store.results(rid), gold),
                         "failed_tests": sorted(r["id"] for r in agent.store.results(rid) if r["status"] == "failed")}
@@ -193,6 +218,72 @@ def markdown(rep):
     return "\n".join(L)
 
 
+STATE = "eval_state.json"
+
+
+def _selftest_principal(out):
+    from qa_agent.auth import UserStore
+    us = UserStore(out / "selftest_users.json")
+    tok = us.add("selftest_reviewer", "approver") if "selftest_reviewer" not in json.loads((out / "selftest_users.json").read_text() if (out / "selftest_users.json").exists() else '{"users":{}}').get("users", {}) else None
+    if tok is None:   # rotate: tokens are only shown once
+        d = json.loads((out / "selftest_users.json").read_text()); d["users"].pop("selftest_reviewer"); (out / "selftest_users.json").write_text(json.dumps(d))
+        tok = us.add("selftest_reviewer", "approver")
+    return us.verify(tok)
+
+
+def selftest_grant(agent, out, stories):
+    from qa_agent.eval_authorization import create_grant
+    from datetime import datetime, timedelta, timezone
+    g = create_grant(agent.store, agent.gateway, _selftest_principal(out), {
+        "stories": stories, "environment": "synthetic-local", "skills": ["pim_import_testing", "attribute_mapping_validation"],
+        "actions": ["api_import", "ui_import_error", "ui_import_and_count", "api_product_after_import"],
+        "model_classes": ["STUB ENDPOINT", "REPLAYED"], "max_uses": 1000,
+        "expires_at": (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()})
+    return g["grant_id"]
+
+
+def first_plan_stage(agent, a, out, stories, simulate):
+    """Plan the first plan, persist (run id + exact plan hash), pause for an authenticated human review; resume only after
+    a verified manual approval of that exact plan. Returns (first, paused)."""
+    sp = out / STATE
+    st = json.loads(sp.read_text()) if sp.exists() else {}
+    f = st.get("first_plan")
+    if not f:
+        key = stories[0]
+        t0 = time.monotonic()
+        rid = agent.start_run(f"Plan {key}", story_key=key, wait=True)
+        run = agent.store.get_run(rid)
+        f = {"run_id": rid, "story": key, "plan_hash": run["plan_hash"], "latency_s": round(time.monotonic() - t0, 3),
+             "model_label": run["model_label"], "status_at_creation": run["status"]}
+        st["first_plan"] = f; sp.write_text(json.dumps(st, indent=2))
+        if run["status"] != "awaiting_approval":
+            return None, {"verdict": "NOT_EVALUABLE", "exit": 3, "reason": f"first plan failed: {run.get('error')}", **f}
+        if simulate:
+            agent.review_plan(rid, _selftest_principal(out), "approved", run["plan_hash"], "SIMULATED reviewer (stub self-test only)")
+    run = agent.store.get_run(f["run_id"])
+    if not run:
+        return None, {"verdict": "NOT_EVALUABLE", "exit": 3, "reason": "first-plan run missing from the data dir (state/DB mismatch)", **f}
+    if run["status"] == "awaiting_approval":
+        return None, {"verdict": "PAUSED/AWAITING_FIRST_PLAN_APPROVAL", "exit": 4, **f,
+                      "reason": "first live plan requires manual review and approval by an authenticated approver",
+                      "next": f"QA_TOKEN=<approver token> python -m qa_agent.eval_authorization review --data-dir {out / 'data'} "
+                              f"--users-file <users.json> --run {f['run_id']} --plan-hash {f['plan_hash']} --decision approved|rejected"}
+    ap = agent.approvals.latest(f["run_id"])
+    if run["status"] == "rejected" or (ap and ap["decision"] == "rejected"):
+        return None, {"verdict": "NOT_EVALUABLE", "exit": 5, "reason": f"first plan rejected by {ap and ap['approver']}", **f}
+    if not ap or ap["decision"] != "approved" or not ap.get("identity") or ap.get("auth_mode") != "local":
+        return None, {"verdict": "NOT_EVALUABLE", "exit": 3, "reason": "first plan has no manual authenticated approval", **f}
+    if not (ap["plan_hash"] == run["plan_hash"] == f["plan_hash"]) or run["plan_hash"] != _sha_plan(run):
+        return None, {"verdict": "NOT_EVALUABLE", "exit": 3, "reason": "first plan altered: approved hash != stored plan", **f}
+    f = {**f, "approved_by": ap["identity"], "approved_at": ap["ts"]}
+    return f, None
+
+
+def _sha_plan(run):
+    import hashlib as _h
+    return _h.sha256(canon(run["plan_json"] or {}).encode()).hexdigest()
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--provider", choices=["replay", "stub", "grok"], required=True)
@@ -200,12 +291,16 @@ def main(argv=None):
     ap.add_argument("--stories")
     ap.add_argument("--out", default="reports/eval")
     ap.add_argument("--no-execute", action="store_true")
-    ap.add_argument("--authorization")
+    ap.add_argument("--grant", help="server-side eval grant id (created by an authenticated approver)")
+    ap.add_argument("--self-test-simulated-review", action="store_true",
+                    help="stub/replay ONLY: a SIMULATED local approver reviews the first plan and creates the grant")
     ap.add_argument("--sealed-gold-dir")
     ap.add_argument("--confirm-live-approved", action="store_true")
     a = ap.parse_args(argv)
     if a.provider == "grok" and not a.confirm_live_approved:
         raise SystemExit("refusing: live eval needs --confirm-live-approved (see docs/b2/LIVE_EVAL_APPROVAL_REQUEST.md)")
+    if a.self_test_simulated_review and a.provider == "grok":
+        raise SystemExit("refusing: simulated review is for stub/replay self-tests only; live first plans need a real approver")
     from qa_agent.runtime import QAAgent
     saved = {k: os.environ.get(k) for k in ("SYNTHETIC_SUT_URL", "XAI_API_KEY")}
     try:
@@ -248,15 +343,25 @@ def _run(a, QAAgent):
             rep = {"provider": a.provider, "error": f"{type(e).__name__}: {e}", "verdict": "NOT_EVALUABLE",
                    "mode": "not-run", "completeness": {"complete": False, "missing": ["provider construction failed (fail-closed)"]}}
             (out / "eval_report.json").write_text(json.dumps(rep, indent=2)); print(json.dumps(rep, indent=2)); return 2
-        runs = []
+        runs, first = [], None
+        if not a.no_execute:
+            first, paused = first_plan_stage(agent, a, out, [k for k in golds], a.self_test_simulated_review)
+            if paused:
+                rep = {"provider": a.provider, "verdict": paused["verdict"], "mode": "paused", "first_plan": paused,
+                       "completeness": {"complete": False, "missing": [paused["reason"]]}}
+                (out / "eval_report.json").write_text(json.dumps(rep, indent=2)); print(json.dumps(rep, indent=2))
+                return paused["exit"]
+            if a.self_test_simulated_review and not a.grant:
+                a.grant = selftest_grant(agent, out, list(golds))
         for phase in phases:
             defects = "" if phase == "plan_only" else es["phases"][phase]
             with serve("sut.app:app", {"SUT_DEFECTS": defects}, "/api/health") as sut:
                 os.environ["SYNTHETIC_SUT_URL"] = sut
                 for k in golds:
                     rec = load_json(ROOT / f"fixtures/replay/{k}.json")["responses"]["plan_story"] if (ROOT / f"fixtures/replay/{k}.json").exists() else None
-                    for _ in range(runs_n):
-                        runs.append(run_story(agent, k, golds[k], phase, not a.no_execute, a.authorization, rec, a.provider))
+                    for i in range(runs_n):
+                        use_first = first if (first and phase == "defect_on" and k == first["story"] and i == 0) else None
+                        runs.append(run_story(agent, k, golds[k], phase, not a.no_execute, a.grant, rec, a.provider, use_first))
     for k in set(required) - set(stories):
         missing.append(f"required story {k} not run")
     if runs_n < es["min_runs_per_story"]:
@@ -272,10 +377,12 @@ def _run(a, QAAgent):
     completeness = {"mode": "smoke" if smoke else "full", "complete": not missing, "missing": missing}
     v = verdict(agg, th, completeness)
     banner = ("HARNESS SELF-TEST — answers are hand-authored STUB/REPLAY recordings, NOT real model reasoning. Cost uses FAKE stub pricing."
+              + (" First-plan review and grant were SIMULATED (self-test only)." if a.self_test_simulated_review else "")
               if a.provider in ("stub", "replay") else "LIVE MODEL evaluation on synthetic data. Cost from actual usage × configured price.")
     rep = {"provider": a.provider, "banner": banner, "mode": completeness["mode"], "verdict": v, "stories": list(golds),
            "runs_per_story": runs_n, "phases": phases, "completeness": completeness, "held_out": held_out_info,
            "proposed_thresholds": {k: list(x) for k, x in PROPOSED_THRESHOLDS.items()}, "aggregate": agg, "thresholds": th,
+           "first_plan": first, "simulated_review": bool(a.self_test_simulated_review),
            "runs": runs, "model_labels": sorted({r.get("model_label") or "" for r in runs})}
     (out / "eval_report.json").write_text(json.dumps(rep, indent=2))
     (out / "eval_report.md").write_text(markdown(rep))
