@@ -103,12 +103,12 @@ def load_sealed_gold(es, key, sealed_dir):
     return g, None
 
 
-def run_story(agent, key, gold, phase, execute, grant, recorded, provider, first=None):
+def run_story(agent, key, gold, phase, execute, grant, recorded, provider, first=None, requested_by=None):
     t0 = time.monotonic()
     if first:   # the human-reviewed first plan, planned in an earlier invocation
         rid, latency = first["run_id"], first.get("latency_s", 0.0)
     else:
-        rid = agent.start_run(f"Plan {key}", story_key=key, wait=True)
+        rid = agent.start_run(f"Plan {key}", story_key=key, wait=True, requested_by=requested_by)
         latency = round(time.monotonic() - t0, 3)
     run = agent.store.get_run(rid)
     kinds = [t["kind"] for t in agent.store.q("SELECT kind FROM telemetry WHERE run_id=?", (rid,))]
@@ -251,7 +251,7 @@ def first_plan_stage(agent, a, out, stories, simulate):
     if not f:
         key = stories[0]
         t0 = time.monotonic()
-        rid = agent.start_run(f"Plan {key}", story_key=key, wait=True)
+        rid = agent.start_run(f"Plan {key}", story_key=key, wait=True, requested_by=getattr(a, "requested_by", None))
         run = agent.store.get_run(rid)
         f = {"run_id": rid, "story": key, "plan_hash": run["plan_hash"], "latency_s": round(time.monotonic() - t0, 3),
              "model_label": run["model_label"], "status_at_creation": run["status"]}
@@ -265,6 +265,10 @@ def first_plan_stage(agent, a, out, stories, simulate):
         return None, {"verdict": "NOT_EVALUABLE", "exit": 3, "reason": "first-plan provider/model changed; use a separate evaluation output directory", **f}
     if not run:
         return None, {"verdict": "NOT_EVALUABLE", "exit": 3, "reason": "first-plan run missing from the data dir (state/DB mismatch)", **f}
+    if getattr(a, "requested_by", None) and run.get("requested_by") != a.requested_by:
+        return None, {"verdict": "NOT_EVALUABLE", "exit": 3, "reason": "first-plan requester changed; original authenticated requester required", **f}
+    if getattr(agent.model, "version", None) and run.get("model_version") != agent.model.version:
+        return None, {"verdict": "NOT_EVALUABLE", "exit": 3, "reason": "first-plan model version changed; use a fresh evaluation directory", **f}
     if run["status"] == "awaiting_approval":
         return None, {"verdict": "PAUSED/AWAITING_FIRST_PLAN_APPROVAL", "exit": 4, **f,
                       "reason": "first live plan requires manual review and approval by an authenticated approver",
@@ -286,6 +290,12 @@ def _sha_plan(run):
     return _h.sha256(canon(run["plan_json"] or {}).encode()).hexdigest()
 
 
+def pinned_identity_matches(runs, provider, model, version):
+    """B3 pins an observed digest; never combine revisions into a complete PASS."""
+    return all(r.get("model_provider") == provider and r.get("model_id") == model
+               and (not version or r.get("model_version") == version) for r in runs if r.get("planned"))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument("--provider", choices=["replay", "stub", "compatible", "ollama", "lmstudio", "llamacpp", "vllm", "groq", "gemini", "openrouter"], required=True)
@@ -299,7 +309,17 @@ def main(argv=None):
                     help="stub/replay ONLY: a SIMULATED local approver reviews the first plan and creates the grant")
     ap.add_argument("--sealed-gold-dir")
     ap.add_argument("--confirm-live-approved", action="store_true")
+    ap.add_argument("--requester-users-file", help="optional local requester authentication via QA_TOKEN; required by B3 wrapper")
     a = ap.parse_args(argv)
+    a.requested_by = None
+    if a.requester_users_file:
+        from qa_agent.auth import UserStore
+        principal = UserStore(Path(a.requester_users_file)).verify(os.environ.get("QA_TOKEN", ""))
+        if not principal or not principal.authenticated or principal.role != "requester":
+            raise SystemExit("refusing: QA_TOKEN must authenticate a local requester")
+        if a.provider in ("stub", "replay"):
+            raise SystemExit("refusing: authenticated B3 requester option is for real providers only")
+        a.requested_by = principal.name
     if a.provider not in ("stub", "replay") and not a.confirm_live_approved:
         raise SystemExit("refusing: live eval needs --confirm-live-approved (see docs/b2/LIVE_EVAL_APPROVAL_REQUEST.md)")
     if a.self_test_simulated_review and a.provider not in ("stub", "replay"):
@@ -340,6 +360,8 @@ def _run(a, QAAgent):
             stub = st.enter_context(serve("qa_agent.devtools.model_stub:app", probe="/_stub/requests"))
             os.environ.setdefault("MODEL_API_KEY", "stub-not-a-real-key-000000")
         cfg = agent_config(a.provider, stub)
+        if getattr(a, "requested_by", None) and cfg.get("auth", {}).get("mode") != "local":
+            raise SystemExit("refusing: authenticated requester evaluation requires auth.mode=local")
         if a.model:
             pc = cfg["providers"].get(a.provider, {})
             if pc.get("model") != a.model:
@@ -371,7 +393,8 @@ def _run(a, QAAgent):
                     rec = load_json(ROOT / f"fixtures/replay/{k}.json")["responses"]["plan_story"] if (ROOT / f"fixtures/replay/{k}.json").exists() else None
                     for i in range(runs_n):
                         use_first = first if (first and phase == "defect_on" and k == first["story"] and i == 0) else None
-                        runs.append(run_story(agent, k, golds[k], phase, not a.no_execute, a.grant, rec, a.provider, use_first))
+                        runs.append(run_story(agent, k, golds[k], phase, not a.no_execute, a.grant, rec, a.provider, use_first,
+                                              requested_by=getattr(a, "requested_by", None)))
     for k in set(required) - set(stories):
         missing.append(f"required story {k} not run")
     if runs_n < es["min_runs_per_story"]:
@@ -382,6 +405,8 @@ def _run(a, QAAgent):
     if no_exec and not a.no_execute:
         reasons = sorted({r["execution_missing_reason"] for r in no_exec})
         missing.append(f"{len(no_exec)} planned run(s) without execution results: {reasons}")
+    if a.provider not in ("stub", "replay") and not pinned_identity_matches(runs, a.provider, cfg["providers"][a.provider]["model"], cfg["providers"][a.provider].get("version")):
+        missing.append("provider/model/pinned version changed across evaluation runs")
     agg = aggregate(runs, golds, a.provider)
     th = check_thresholds(agg)
     completeness = {"mode": "smoke" if smoke else "full", "complete": not missing, "missing": missing}
