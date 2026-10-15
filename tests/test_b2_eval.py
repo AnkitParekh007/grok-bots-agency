@@ -138,29 +138,29 @@ def test_repeatability_and_threshold_gates():
 
 
 # ---------------- harness ----------------
-def test_harness_grok_requires_explicit_confirmation(tmp_path):
+def test_harness_compatible_requires_explicit_confirmation(tmp_path):
     with pytest.raises(SystemExit, match="confirm-live-approved"):
-        load_harness().main(["--provider", "grok", "--out", str(tmp_path)])
+        load_harness().main(["--provider", "compatible", "--out", str(tmp_path)])
 
 
-def test_harness_grok_refuses_stub_endpoint(monkeypatch):
+def test_harness_compatible_refuses_stub_endpoint(monkeypatch):
     h = load_harness()
-    cfg = load_json(ROOT / "config/agent.json"); cfg["providers"]["grok"]["base_url"] = "http://127.0.0.1:8701/v1"
+    cfg = load_json(ROOT / "config/agent.json"); cfg["providers"]["compatible"]["base_url"] = "http://127.0.0.1:8701/v1"
     monkeypatch.setattr(h, "load_json", lambda p: cfg)
     with pytest.raises(SystemExit, match="loopback"):
-        h.agent_config("grok")
+        h.agent_config("compatible")
 
 
 @pytest.mark.integration
-def test_harness_grok_fails_closed_with_default_config(tmp_path, monkeypatch):
+def test_harness_compatible_fails_closed_with_default_config(tmp_path, monkeypatch):
     real = socket.socket.connect
     def guard(self, addr):
         if isinstance(addr, tuple) and addr[0] not in ("127.0.0.1", "::1", "localhost"):
             raise AssertionError(f"external network attempted: {addr}")
         return real(self, addr)
     monkeypatch.setattr(socket.socket, "connect", guard)
-    monkeypatch.delenv("XAI_API_KEY", raising=False)
-    rc = load_harness().main(["--provider", "grok", "--confirm-live-approved", "--out", str(tmp_path), "--runs", "1",
+    monkeypatch.delenv("MODEL_API_KEY", raising=False)
+    rc = load_harness().main(["--provider", "compatible", "--confirm-live-approved", "--out", str(tmp_path), "--runs", "1",
                               "--stories", "PCC-DEMO-5"])
     rep = json.loads((tmp_path / "eval_report.json").read_text())
     assert rc == 2 and rep["verdict"] == "NOT_EVALUABLE" and "not enabled" in rep["error"]
@@ -168,7 +168,7 @@ def test_harness_grok_fails_closed_with_default_config(tmp_path, monkeypatch):
 
 @pytest.mark.integration
 def test_harness_stub_subset_is_smoke_never_pass(tmp_path, monkeypatch):
-    monkeypatch.setenv("XAI_API_KEY", "stub-not-a-real-key-000000")
+    monkeypatch.setenv("MODEL_API_KEY", "stub-not-a-real-key-000000")
     rc = load_harness().main(["--provider", "stub", "--out", str(tmp_path), "--runs", "1", "--stories", "PCC-DEMO-5,PCC-DEMO-6",
                               "--self-test-simulated-review"])
     rep = json.loads((tmp_path / "eval_report.json").read_text())

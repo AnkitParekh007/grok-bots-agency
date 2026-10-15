@@ -156,7 +156,7 @@ def make_handler(state: MockState):
                 if p.is_file():
                     return self._send(200, p.read_bytes(), "text/plain")
                 if p.is_dir():
-                    vals = [{"path": str(c.relative_to(d)), "type": "commit_directory" if c.is_dir() else "commit_file",
+                    vals = [{"path": c.relative_to(d).as_posix(), "type": "commit_directory" if c.is_dir() else "commit_file",
                              **({"size": c.stat().st_size} if c.is_file() else {})} for c in sorted(p.iterdir())]
                     return self._paged_cloud(vals, q, base + path.lstrip("/"))
                 raise KeyError(rel)
@@ -164,7 +164,7 @@ def make_handler(state: MockState):
                 sq = q.get("search_query", "")
                 repo, _, term = sq.partition(" ")
                 d = self._repo_dir(parts[1], repo.split(":", 1)[1])
-                vals = [{"file": {"path": str(f.relative_to(d))}, "content_match_count": f.read_text().count(term)}
+                vals = [{"file": {"path": f.relative_to(d).as_posix()}, "content_match_count": f.read_text().count(term)}
                         for f in sorted(d.rglob("*")) if f.is_file() and term in f.read_text()]
                 return self._paged_cloud(vals, q, base + path.lstrip("/"))
             raise KeyError(path)

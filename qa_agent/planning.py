@@ -20,6 +20,7 @@ FORBIDDEN_KEYS = {"command", "cmd", "shell", "script", "exec", "url", "endpoint"
                   "tool", "tools", "approve", "approved", "auto_approve", "approval", "credentials", "token", "api_key",
                   # approval-bypass and environment/production-access attempts
                   "skip_approval", "bypass_approval", "requires_approval", "approver",
+                  "provider", "provider_id", "model_provider", "model_id", "account_tier",
                   "environment", "env", "target", "base_url", "host", "hostname", "production", "prod"}
 SUSPICIOUS_VALUE = re.compile(r"(\bprod(uction)?\b|^/|\bcurl\b|\bwget\b|\brm\s+-|\|\s*(ba)?sh\b|;\s*(ba)?sh\b|[a-z]+://|\.\./|`|\$\()", re.I)
 

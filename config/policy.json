@@ -45,9 +45,7 @@
     "model.request": {
       "requires_approval": false,
       "network": "model_egress",
-      "approved_hosts": [
-        "api.x.ai"
-      ],
+      "approved_hosts": [],
       "require_https": true
     },
     "tracker.search": {

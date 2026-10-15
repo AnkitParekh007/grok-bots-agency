@@ -1,6 +1,6 @@
 """Provider contracts. Only methods with a Milestone A consumer are defined.
 
-Later milestones add implementations (Jira Cloud/DC REST, Bitbucket, Grok, verified
+Later milestones add implementations (Jira Cloud/DC REST, Bitbucket, local/free models, verified
 Playground env, object storage) behind the same contracts.
 """
 from __future__ import annotations

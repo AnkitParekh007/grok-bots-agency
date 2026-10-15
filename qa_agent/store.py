@@ -49,7 +49,7 @@ class Store:
     def _migrate(self):
         def cols(t):
             return {r[1] for r in self.db.execute(f"PRAGMA table_info({t})")}
-        add = {"runs": [("planning_json", "TEXT"), ("requested_by", "TEXT"), ("cancel_requested", "INTEGER DEFAULT 0"),
+        add = {"runs": [("model_id", "TEXT"), ("model_version", "TEXT"), ("planning_json", "TEXT"), ("requested_by", "TEXT"), ("cancel_requested", "INTEGER DEFAULT 0"),
                         ("catalog_version", "TEXT"), ("plan_created_at", "TEXT"),
                         ("project", "TEXT"), ("repository", "TEXT"), ("repo_context_json", "TEXT")],
                "approvals": [("identity", "TEXT"), ("auth_mode", "TEXT"), ("approver_label", "TEXT")],

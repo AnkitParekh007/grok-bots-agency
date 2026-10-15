@@ -9,7 +9,7 @@ def write_report(agent, run_id):
     rep = {
         "report_version": 1, "generated_at": now(), "run_id": run_id, "story_key": run["story_key"],
         "story_summary": run["story_json"]["fields"]["summary"], "environment": run["environment"],
-        "model": {"provider": run["model_provider"], "label": run["model_label"],
+        "model": {"provider": run["model_provider"], "id": run.get("model_id"), "version": run.get("model_version"), "label": run["model_label"],
                   "note": "Test plan and AC extraction were REPLAYED from a recording; no live LLM was called." if run["model_provider"] == "replay" else ""},
         "oracle_source": agent._oracles(run["story_key"]).get("source"),
         "oracle_review": agent._oracles(run["story_key"]).get("review"),

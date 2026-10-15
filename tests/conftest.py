@@ -34,3 +34,24 @@ def sut(defects: str):
 @pytest.fixture
 def sut_factory():
     return sut
+
+
+@pytest.fixture(autouse=True)
+def offline_default(monkeypatch):
+    monkeypatch.setenv("QA_MODEL_PROVIDER", "replay")
+
+
+@pytest.fixture(autouse=True)
+def deny_external_inference_network(monkeypatch):
+    original = socket.socket.connect
+    def guarded(self, address):
+        if isinstance(address, tuple):
+            import ipaddress
+            try:
+                local = ipaddress.ip_address(address[0]).is_loopback
+            except ValueError:
+                local = address[0] == "localhost"
+            if not local:
+                raise AssertionError(f"offline test attempted external network: {address}")
+        return original(self, address)
+    monkeypatch.setattr(socket.socket, "connect", guarded)

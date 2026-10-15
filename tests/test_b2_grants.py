@@ -30,7 +30,7 @@ def env(tmp_path):
     us = UserStore(tmp_path / "u.json")
     toks = {n: us.add(n, r) for n, r in [("bob", "approver"), ("carol", "approver"), ("rita", "requester"), ("vic", "viewer")]}
     P = {n: us.verify(t) for n, t in toks.items()}
-    cfg = load_json(ROOT / "config/agent.json"); cfg["unattended_eval_approval"]["enabled"] = True
+    cfg = load_json(ROOT / "config/agent.json"); cfg["model"]["provider"] = "replay"; cfg["unattended_eval_approval"]["enabled"] = True
     a = QAAgent(tmp_path / "data", agent_cfg=cfg)
     return a, P, toks, cfg, tmp_path
 
@@ -209,7 +209,7 @@ def cli(*args, token=None):
 
 @pytest.fixture
 def stubkey(monkeypatch):
-    monkeypatch.setenv("XAI_API_KEY", "stub-not-a-real-key-000000")
+    monkeypatch.setenv("MODEL_API_KEY", "stub-not-a-real-key-000000")
 
 
 def first_pause(tmp_path):
@@ -280,24 +280,24 @@ def test_first_plan_unauthorized_or_altered(tmp_path, stubkey, users):
     assert rc == 3 and "altered" in rep["first_plan"]["reason"]
 
 
-def test_simulated_review_refused_for_grok(tmp_path):
+def test_simulated_review_refused_for_compatible(tmp_path):
     with pytest.raises(SystemExit, match="simulated review"):
-        harness().main(["--provider", "grok", "--confirm-live-approved", "--self-test-simulated-review", "--out", str(tmp_path)])
+        harness().main(["--provider", "compatible", "--confirm-live-approved", "--self-test-simulated-review", "--out", str(tmp_path)])
 
 
 # ---------------- Task 3: eval-only profile ----------------
 @pytest.mark.cost
 def test_eval_profile_max_retries_only_in_harness():
     glob_cfg = load_json(ROOT / "config/agent.json")
-    assert glob_cfg["providers"]["grok"]["max_retries"] == 3                               # global default unchanged
-    assert glob_cfg["providers"]["grok"]["enabled"] is False
+    assert glob_cfg["providers"]["compatible"]["max_retries"] == 3                               # global default unchanged
+    assert glob_cfg["providers"]["compatible"]["enabled"] is False
     prof = load_json(ROOT / "config/eval_profile.json")
-    assert prof["providers"]["grok"]["max_retries"] == 1
+    assert prof["providers"]["compatible"]["max_retries"] == 1
     assert (prof["budget"]["per_run_usd"], prof["budget"]["daily_usd"], prof["budget"]["total_usd"]) == (1.0, 15.0, 15.0)
     h = harness()
-    assert h.agent_config("stub", "http://127.0.0.1:1")["providers"]["grok"]["max_retries"] == 1
-    assert h.eval_profile_overrides(copy.deepcopy(glob_cfg))["providers"]["grok"]["max_retries"] == 1
-    assert h.eval_profile_overrides(copy.deepcopy(glob_cfg))["providers"]["grok"]["enabled"] is False   # profile never enables grok
+    assert h.agent_config("stub", "http://127.0.0.1:1")["providers"]["compatible"]["max_retries"] == 1
+    assert h.eval_profile_overrides(copy.deepcopy(glob_cfg))["providers"]["compatible"]["max_retries"] == 1
+    assert h.eval_profile_overrides(copy.deepcopy(glob_cfg))["providers"]["compatible"]["enabled"] is False   # profile never enables compatible
 
 
 @pytest.mark.security

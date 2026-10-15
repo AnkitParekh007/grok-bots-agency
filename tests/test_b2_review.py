@@ -3,11 +3,11 @@ import copy, json, socket, threading
 from datetime import datetime, timedelta, timezone
 import httpx, pytest
 from qa_agent import ROOT
-from qa_agent.providers.models import GrokProvider, ProviderConfigError
+from qa_agent.providers.models import OpenAICompatibleProvider, ProviderConfigError
 from qa_agent.runtime import QAAgent, _BudgetLedger, BudgetExceeded
 from qa_agent.store import Store
 from qa_agent.util import load_json
-from tests.b1_helpers import grok_cfg, agent_cfg, fake_key
+from tests.b1_helpers import compatible_cfg, agent_cfg, fake_key
 
 CTX = {"story_key": "PCC-DEMO-2", "data_class": "synthetic", "story": load_json(ROOT / "fixtures/jira/PCC-DEMO-2.json"), "catalog": {}}
 
@@ -24,7 +24,7 @@ def no_external_network(monkeypatch):
 
 @pytest.fixture
 def key(monkeypatch):
-    k = fake_key(); monkeypatch.setenv("XAI_API_KEY", k); return k
+    k = fake_key(); monkeypatch.setenv("MODEL_API_KEY", k); return k
 
 
 # ---------------- (5) budget readiness ----------------
@@ -32,7 +32,7 @@ def key(monkeypatch):
 def test_repo_budget_defaults_are_proposed_eval_caps():
     b = load_json(ROOT / "config/agent.json")["budget"]
     assert (b["per_run_usd"], b["daily_usd"], b["total_usd"]) == (1.0, 15.0, 15.0) and b["scope"]
-    g = load_json(ROOT / "config/agent.json")["providers"]["grok"]
+    g = load_json(ROOT / "config/agent.json")["providers"]["compatible"]
     assert g["enabled"] is False and g["approved"] is False and all(v is None for v in g["pricing"].values() if not isinstance(v, str))
 
 
@@ -46,19 +46,19 @@ def test_repo_budget_defaults_are_proposed_eval_caps():
     {"input_per_mtok_usd": 2.0, "output_per_mtok_usd": 6.0}])
 def test_pricing_validation_fails_closed(key, pricing):
     with pytest.raises(ProviderConfigError, match="pricing"):
-        GrokProvider(grok_cfg("http://127.0.0.1:9/v1", pricing=pricing))
+        OpenAICompatibleProvider(compatible_cfg("http://127.0.0.1:9/v1", pricing=pricing))
 
 
 @pytest.mark.cost
 @pytest.mark.parametrize("bad", [{"total_usd": None}, {"total_usd": 0}, {"daily_usd": -1}, {"per_run_usd": "1"}, {"scope": ""}, {"scope": None}])
 def test_billable_provider_requires_all_caps(tmp_path, key, bad):
-    cfg = agent_cfg("grok", "http://127.0.0.1:9/v1"); cfg["budget"].update(bad)
+    cfg = agent_cfg("compatible", "http://127.0.0.1:9/v1"); cfg["budget"].update(bad)
     with pytest.raises(ProviderConfigError, match="budget"):
         QAAgent(tmp_path, agent_cfg=cfg)
 
 
 def stub_reserve(st, run, est, day=None, scope="s1", total=15.0, per_run=1.0, daily=15.0):
-    uid, reason = st.reserve_spend(run, "grok", "m", "plan_story", 0, 0, est, per_run, daily, total, scope)
+    uid, reason = st.reserve_spend(run, "compatible", "m", "plan_story", 0, 0, est, per_run, daily, total, scope)
     if uid and day:
         st.x("UPDATE usage SET day=? WHERE id=?", (day, uid))
     return uid, reason
@@ -91,12 +91,12 @@ def test_total_cap_atomic_under_concurrency(tmp_path):
 
 @pytest.mark.cost
 def test_total_cap_enforced_through_provider_ledger(tmp_path, key):
-    cfg = agent_cfg("grok", "http://127.0.0.1:9/v1"); cfg["budget"].update(total_usd=1e-9, scope="tiny")
+    cfg = agent_cfg("compatible", "http://127.0.0.1:9/v1"); cfg["budget"].update(total_usd=1e-9, scope="tiny")
     a = QAAgent(tmp_path, agent_cfg=cfg)
     calls = []
-    p = GrokProvider(grok_cfg("http://127.0.0.1:9/v1"), gateway=a.gateway, transport=httpx.MockTransport(lambda r: calls.append(r)), sleep=lambda x: None)
+    p = OpenAICompatibleProvider(compatible_cfg("http://127.0.0.1:9/v1"), gateway=a.gateway, transport=httpx.MockTransport(lambda r: calls.append(r)), sleep=lambda x: None)
     with pytest.raises(BudgetExceeded, match="total cap"):
-        p.generate("plan_story", CTX, {}, run_id="r", budget=_BudgetLedger(a, "r", "grok", "m", "plan_story", 0))
+        p.generate("plan_story", CTX, {}, run_id="r", budget=_BudgetLedger(a, "r", "compatible", "m", "plan_story", 0))
     assert calls == []
 
 
@@ -173,7 +173,7 @@ def test_defect_off_phase_missing_is_not_evaluable():
 @pytest.mark.eval
 @pytest.mark.integration
 def test_full_run_pauses_for_first_plan_review_without_simulation(tmp_path, monkeypatch):
-    monkeypatch.setenv("XAI_API_KEY", "stub-not-a-real-key-000000")
+    monkeypatch.setenv("MODEL_API_KEY", "stub-not-a-real-key-000000")
     rc = harness().main(["--provider", "stub", "--out", str(tmp_path), "--runs", "3"])
     rep = json.loads((tmp_path / "eval_report.json").read_text())
     assert rc == 4 and rep["verdict"] == "PAUSED/AWAITING_FIRST_PLAN_APPROVAL" and "first live plan requires manual review" in rep["first_plan"]["reason"]
@@ -182,7 +182,7 @@ def test_full_run_pauses_for_first_plan_review_without_simulation(tmp_path, monk
 @pytest.mark.eval
 @pytest.mark.integration
 def test_plan_only_is_smoke(tmp_path, monkeypatch):
-    monkeypatch.setenv("XAI_API_KEY", "stub-not-a-real-key-000000")
+    monkeypatch.setenv("MODEL_API_KEY", "stub-not-a-real-key-000000")
     rc = harness().main(["--provider", "stub", "--out", str(tmp_path), "--runs", "3", "--no-execute"])
     rep = json.loads((tmp_path / "eval_report.json").read_text())
     assert rc == 3 and rep["verdict"] == "SMOKE/NOT_EVALUABLE" and rep["phases"] == ["plan_only"]

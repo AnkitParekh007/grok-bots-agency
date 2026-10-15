@@ -57,6 +57,8 @@ class ToolGateway:
             # (not the provider config that also sets base_url) AND the provider must be approved.
             u = urlparse(args.get("url", ""))
             host = u.hostname or ""
+            if u.scheme not in ("http", "https") or u.username or u.password or u.query or u.fragment:
+                return "invalid model endpoint URL"
             from .environments import _is_loopback
             if not _is_loopback(host):
                 if rule.get("require_https", True) and u.scheme != "https":
@@ -71,7 +73,7 @@ class ToolGateway:
         if "file_roots" in rule and ("file" in args or tool == "browser.upload_file"):
             f = Path(args.get("file", "")).resolve()
             roots = [(ROOT / r).resolve() for r in rule["file_roots"]]
-            if not any(str(f).startswith(str(r) + "/") for r in roots):
+            if not any(f.is_relative_to(r) for r in roots):
                 return f"file outside allowed roots: {args.get('file')}"
         return None
 

@@ -2,7 +2,7 @@ import pytest
 import copy, json
 import jsonschema, pytest
 from qa_agent import ROOT
-from qa_agent.providers.models import ReplayModelProvider, GrokProvider, ProviderNotApproved, build_model_provider
+from qa_agent.providers.models import ReplayModelProvider, OpenAICompatibleProvider, ProviderNotApproved, build_model_provider
 from qa_agent.runtime import QAAgent, PlanInvalid
 from qa_agent.schemas import AC_SCHEMA, PLAN_SCHEMA
 from qa_agent.util import load_json
@@ -52,20 +52,20 @@ def test_hallucinated_ac_rejected(tmp_path):
     assert run["status"] == "failed" and "source_quote" in run["error"]
 
 
-def test_grok_disabled_fails_closed(monkeypatch):
+def test_compatible_disabled_fails_closed(monkeypatch):
     cfg = load_json(ROOT / "config/agent.json")
-    monkeypatch.setenv("QA_MODEL_PROVIDER", "grok")
+    monkeypatch.setenv("QA_MODEL_PROVIDER", "compatible")
     with pytest.raises(ProviderNotApproved):
         build_model_provider(cfg, ROOT)
     # even "enabled" without approval ref + key fails closed
     with pytest.raises(ProviderNotApproved):
-        GrokProvider(dict(cfg["providers"]["grok"], enabled=True, approved=True))
+        OpenAICompatibleProvider(dict(cfg["providers"]["compatible"], enabled=True, approved=True))
     monkeypatch.setenv("QA_MODEL_PROVIDER", "openai")
     with pytest.raises(ProviderNotApproved):
         build_model_provider(cfg, ROOT)
 
 
 def test_agent_refuses_to_start_with_unapproved_provider(tmp_path, monkeypatch):
-    monkeypatch.setenv("QA_MODEL_PROVIDER", "grok")
+    monkeypatch.setenv("QA_MODEL_PROVIDER", "compatible")
     with pytest.raises(ProviderNotApproved):
         QAAgent(tmp_path)

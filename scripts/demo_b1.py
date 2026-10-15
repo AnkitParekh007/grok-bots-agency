@@ -3,8 +3,8 @@ Drives the real UI with Playwright as two users (requester, approver) and saves 
 
   .venv/bin/python scripts/demo_b1.py [STORY_KEY]      (default PCC-DEMO-3, the prompt-injection story)
 
-The XAI_API_KEY used here is a FAKE placeholder sent only to the 127.0.0.1 stub. Pricing values are FAKE demo
-placeholders so the cost arithmetic is visible; they are not xAI prices."""
+The MODEL_API_KEY used here is a FAKE placeholder sent only to the 127.0.0.1 stub. Pricing values are FAKE demo
+placeholders so the cost arithmetic is visible; they are not provider prices."""
 import copy, json, os, subprocess, sys, time
 from pathlib import Path
 import httpx
@@ -33,14 +33,14 @@ def main():
     us = UserStore(DATA / "users.json")
     req_tok, appr_tok = us.add("ankit", "requester"), us.add("qa_lead", "approver")
     cfg = json.loads((ROOT / "config/agent.json").read_text())
-    cfg["model"]["provider"] = "grok"
-    cfg["providers"]["grok"].update(enabled=True, base_url="http://127.0.0.1:8701/v1",
+    cfg["model"]["provider"] = "compatible"
+    cfg["providers"]["compatible"].update(enabled=True, base_url="http://127.0.0.1:8701/v1",
                                     pricing={"input_per_mtok_usd": 2.0, "cached_input_per_mtok_usd": 0.5, "output_per_mtok_usd": 6.0},
                                     _pricing_note="FAKE demo placeholder prices")
     (DATA / "demo_b1_agent_config.json").write_text(json.dumps(cfg, indent=2))
     env = dict(os.environ, SUT_DEFECTS=os.environ.get("SUT_DEFECTS", "all"), SYNTHETIC_SUT_URL="http://127.0.0.1:8601",
                QA_AUTH_MODE="local", QA_USERS_FILE=str(DATA / "users.json"), QA_AGENT_CONFIG=str(DATA / "demo_b1_agent_config.json"),
-               XAI_API_KEY="xai-LOCALSTUBFAKEKEY-not-a-real-credential")
+               MODEL_API_KEY="sk-LOCALSTUBFAKEKEY-not-a-real-credential")
     procs = [subprocess.Popen([sys.executable, "-m", "uvicorn", "sut.app:app", "--host", "127.0.0.1", "--port", "8601"], cwd=ROOT, env=env),
              subprocess.Popen([sys.executable, "-m", "uvicorn", "qa_agent.devtools.model_stub:app", "--host", "127.0.0.1", "--port", "8701"], cwd=ROOT, env=env),
              subprocess.Popen([sys.executable, "-m", "qa_agent.server"], cwd=ROOT, env=env)]

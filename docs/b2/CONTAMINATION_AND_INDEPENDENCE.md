@@ -5,7 +5,7 @@
 |---|---|---|
 | `contaminated_plans` (**hard gate**, live only): canonical JSON of the live plan == the recorded stub answer | Verbatim replay of a recording, e.g. a misconfigured stub endpoint or a cached answer | Any paraphrase, re-ordering or partial copy |
 | `near_copy_similarity` (**heuristic, not gated**): Jaccard of normalized tokens of scenario titles, actions and params against the recorded answer; flagged at ≥ 0.80 | Close paraphrases of the recording | Semantic overlap expressed differently. It also has false positives, because good plans for the same story share vocabulary (SKUs, file names, action names) |
-| Loopback/stub refusal in `--provider grok` | Accidentally "evaluating" the local stub | n/a |
+| Loopback/stub refusal in `--provider compatible` (stub guard; all real providers get contamination checks) | Accidentally "evaluating" the local stub | n/a |
 | Prompt check (`test_prompt_never_contains_recorded_answers`) | Recorded answers leaking into prompts | What the provider saw in pre-training or elsewhere |
 | Held-out story PCC-DEMO-7: no stub recording, gold sealed outside the repo (sha256 committed, verified at scoring) | Tuning prompts or validators against the held-out answers inside this repo | Bias of the author, who is the same agent that wrote the other recordings (see below) |
 

@@ -4,10 +4,10 @@ import httpx, pytest
 from fastapi.testclient import TestClient
 from qa_agent import ROOT
 from qa_agent.gateway import PolicyDenied
-from qa_agent.providers.models import GrokProvider, ProviderConfigError
+from qa_agent.providers.models import OpenAICompatibleProvider, ProviderConfigError
 from qa_agent.runtime import QAAgent
 from qa_agent.util import load_json
-from tests.b1_helpers import grok_cfg, fake_key
+from tests.b1_helpers import compatible_cfg, fake_key
 
 CTX = {"story_key": "PCC-DEMO-2", "data_class": "synthetic", "story": load_json(ROOT / "fixtures/jira/PCC-DEMO-2.json"), "catalog": {}}
 
@@ -24,7 +24,7 @@ def no_external_network(monkeypatch):
 
 @pytest.fixture
 def key(monkeypatch):
-    k = fake_key(); monkeypatch.setenv("XAI_API_KEY", k); return k
+    k = fake_key(); monkeypatch.setenv("MODEL_API_KEY", k); return k
 
 
 def ok_body():
@@ -49,16 +49,16 @@ APPROVED = dict(approved=True, approval_ref="TEST-ONLY")
 @pytest.mark.security
 def test_non_loopback_http_base_url_rejected_at_construction(key):
     with pytest.raises(ProviderConfigError, match="https"):
-        GrokProvider(grok_cfg("http://api.x.ai/v1", **APPROVED))
-    GrokProvider(grok_cfg("http://127.0.0.1:9/v1"))      # loopback stub may use http
+        OpenAICompatibleProvider(compatible_cfg("http://api.groq.com/v1", **APPROVED))
+    OpenAICompatibleProvider(compatible_cfg("http://127.0.0.1:9/v1"))      # loopback stub may use http
 
 
 @pytest.mark.provider
 @pytest.mark.security
 def test_gateway_denies_http_even_if_provider_check_bypassed(tmp_path, key):
     a = QAAgent(tmp_path); s = Script((200, ok_body()))
-    p = GrokProvider(grok_cfg("https://api.x.ai/v1", **APPROVED), gateway=a.gateway, transport=httpx.MockTransport(s), sleep=lambda x: None)
-    p.base_url = "http://api.x.ai/v1"                    # downgrade after construction
+    p = OpenAICompatibleProvider(compatible_cfg("https://api.groq.com/v1", **APPROVED), gateway=a.gateway, transport=httpx.MockTransport(s), sleep=lambda x: None)
+    p.base_url = "http://api.groq.com/v1"                    # downgrade after construction
     with pytest.raises(PolicyDenied, match="must use https"):
         p.generate("plan_story", CTX, {}, run_id="r-http")
     assert s.calls == [] and a.store.audit_rows("r-http")[-1]["decision"] == "deny"
@@ -68,13 +68,13 @@ def test_gateway_denies_http_even_if_provider_check_bypassed(tmp_path, key):
 @pytest.mark.security
 def test_provider_config_cannot_extend_host_allowlist(tmp_path, key):
     a = QAAgent(tmp_path); s = Script((200, ok_body()))
-    cfg = grok_cfg("https://evil.example/v1", **APPROVED, approved_model_hosts=["evil.example"])   # ignored
-    p = GrokProvider(cfg, gateway=a.gateway, transport=httpx.MockTransport(s), sleep=lambda x: None)
+    cfg = compatible_cfg("https://evil.example/v1", **APPROVED, approved_model_hosts=["evil.example"])   # ignored
+    p = OpenAICompatibleProvider(cfg, gateway=a.gateway, transport=httpx.MockTransport(s), sleep=lambda x: None)
     with pytest.raises(PolicyDenied, match="not in policy approved_hosts"):
         p.generate("plan_story", CTX, {}, run_id="r-host")
     assert s.calls == []
-    assert load_json(ROOT / "config/policy.json")["tools"]["model.request"]["approved_hosts"] == ["api.x.ai"]
-    assert "approved_model_hosts" not in load_json(ROOT / "config/agent.json")["providers"]["grok"]
+    assert load_json(ROOT / "config/policy.json")["tools"]["model.request"]["approved_hosts"] == []
+    assert "approved_model_hosts" not in load_json(ROOT / "config/agent.json")["providers"]["compatible"]
 
 
 # ---------------- budget: per-attempt reservation, concurrency, missing usage ----------------
@@ -82,18 +82,18 @@ from qa_agent.runtime import _BudgetLedger, BudgetExceeded
 from qa_agent.store import Store
 
 
-def grok(a, s, **over):
-    return GrokProvider(grok_cfg("http://127.0.0.1:9/v1", **over), gateway=a.gateway, transport=httpx.MockTransport(s), sleep=lambda x: None)
+def compatible(a, s, **over):
+    return OpenAICompatibleProvider(compatible_cfg("http://127.0.0.1:9/v1", **over), gateway=a.gateway, transport=httpx.MockTransport(s), sleep=lambda x: None)
 
 
 def ledger(a, run_id="r-b"):
-    return _BudgetLedger(a, run_id, "grok", "grok-test", "plan_story", 0)
+    return _BudgetLedger(a, run_id, "compatible", "contract-test", "plan_story", 0)
 
 
 @pytest.mark.cost
 def test_every_retry_attempt_is_reserved_and_charged(tmp_path, key):
     a = QAAgent(tmp_path); s = Script((503, {}), (429, {}), (200, ok_body()))
-    p = grok(a, s)
+    p = compatible(a, s)
     r = p.generate("plan_story", CTX, {}, run_id="r-b", budget=ledger(a))
     rows = a.store.run_usage("r-b")["calls"]
     assert [x["outcome"] for x in rows] == ["http_503", "http_429", "stop"] and [x["http_attempt"] for x in rows] == [0, 1, 2]
@@ -106,7 +106,7 @@ def test_every_retry_attempt_is_reserved_and_charged(tmp_path, key):
 @pytest.mark.cost
 def test_retries_stop_when_next_attempt_would_exceed_cap(tmp_path, key):
     a = QAAgent(tmp_path); s = Script((503, {}), (503, {}), (200, ok_body()))
-    p = grok(a, s)
+    p = compatible(a, s)
     est = p.estimate_max_cost(len(json.dumps(p.build_body("plan_story", CTX, {})["messages"])))
     a.budget["per_run_usd"] = est * 1.5                   # room for exactly one worst-case attempt
     with pytest.raises(BudgetExceeded, match="per-run cap"):
@@ -120,7 +120,7 @@ def test_first_attempt_denied_sends_nothing(tmp_path, key):
     a = QAAgent(tmp_path); s = Script((200, ok_body()))
     a.budget["daily_usd"] = 1e-9
     with pytest.raises(BudgetExceeded, match="daily cap"):
-        grok(a, s).generate("plan_story", CTX, {}, run_id="r-b", budget=ledger(a))
+        compatible(a, s).generate("plan_story", CTX, {}, run_id="r-b", budget=ledger(a))
     assert s.calls == [] and a.store.run_usage("r-b")["calls"] == []
 
 
@@ -128,7 +128,7 @@ def test_first_attempt_denied_sends_nothing(tmp_path, key):
 def test_missing_usage_keeps_conservative_charge_and_null_tokens(tmp_path, key):
     a = QAAgent(tmp_path); b = ok_body(); b.pop("usage")
     with pytest.raises(Exception, match="usage"):
-        grok(a, Script((200, b))).generate("plan_story", CTX, {}, run_id="r-b", budget=ledger(a))
+        compatible(a, Script((200, b))).generate("plan_story", CTX, {}, run_id="r-b", budget=ledger(a))
     (row,) = a.store.run_usage("r-b")["calls"]
     assert row["outcome"] == "usage_missing" and row["priced"] == 0 and row["cost_usd"] == row["est_usd"] > 0
     assert all(row[k] is None for k in ("prompt_tokens", "completion_tokens", "reasoning_tokens", "total_tokens"))
@@ -138,7 +138,7 @@ def test_missing_usage_keeps_conservative_charge_and_null_tokens(tmp_path, key):
 @pytest.mark.security
 def test_policy_denied_attempt_not_charged(tmp_path, key):
     a = QAAgent(tmp_path); s = Script((200, ok_body()))
-    p = grok(a, s); p.base_url = "https://evil.example/v1"
+    p = compatible(a, s); p.base_url = "https://evil.example/v1"
     with pytest.raises(PolicyDenied):
         p.generate("plan_story", CTX, {}, run_id="r-b", budget=ledger(a))
     (row,) = a.store.run_usage("r-b")["calls"]
@@ -156,7 +156,7 @@ def test_concurrent_reservations_are_atomic(tmp_path, separate_connections):
     def worker(i):
         st = stores[i] or shared
         start.wait()
-        uid, reason = st.reserve_spend(f"run-{i}", "grok", "m", "plan_story", 0, 0, 1.0, per_run_cap=100.0, daily_cap=5.0)
+        uid, reason = st.reserve_spend(f"run-{i}", "compatible", "m", "plan_story", 0, 0, 1.0, per_run_cap=100.0, daily_cap=5.0)
         if uid:
             ok.append(i)
 
@@ -171,9 +171,9 @@ def test_concurrent_runs_share_daily_cap(tmp_path, key):
     """Two agents (separate Store connections, same DB) planning concurrently cannot jointly exceed the daily cap."""
     from tests.b1_helpers import agent_cfg, model_stub
     with model_stub() as stub:
-        probe = QAAgent(tmp_path / "probe", agent_cfg=agent_cfg("grok", stub.base))
+        probe = QAAgent(tmp_path / "probe", agent_cfg=agent_cfg("compatible", stub.base))
         est = probe.store.run_usage(probe.start_run("Plan PCC-DEMO-2", wait=True))["calls"][0]["est_usd"]
-        cfg = agent_cfg("grok", stub.base, budget={"per_run_usd": 10, "daily_usd": est * 1.5})   # room for one attempt
+        cfg = agent_cfg("compatible", stub.base, budget={"per_run_usd": 10, "daily_usd": est * 1.5})   # room for one attempt
         stub.queue([{"sleep": 1}, {"sleep": 1}])   # both requests in flight at the same time (reservations held)
         agents = [QAAgent(tmp_path / "shared", agent_cfg=cfg) for _ in range(2)]
         rids, start = [], threading.Barrier(2)

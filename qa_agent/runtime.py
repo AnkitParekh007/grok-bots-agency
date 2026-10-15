@@ -1,7 +1,7 @@
 """Generic QA agent runtime: story -> model planning (understanding, ACs, behaviors, tests, gaps) -> validation ->
 human approval of the exact plan hash -> execution (single active execution) -> compare -> report.
 Domain specifics live in skills + oracle manifests, not here."""
-import json, re, threading, uuid
+import json, math, re, threading, uuid
 from pathlib import Path
 from . import ROOT
 from . import planning as P
@@ -64,13 +64,13 @@ class QAAgent:
         self.git = build_git(self.cfg, gateway=self.gateway)           # synthetic_git by default
         self.projects = {k: v for k, v in (self.cfg.get("projects") or {}).items() if not k.startswith("_")}
         self.skills = LocalSkillRegistry()
-        self.model = build_model_provider(self.cfg, ROOT, gateway=self.gateway)  # fail-closed if not approved/configured
+        self.model = build_model_provider(self.cfg, ROOT, gateway=self.gateway, selected=self.cfg["model"]["provider"] if agent_cfg is not None else None)  # fail-closed if not approved/configured
         self.budget = {"per_run_usd": 1.0, "daily_usd": 15.0, **self.cfg.get("budget", {})}
         if getattr(self.model, "per_attempt_budget", False):
             # billable provider: every cap must be explicitly configured, positive and numeric (fail closed)
             for k in ("per_run_usd", "daily_usd", "total_usd"):
                 v = self.budget.get(k)
-                if not isinstance(v, (int, float)) or isinstance(v, bool) or v <= 0:
+                if not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v) or v <= 0:
                     raise ProviderConfigError(f"budget.{k} must be a positive number for a billable provider (got {v!r})")
             if not isinstance(self.budget.get("scope"), str) or not self.budget["scope"].strip():
                 raise ProviderConfigError("budget.scope (persistent total-cap scope id) is required for a billable provider")
@@ -80,6 +80,9 @@ class QAAgent:
         self.exec_lock = threading.Lock()
         self.plan_ttl_min = float(self.cfg.get("plan", {}).get("ttl_minutes", 60))
         self.threads = []
+        self._run_models = {}
+        from .providers.registry import ModelRegistry
+        self.models = ModelRegistry(self)
 
     # ---------- public API ----------
     def select(self, project=None, story_key=None, repository=None, environment=None):
@@ -100,7 +103,16 @@ class QAAgent:
         return pc
 
     def start_run(self, request: str, environment: str | None = None, story_key: str | None = None, wait=False, requested_by=None,
-                  project: str | None = None, repository: str | None = None):
+                  project: str | None = None, repository: str | None = None,
+                  model_provider: str | None = None, model_id: str | None = None):
+        model = self.models.resolve(model_provider, model_id) if model_provider else self.model
+        if model_id and not model_provider:
+            raise ProviderNotApproved("model_id requires model_provider")
+        if getattr(model, "per_attempt_budget", False):
+            for cap in ("per_run_usd", "daily_usd", "total_usd"):
+                if not isinstance(self.budget.get(cap), (int, float)) or isinstance(self.budget.get(cap), bool) or not math.isfinite(self.budget[cap]) or self.budget[cap] <= 0:
+                    raise ProviderConfigError("paid model requires configured dollar caps")
+            if not self.budget.get("scope"): raise ProviderConfigError("paid model requires budget scope")
         env_name = environment or self.cfg["default_environment"]
         if project or repository:
             self.select(project, story_key, repository, environment)
@@ -108,7 +120,10 @@ class QAAgent:
             m = KEY_RE.search(request or "")
             story_key = m.group(1) if m else ("PCC-DEMO-1" if "synthetic supplier import" in (request or "").lower() else None)
         run_id = "run-" + uuid.uuid4().hex[:10]
-        self.store.create_run(run_id, request, env_name, self.model.name, self.model.label)
+        self._run_models[run_id] = model
+        self.store.create_run(run_id, request, env_name, model.name, model.label)
+        self.store.update_run(run_id, model_id=getattr(model, "model", model.name), model_version=getattr(model, "version", None))
+        self.gateway.record(run_id, "model.selected", {"provider": model.name, "model": getattr(model, "model", model.name), "version": getattr(model, "version", None)}, "allow", "model selected for new run")
         if requested_by:
             self.store.update_run(run_id, requested_by=requested_by)
         if project or repository:
@@ -261,6 +276,8 @@ class QAAgent:
             msg = redact(f"{type(e).__name__}: {e}")
             self.store.event(run_id, "error", msg)
             self.store.update_run(run_id, status="failed", error=msg)
+        finally:
+            self._run_models.pop(run_id, None)
 
     def _tool(self, run_id, tool, args, fn, ctx=None):
         return self.gateway.invoke(run_id, tool, args, fn, ctx)
@@ -276,6 +293,7 @@ class QAAgent:
         return sorted(p.name for p in d.glob("*.csv"))
 
     def _plan(self, run_id, story_key, env_name):
+        model = self._run_models.get(run_id, self.model)
         ev = lambda s, m: self.store.event(run_id, s, m)
         if not story_key:
             raise ValueError("no story key found in request")
@@ -312,22 +330,27 @@ class QAAgent:
         self.store.update_run(run_id, ac_json=ac, planning_json=planning, plan_json=plan, plan_hash=plan_hash,
                               catalog_version=catalog["catalog_version"], plan_created_at=now(), status="awaiting_approval")
         cats = {c: sum(t["category"] == c for t in plan["test_cases"]) for c in P.CATEGORIES}
-        ev("ac", f"[{self.model.label}] {len(ac['acceptance_criteria'])} acceptance criteria, each traced to verbatim story text")
-        ev("plan", f"[{self.model.label}] Test plan: {len(plan['test_cases'])} cases {cats}, {len(gaps)} coverage gap(s) (sha256 {plan_hash[:12]})")
+        ev("ac", f"[{model.label}] {len(ac['acceptance_criteria'])} acceptance criteria, each traced to verbatim story text")
+        ev("plan", f"[{model.label}] Test plan: {len(plan['test_cases'])} cases {cats}, {len(gaps)} coverage gap(s) (sha256 {plan_hash[:12]})")
         ev("approval", "Waiting for human approval. Execution is blocked until the exact plan is approved.")
 
     def _model_plan(self, run_id, mctx, desc, oracles):
         feedback, attempt = None, 0
-        pname = self.model.name
+        model = self._run_models.get(run_id, self.model)
+        pname = model.name
+        if pname in ("ollama", "lmstudio", "llamacpp", "vllm"):
+            model.prepare()
+            self.store.update_run(run_id, model_version=model.version)
         while True:
-            billable = getattr(self.model, "per_attempt_budget", False)
+            billable = getattr(model, "per_attempt_budget", False)
             if billable:
-                ledger = _BudgetLedger(self, run_id, pname, getattr(self.model, "model", pname), "plan_story", attempt)
-                call = lambda: self.model.generate("plan_story", mctx, P.PLAN_STORY_SCHEMA, feedback, run_id=run_id, budget=ledger)
+                ledger = _BudgetLedger(self, run_id, pname, getattr(model, "model", pname), "plan_story", attempt)
+                call = lambda: model.generate("plan_story", mctx, P.PLAN_STORY_SCHEMA, feedback, run_id=run_id, budget=ledger)
             else:
-                est = self.model.estimate_max_cost(len(json.dumps(P.build_messages("plan_story", mctx, feedback))))
-                self._budget_check(run_id, est)
-                call = lambda: self.model.generate("plan_story", mctx, P.PLAN_STORY_SCHEMA, feedback, run_id=run_id)
+                est = model.estimate_max_cost(len(json.dumps(P.build_messages("plan_story", mctx, feedback))))
+                if not getattr(model, "cost_free", False):
+                    self._budget_check(run_id, est)
+                call = lambda: model.generate("plan_story", mctx, P.PLAN_STORY_SCHEMA, feedback, run_id=run_id)
             try:
                 resp = self._tool(run_id, "model.complete",
                                   {"task": "plan_story", "story": mctx["story_key"], "provider": pname, "repair_attempt": attempt}, call)
@@ -338,7 +361,7 @@ class QAAgent:
             except UsageMissing as e:
                 # never invent usage: token counts stay NULL; the conservative estimate stays charged against the budget
                 if not billable:
-                    self.store.add_usage(run_id, pname, getattr(self.model, "model", pname), "plan_story", attempt, None, est, False, "usage_missing")
+                    self.store.add_usage(run_id, pname, getattr(model, "model", pname), "plan_story", attempt, None, est, False, "usage_missing")
                 self.store.telemetry(run_id, "usage_missing", pname, str(e))
                 raise
             except ModelCallError as e:
@@ -349,6 +372,8 @@ class QAAgent:
                 raise   # no automatic fallback to another provider
             if not billable:   # billable providers already settled every HTTP attempt in the ledger
                 self.store.add_usage(run_id, resp.provider, resp.model, "plan_story", attempt, resp.usage, resp.cost_usd, resp.priced, resp.finish_reason)
+            self.store.update_run(run_id, model_id=resp.model, model_version=getattr(resp, "version", None), model_label=resp.label)
+            self.store.telemetry(run_id, "model_performance", pname, json.dumps({"model": resp.model, **getattr(resp, "metrics", {})}))
             self.store.telemetry(run_id, "model_call_ok", pname, f"attempts={resp.attempts} tokens={resp.usage.get('total_tokens', 0)} cost={resp.cost_usd}")
             try:
                 obj = P.parse_output(resp.text, resp.finish_reason)

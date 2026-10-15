@@ -3,7 +3,7 @@ import httpx
 from qa_agent import ROOT
 from qa_agent.util import load_json
 
-# FAKE test prices (USD per 1M tokens) - only for exercising the cost arithmetic. Not xAI's prices.
+# FAKE test prices (USD per 1M tokens) - only for exercising the cost arithmetic. Not provider's prices.
 TEST_PRICING = {"input_per_mtok_usd": 2.0, "cached_input_per_mtok_usd": 0.5, "output_per_mtok_usd": 6.0}
 
 
@@ -13,25 +13,25 @@ def free_port():
         return s.getsockname()[1]
 
 
-def grok_cfg(base_url, **over):
-    c = copy.deepcopy(load_json(ROOT / "config/agent.json")["providers"]["grok"])
+def compatible_cfg(base_url, **over):
+    c = copy.deepcopy(load_json(ROOT / "config/agent.json")["providers"]["compatible"])
     c.update(enabled=True, base_url=base_url, pricing=dict(TEST_PRICING), backoff_base_s=0.01, max_backoff_s=0.05, timeout_s=5)
     c.update(over)
     return c
 
 
-def agent_cfg(provider="grok", base_url=None, **section_over):
+def agent_cfg(provider="compatible", base_url=None, **section_over):
     c = copy.deepcopy(load_json(ROOT / "config/agent.json"))
     c["model"]["provider"] = provider
     if base_url:
-        c["providers"]["grok"] = grok_cfg(base_url)
+        c["providers"]["compatible"] = compatible_cfg(base_url)
     for k, v in section_over.items():
         c[k] = {**c.get(k, {}), **v} if isinstance(v, dict) else v
     return c
 
 
 def fake_key():
-    return "xai-TESTSECRET" + secrets.token_hex(12)
+    return "sk-TESTSECRET" + secrets.token_hex(12)
 
 
 @contextlib.contextmanager
