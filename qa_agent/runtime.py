@@ -9,6 +9,7 @@ from .environments import RegistryEnvironmentProvider
 from .executor import PlaywrightExecutor
 from .gateway import ToolGateway, PolicyDenied
 from .providers.mock_jira import MockJiraProvider
+from .integrations.registry import build_tracker, build_git
 from .providers.models import (build_model_provider, ProviderNotApproved, DataClassDenied, ModelCallError, UsageMissing)
 from .report import write_report
 from .skills import LocalSkillRegistry
@@ -59,7 +60,9 @@ class QAAgent:
         self.approvals = SqliteApprovalProvider(self.store)
         self.envs = RegistryEnvironmentProvider(load_json(Path(config_dir) / "environments.json"))
         self.gateway = ToolGateway(self.policy, self.store, self.approvals, self.envs, self.artifacts, Path(data_dir) / "audit.jsonl")
-        self.tracker = MockJiraProvider(ROOT / self.cfg["issue_tracker"]["fixtures_dir"])
+        self.tracker = build_tracker(self.cfg, gateway=self.gateway)   # mock_jira by default; real adapters fail closed
+        self.git = build_git(self.cfg, gateway=self.gateway)           # synthetic_git by default
+        self.projects = {k: v for k, v in (self.cfg.get("projects") or {}).items() if not k.startswith("_")}
         self.skills = LocalSkillRegistry()
         self.model = build_model_provider(self.cfg, ROOT, gateway=self.gateway)  # fail-closed if not approved/configured
         self.budget = {"per_run_usd": 1.0, "daily_usd": 15.0, **self.cfg.get("budget", {})}
@@ -79,8 +82,28 @@ class QAAgent:
         self.threads = []
 
     # ---------- public API ----------
-    def start_run(self, request: str, environment: str | None = None, story_key: str | None = None, wait=False, requested_by=None):
+    def select(self, project=None, story_key=None, repository=None, environment=None):
+        """Validate a workspace selection (project -> story / repository / environment). Raises ValueError."""
+        if not project:
+            if repository:
+                raise ValueError("repository selection requires a project")
+            return None
+        pc = self.projects.get(project)
+        if not pc:
+            raise ValueError(f"project {project!r} is not configured")
+        if story_key and not story_key.startswith(pc["jira_project"] + "-"):
+            raise ValueError(f"story {story_key} is not in project {pc['jira_project']}")
+        if repository and repository not in pc.get("repositories", []):
+            raise ValueError(f"repository {repository!r} is not linked to project {project}")
+        if environment and environment not in pc.get("environments", []):
+            raise ValueError(f"environment {environment!r} is not linked to project {project}")
+        return pc
+
+    def start_run(self, request: str, environment: str | None = None, story_key: str | None = None, wait=False, requested_by=None,
+                  project: str | None = None, repository: str | None = None):
         env_name = environment or self.cfg["default_environment"]
+        if project or repository:
+            self.select(project, story_key, repository, environment)
         if not story_key:
             m = KEY_RE.search(request or "")
             story_key = m.group(1) if m else ("PCC-DEMO-1" if "synthetic supplier import" in (request or "").lower() else None)
@@ -88,6 +111,8 @@ class QAAgent:
         self.store.create_run(run_id, request, env_name, self.model.name, self.model.label)
         if requested_by:
             self.store.update_run(run_id, requested_by=requested_by)
+        if project or repository:
+            self.store.update_run(run_id, project=project, repository=repository)
         self.store.event(run_id, "start", f"Request received: {request!r}")
         return self._spawn(run_id, self._plan, run_id, story_key, env_name, wait=wait)
 
@@ -256,12 +281,24 @@ class QAAgent:
             raise ValueError("no story key found in request")
         env = self._tool(run_id, "env.resolve", {"name": env_name}, lambda: self.envs.resolve(env_name))
         ev("environment", f"Environment '{env_name}' resolved -> {env['base_url']} ({env['status']})")
+        run0 = self.store.get_run(run_id)
+        if run0.get("project"):
+            self.select(run0["project"], story_key, run0.get("repository"), env_name)   # selection re-checked server-side
         story = self._tool(run_id, "tracker.get_issue", {"key": story_key}, lambda: self.tracker.get_issue(story_key))
         self.store.update_run(run_id, story_key=story_key, story_json=story)
-        ev("story", f"Read {story_key}: {story['fields']['summary']}")
+        ev("story", f"Read {story_key} via {getattr(self.tracker, 'kind', 'tracker')}: {story['fields']['summary']}")
+        if run0.get("repository"):
+            repo = run0["repository"]
+            ctx = self._tool(run_id, "git.repo_context", {"repo": repo}, lambda: self.git.repo_context(repo))
+            self.store.update_run(run_id, repo_context_json={"repository": ctx["repository"], "ref": ctx["ref"],
+                                                             "top_level": [e["path"] for e in ctx["top_level"]]})
+            ev("repository", f"Read-only repository context {repo}@{ctx['ref']} via {getattr(self.git, 'kind', 'git')}: "
+                             f"{len(ctx['top_level'])} top-level entries (context only; not sent to the model in C0)")
         desc = story["fields"]["description"]
         labels = story["fields"].get("labels") or []
-        data_class = "synthetic" if ("synthetic" in labels and env.get("data_class") == "synthetic") else "unclassified"
+        data_class = "synthetic" if ("synthetic" in labels and env.get("data_class") == "synthetic"
+                                     and getattr(self.tracker, "kind", "") == "mock_jira") else "unclassified"
+        # Stories from a real tracker are never auto-classified synthetic by label: model input stays gated (fail closed).
         ev("data_class", f"Data classification for model input: {data_class}")
         oracles = self._oracles(story_key)
         catalog = P.build_catalog(self.skills, oracles, self.fixture_files())

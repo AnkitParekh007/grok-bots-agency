@@ -1,4 +1,4 @@
-# Bluemeteor QA Agent — Milestones A + B1 (local, synthetic; no real model reasoning yet)
+# Bluemeteor QA Agent — Milestones A, B1, B2-prep, C0 (local, synthetic; no real model reasoning yet)
 
 A small, working, general-purpose QA agent. It reads a Jira-style story, extracts acceptance criteria, proposes a
 test plan, waits for **human approval of the exact plan**, runs **real Playwright** browser + API tests against a
@@ -170,6 +170,38 @@ This starts the SUT, the stub on `127.0.0.1:8701` and the agent with `QA_AUTH_MO
 2. In `config/agent.json → providers.grok`, set `enabled: true`, `approved: true` and `approval_ref: "<ticket/decision id>"`, confirm `model` and `base_url`, and enter `pricing` from the xAI console. Set `budget` caps.
 3. Provide `XAI_API_KEY` from the approved secret store to the server process environment only, then set `model.provider: "grok"` (or `QA_MODEL_PROVIDER=grok`).
 4. Run `pytest` (the offline suite still uses replay and the stub), then one supervised PCC-DEMO run and a check that `/api/audit/verify` passes. Compare the live plans against the oracles, and record approved live outputs as new replay fixtures for CI.
+
+## Milestone C0: read-only integration foundation (local mocks only)
+
+Nothing here connects to Bluemeteor Jira, Bitbucket or environments. The defaults are synthetic: `mock_jira` (fixtures), `synthetic_git` (`fixtures/repos/`), and only `synthetic-local` is executable.
+
+- **Jira** (`qa_agent/integrations/jira.py`): `JiraCloudProvider` (REST v3, ADF flattened, `search/jql` + `nextPageToken`) and `JiraDataCenterProvider` (REST v2, `startAt`). They cover issues, acceptance criteria (a configurable custom field, otherwise the description section), paginated comments, attachment metadata and size-capped content, and project-scoped search. Raw JQL is never accepted; search text is quoted. The project allowlist is checked on the requested key and on the project of every returned issue.
+- **Bitbucket** (`qa_agent/integrations/bitbucket.py`): `BitbucketCloudProvider` (2.0, `next` links) and `BitbucketDataCenterProvider` (1.0, `nextPageStart`). They cover repository discovery filtered to the allowlist, file read, directory listing, and repository context (default branch, top level, README). Cloud code search runs only with `code_search_enabled=true`; DC raises `Unsupported`. There is no clone or write. Paths and refs are validated to block traversal.
+- **Transport** (`integrations/http.py`):
+  - Only GET is allowed; any other method fails before a socket opens, and `integration.http` must also pass the default-deny policy.
+  - The origin must be allowlisted; this is re-checked on every absolute pagination link, and redirects are not followed.
+  - Timeouts apply, retries are bounded (429/502/503/504 and transport errors, with backoff and capped Retry-After), and 401/403/other 4xx are never retried.
+  - Credentials are read only from the env var names in config, and their values (including basic-auth blobs) are redacted. Every request is written to the hash-chained audit log.
+- **Authorization to connect (fail closed):** a real adapter will not construct unless `enabled=true`, `approved=true` with an `approval_ref`, a `base_url` whose host is in `allowed_hosts`, https, the credential env vars set, and a non-empty project/repository allowlist. Plain http is accepted only when `local_mock=true` and the host is loopback. All four adapters ship disabled in `config/agent.json` under `integrations`.
+- **Environments** (`config/environments.json`): `bluemeteor-dev` and `bluemeteor-playground` are `unverified`, with no base_url. Production is hard-blocked by flag, name or `prohibited_host_patterns`. A non-loopback environment executes only when all of these are present:
+  - `status=verified`
+  - a `safety_verification` record {verified_by, verified_at, approval_ref}
+  - an https host on `allowed_hosts`
+  - synthetic `test_accounts` (credential env var names)
+  - a `cleanup` procedure (procedure_ref and steps)
+  - `data_class=synthetic`
+- **Workspace:** project, story, repository and environment selectors. The endpoints are `GET /api/projects`, `/api/projects/{p}/stories[?q=]`, `/api/projects/{p}/stories/{key}` (AC, comments, attachments), `/api/projects/{p}/repositories`, `.../repositories/{owner}/{slug}/context` and `/api/environments`. Selection is validated server-side (the story must be in the project; the repo and environment must be linked) and re-checked at planning time. Repository context is recorded on the run but **not** sent to the model in C0. Stories from a real tracker are never auto-classified `synthetic`, so model input stays gated. Approval, roles and run ownership are unchanged.
+- **Local mocks:** `python -m qa_agent.devtools.integration_mocks 8701` serves the Jira Cloud/DC and Bitbucket Cloud/DC shapes from synthetic fixtures, with fault injection. Tests: `tests/test_c0_integrations.py`.
+
+**To enable a real integration, Bluemeteor must provide:**
+- an approval reference
+- the Jira site/base URL and deployment type (Cloud or DC)
+- a read-only service account and API token/PAT limited to the approved project keys
+- the acceptance-criteria custom field id, if one is used
+- the Bitbucket workspace/project and repository allowlist, with a read-only access token (and confirmation that code search is enabled, for Cloud)
+- for Dev/Playground: base URL and hosts, safety verification sign-off, synthetic test accounts and a cleanup procedure
+
+Data handling for real story or repository content must be classified before any of it reaches a model.
 
 ## Layout
 | Path | Purpose |

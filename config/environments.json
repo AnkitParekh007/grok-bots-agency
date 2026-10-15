@@ -1,13 +1,37 @@
 {
-  "_comment": "Only loopback, non-production environments may be registered in Milestone A. Unknown environments are refused.",
+  "_comment": "Production is prohibited. Non-loopback environments stay UNVERIFIED (non-executable) until status=verified with a safety_verification record, https host allowlist, synthetic test accounts (credential env var names only) and a cleanup procedure. See README 'Environments'.",
+  "prohibited_host_patterns": ["bluemeteor.com", "www.bluemeteor.com", "app.bluemeteor.com", "*.prod.*", "prod.*", "*-prod.*"],
   "environments": {
     "synthetic-local": {
+      "kind": "synthetic",
       "base_url": "http://127.0.0.1:8601",
       "base_url_env_override": "SYNTHETIC_SUT_URL",
       "status": "verified-synthetic",
       "production": false,
       "data_class": "synthetic",
       "allowed_hosts": ["127.0.0.1", "localhost"]
+    },
+    "bluemeteor-dev": {
+      "kind": "dev",
+      "base_url": null,
+      "status": "unverified",
+      "production": false,
+      "data_class": "synthetic",
+      "allowed_hosts": [],
+      "safety_verification": null,
+      "test_accounts": [],
+      "cleanup": null
+    },
+    "bluemeteor-playground": {
+      "kind": "playground",
+      "base_url": null,
+      "status": "unverified",
+      "production": false,
+      "data_class": "synthetic",
+      "allowed_hosts": [],
+      "safety_verification": null,
+      "test_accounts": [],
+      "cleanup": null
     }
   }
 }

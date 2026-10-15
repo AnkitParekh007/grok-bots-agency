@@ -1,0 +1,12 @@
+{
+  "_provenance": "SYNTHETIC comments/attachments for the mock tracker. Not real PCC data.",
+  "comments": [
+    {"id": "10001", "author": {"displayName": "Synthetic QA Lead"}, "created": "2026-10-01T09:00:00.000+0000",
+     "body": "Synthetic note: please cover the inch to millimetre conversion explicitly."},
+    {"id": "10002", "author": {"displayName": "Synthetic Product Owner"}, "created": "2026-10-02T10:30:00.000+0000",
+     "body": "Synthetic note: rows without SKU must show SKU_REQUIRED on the upload page."}
+  ],
+  "attachments": [
+    {"id": "20001", "filename": "supplier_valid.csv", "mimeType": "text/csv", "fixture": "fixtures/data/supplier_valid.csv"}
+  ]
+}

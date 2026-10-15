@@ -50,7 +50,8 @@ class Store:
         def cols(t):
             return {r[1] for r in self.db.execute(f"PRAGMA table_info({t})")}
         add = {"runs": [("planning_json", "TEXT"), ("requested_by", "TEXT"), ("cancel_requested", "INTEGER DEFAULT 0"),
-                        ("catalog_version", "TEXT"), ("plan_created_at", "TEXT")],
+                        ("catalog_version", "TEXT"), ("plan_created_at", "TEXT"),
+                        ("project", "TEXT"), ("repository", "TEXT"), ("repo_context_json", "TEXT")],
                "approvals": [("identity", "TEXT"), ("auth_mode", "TEXT"), ("approver_label", "TEXT")],
                "audit": [("prev_hash", "TEXT"), ("entry_hash", "TEXT"),
                           ("seq", "INTEGER"), ("payload_hash", "TEXT")],
@@ -90,7 +91,7 @@ class Store:
         if not rows:
             return None
         r = rows[0]
-        for k in ("story_json", "ac_json", "plan_json", "summary_json", "planning_json"):
+        for k in ("story_json", "ac_json", "plan_json", "summary_json", "planning_json", "repo_context_json"):
             r[k] = json.loads(r[k]) if r[k] else None
         return r
 
