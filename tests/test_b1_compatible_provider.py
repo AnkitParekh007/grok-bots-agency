@@ -1,16 +1,16 @@
 import pytest
-"""GrokProvider against recorded-shape responses (httpx.MockTransport). No network: a socket guard fails the
+"""OpenAICompatibleProvider against recorded-shape responses (httpx.MockTransport). No network: a socket guard fails the
 test if anything tries to connect to a non-loopback address."""
 import json, socket
 import httpx, pytest
 from qa_agent import ROOT
 from qa_agent.gateway import PolicyDenied
 from qa_agent.planning import PLAN_STORY_SCHEMA, parse_output, FormatError
-from qa_agent.providers.models import (GrokProvider, ProviderNotApproved, ProviderConfigError, DataClassDenied,
+from qa_agent.providers.models import (OpenAICompatibleProvider, ProviderNotApproved, ProviderConfigError, DataClassDenied,
                                        ModelCallError, UsageMissing, build_model_provider)
 from qa_agent.runtime import QAAgent
 from qa_agent.util import load_json, redact
-from tests.b1_helpers import grok_cfg, fake_key
+from tests.b1_helpers import compatible_cfg, fake_key
 
 pytestmark = [pytest.mark.provider, pytest.mark.security, pytest.mark.cost]
 
@@ -33,13 +33,15 @@ def no_external_network(monkeypatch):
 @pytest.fixture
 def key(monkeypatch):
     k = fake_key()
-    monkeypatch.setenv("XAI_API_KEY", k)
+    monkeypatch.setenv("MODEL_API_KEY", k)
     return k
 
 
 @pytest.fixture
 def agent(tmp_path):
-    return QAAgent(tmp_path)   # replay provider; we use its gateway/store
+    a = QAAgent(tmp_path)
+    a.policy["tools"]["model.request"]["approved_hosts"] = ["api.groq.com"]  # contract-only policy, MockTransport
+    return a
 
 
 class Script:
@@ -63,7 +65,7 @@ def ok_body(content='{"a":1}'):
 
 
 def provider(agent, script, base="http://127.0.0.1:9/v1", sleeps=None, **over):
-    return GrokProvider(grok_cfg(base, **over), gateway=agent.gateway, transport=httpx.MockTransport(script),
+    return OpenAICompatibleProvider(compatible_cfg(base, **over), gateway=agent.gateway, transport=httpx.MockTransport(script),
                         sleep=(sleeps.append if sleeps is not None else (lambda s: None)))
 
 
@@ -74,7 +76,7 @@ def test_request_shape_structured_output(agent, key):
     body = json.loads(req.content)
     assert str(req.url) == "http://127.0.0.1:9/v1/chat/completions"
     assert req.headers["authorization"] == f"Bearer {key}"
-    assert body["model"] == "grok-4.7" and body["max_completion_tokens"] == 8000
+    assert body["model"] == "contract-model" and body["max_completion_tokens"] == 8000
     assert body["response_format"]["type"] == "json_schema" and body["response_format"]["json_schema"]["strict"] is True
     assert body["response_format"]["json_schema"]["schema"] == PLAN_STORY_SCHEMA
     assert "<untrusted_story>" in body["messages"][1]["content"] and "UNTRUSTED DATA" in body["messages"][0]["content"]
@@ -135,16 +137,16 @@ def test_missing_usage_fails_closed(agent, key):
 def test_constructor_fail_closed_matrix(key, monkeypatch):
     base = "http://127.0.0.1:9/v1"
     with pytest.raises(ProviderNotApproved, match="not enabled"):
-        GrokProvider(grok_cfg(base, enabled=False))
+        OpenAICompatibleProvider(compatible_cfg(base, enabled=False))
     with pytest.raises(ProviderConfigError, match="pricing"):
-        GrokProvider(grok_cfg(base, pricing={"input_per_mtok_usd": 1, "cached_input_per_mtok_usd": None, "output_per_mtok_usd": 2}))
-    with pytest.raises(ProviderNotApproved, match="not approved for external endpoint api.x.ai"):
-        GrokProvider(grok_cfg("https://api.x.ai/v1"))
+        OpenAICompatibleProvider(compatible_cfg(base, pricing={"input_per_mtok_usd": 1, "cached_input_per_mtok_usd": None, "output_per_mtok_usd": 2}))
+    with pytest.raises(ProviderNotApproved, match="not approved for external endpoint api.groq.com"):
+        OpenAICompatibleProvider(compatible_cfg("https://api.groq.com/v1"))
     with pytest.raises(ProviderNotApproved, match="not approved"):
-        GrokProvider(grok_cfg("https://api.x.ai/v1", approved=True))          # approval_ref missing
-    monkeypatch.delenv("XAI_API_KEY")
+        OpenAICompatibleProvider(compatible_cfg("https://api.groq.com/v1", approved=True))          # approval_ref missing
+    monkeypatch.delenv("MODEL_API_KEY")
     with pytest.raises(ProviderNotApproved, match="api key"):
-        GrokProvider(grok_cfg(base))
+        OpenAICompatibleProvider(compatible_cfg(base))
 
 
 def test_data_class_gate_blocks_before_any_request(agent, key):
@@ -154,10 +156,10 @@ def test_data_class_gate_blocks_before_any_request(agent, key):
     assert s.calls == []
 
 
-def test_egress_to_api_x_ai_blocked_unless_approved(agent, key):
+def test_egress_to_external_host_blocked_unless_approved(agent, key):
     s = Script(("json", 200, ok_body()))
     p = provider(agent, s)
-    p.base_url = "https://api.x.ai/v1"          # simulate a runtime misconfiguration / bypass attempt
+    p.base_url = "https://api.groq.com/v1"          # simulate a runtime misconfiguration / bypass attempt
     with pytest.raises(PolicyDenied, match="provider not approved"):
         p.generate("plan_story", CTX, {}, run_id="r-egress")
     assert s.calls == []                         # nothing left the process
@@ -168,16 +170,16 @@ def test_egress_to_api_x_ai_blocked_unless_approved(agent, key):
         p.generate("plan_story", CTX, {}, run_id="r-egress")
     # with the approved flag + approval_ref the same host is allowed (MockTransport => still no real network)
     s2 = Script(("json", 200, ok_body()))
-    p2 = GrokProvider(grok_cfg("https://api.x.ai/v1", approved=True, approval_ref="TEST-ONLY"), gateway=agent.gateway,
+    p2 = OpenAICompatibleProvider(compatible_cfg("https://api.groq.com/v1", approved=True, approval_ref="TEST-ONLY"), gateway=agent.gateway,
                       transport=httpx.MockTransport(s2), sleep=lambda s: None)
     assert "LIVE MODEL" in p2.label
     p2.generate("plan_story", CTX, {}, run_id="r-egress")
-    assert len(s2.calls) == 1 and str(s2.calls[0].url).startswith("https://api.x.ai/")
+    assert len(s2.calls) == 1 and str(s2.calls[0].url).startswith("https://api.groq.com/")
 
 
 def test_no_gateway_no_call(key):
     s = Script()
-    p = GrokProvider(grok_cfg("http://127.0.0.1:9/v1"), transport=httpx.MockTransport(s))
+    p = OpenAICompatibleProvider(compatible_cfg("http://127.0.0.1:9/v1"), transport=httpx.MockTransport(s))
     with pytest.raises(ProviderNotApproved, match="gateway"):
         p.generate("plan_story", CTX, {}, run_id="r1")
     assert s.calls == []
@@ -194,6 +196,6 @@ def test_secret_redacted_from_errors_and_audit(agent, key):
 
 
 def test_no_silent_fallback_to_other_provider(monkeypatch, tmp_path):
-    monkeypatch.setenv("QA_MODEL_PROVIDER", "grok")
+    monkeypatch.setenv("QA_MODEL_PROVIDER", "compatible")
     with pytest.raises(ProviderNotApproved):
-        QAAgent(tmp_path)          # grok misconfigured -> agent refuses to start; does NOT fall back to replay
+        QAAgent(tmp_path)          # compatible misconfigured -> agent refuses to start; does NOT fall back to replay

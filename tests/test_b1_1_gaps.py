@@ -7,13 +7,13 @@ from fastapi.testclient import TestClient
 from qa_agent import ROOT, contracts as C
 from qa_agent.auth import UserStore
 from qa_agent.planning import (PLAN_STORY_SCHEMA, validate_plan, evaluate_plan, catalog_version, FormatError, PolicyViolation)
-from qa_agent.providers.models import GrokProvider, ModelCallError, ProviderConfigError, compose_plan_story
+from qa_agent.providers.models import OpenAICompatibleProvider, ModelCallError, ProviderConfigError, compose_plan_story
 from qa_agent.runtime import QAAgent, ConflictError
 from qa_agent.server import create_app
 from qa_agent.skills import LocalSkillRegistry
 from qa_agent.store import Store, verify_export
 from qa_agent.util import load_json, sha256, canon
-from tests.b1_helpers import grok_cfg, agent_cfg, fake_key, model_stub, wait_status
+from tests.b1_helpers import compatible_cfg, agent_cfg, fake_key, model_stub, wait_status
 
 SK = LocalSkillRegistry()
 FILES = sorted(p.name for p in (ROOT / "fixtures/data").glob("*.csv"))
@@ -31,7 +31,7 @@ def ctx(key):
 
 @pytest.fixture
 def key(monkeypatch):
-    k = fake_key(); monkeypatch.setenv("XAI_API_KEY", k); return k
+    k = fake_key(); monkeypatch.setenv("MODEL_API_KEY", k); return k
 
 
 # ---------------- planning: contracts & catalog ----------------
@@ -123,7 +123,7 @@ def ok():
 
 
 def prov(agent, s, **over):
-    return GrokProvider(grok_cfg("http://127.0.0.1:9/v1", **over), gateway=agent.gateway, transport=httpx.MockTransport(s), sleep=lambda x: None)
+    return OpenAICompatibleProvider(compatible_cfg("http://127.0.0.1:9/v1", **over), gateway=agent.gateway, transport=httpx.MockTransport(s), sleep=lambda x: None)
 
 
 CTX = {"story_key": "PCC-DEMO-2", "data_class": "synthetic", "story": load_json(ROOT / "fixtures/jira/PCC-DEMO-2.json"), "catalog": {}}
@@ -168,7 +168,7 @@ def test_backoff_jitter_bounded_and_capped(tmp_path, key):
 @pytest.mark.integration
 def test_model_timeout_at_runtime_is_audited(tmp_path, key):
     with model_stub() as stub:
-        cfg = agent_cfg("grok", stub.base); cfg["providers"]["grok"].update(timeout_s=0.5, max_retries=0)
+        cfg = agent_cfg("compatible", stub.base); cfg["providers"]["compatible"].update(timeout_s=0.5, max_retries=0)
         stub.queue([{"sleep": 2}])
         a = QAAgent(tmp_path, agent_cfg=cfg)
         run = a.store.get_run(a.start_run("Plan PCC-DEMO-2", wait=True))
@@ -184,7 +184,7 @@ def test_approval_bypass_from_model_rejected_and_audited(tmp_path, key):
     with model_stub() as stub:
         p = rec("PCC-DEMO-2"); p["skip_approval"] = True
         stub.queue([{"content": json.dumps(p)}])
-        a = QAAgent(tmp_path, agent_cfg=agent_cfg("grok", stub.base))
+        a = QAAgent(tmp_path, agent_cfg=agent_cfg("compatible", stub.base))
         run = a.store.get_run(a.start_run("Plan PCC-DEMO-2", wait=True))
         assert run["status"] == "failed" and "skip_approval" in run["error"] and len(stub.requests()) == 1
         assert any(r["tool"] == "model.output_validation" and r["decision"] == "deny" for r in a.store.audit_rows(run["id"]))
@@ -306,8 +306,8 @@ def test_export_endpoint(tmp_path):
 # ---------------- cost ----------------
 @pytest.mark.cost
 def test_agent_refuses_unknown_pricing(tmp_path, key):
-    cfg = agent_cfg("grok", "http://127.0.0.1:9/v1")
-    cfg["providers"]["grok"]["pricing"] = {"input_per_mtok_usd": None, "cached_input_per_mtok_usd": None, "output_per_mtok_usd": None}
+    cfg = agent_cfg("compatible", "http://127.0.0.1:9/v1")
+    cfg["providers"]["compatible"]["pricing"] = {"input_per_mtok_usd": None, "cached_input_per_mtok_usd": None, "output_per_mtok_usd": None}
     with pytest.raises(ProviderConfigError, match="pricing not configured"):
         QAAgent(tmp_path, agent_cfg=cfg)
 
@@ -317,7 +317,7 @@ def test_agent_refuses_unknown_pricing(tmp_path, key):
 def test_missing_usage_never_invented(tmp_path, key):
     with model_stub() as stub:
         stub.queue([{"no_usage": True}])
-        a = QAAgent(tmp_path, agent_cfg=agent_cfg("grok", stub.base))
+        a = QAAgent(tmp_path, agent_cfg=agent_cfg("compatible", stub.base))
         rid = a.start_run("Plan PCC-DEMO-2", wait=True)
         c = a.store.run_usage(rid)["calls"][0]
         assert c["outcome"] == "usage_missing" and c["priced"] == 0

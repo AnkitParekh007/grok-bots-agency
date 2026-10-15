@@ -1,0 +1,30 @@
+{
+  "unit-clean": {
+    "tests": "316",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "348.795"
+  },
+  "integration": {
+    "tests": "46",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "1058.050"
+  },
+  "targeted-final": {
+    "tests": "156",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "193.096"
+  },
+  "providers-final": {
+    "tests": "47",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0",
+    "time": "25.699"
+  }
+}

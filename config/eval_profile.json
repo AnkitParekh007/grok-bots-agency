@@ -1,7 +1,28 @@
 {
-  "_comment": "Eval-only overrides, applied ONLY by scripts/eval_b2.py on top of config/agent.json. The global runtime default (providers.grok.max_retries=3) is unchanged. Caps are PROPOSED, not approved. Do not treat max_retries=1 as a substitute for verifying pricing/reasoning limits and the external spend backstop.",
+  "_comment": "Evaluation-only retry ceilings; never enables or approves providers.",
   "providers": {
-    "grok": {
+    "compatible": {
+      "max_retries": 1
+    },
+    "ollama": {
+      "max_retries": 1
+    },
+    "lmstudio": {
+      "max_retries": 1
+    },
+    "llamacpp": {
+      "max_retries": 1
+    },
+    "vllm": {
+      "max_retries": 1
+    },
+    "groq": {
+      "max_retries": 1
+    },
+    "gemini": {
+      "max_retries": 1
+    },
+    "openrouter": {
       "max_retries": 1
     }
   },

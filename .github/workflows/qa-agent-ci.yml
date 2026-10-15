@@ -17,6 +17,9 @@ jobs:
     timeout-minutes: 30
     env:
       PYTHONUNBUFFERED: "1"
+      PYTHONUTF8: "1"
+      QA_MODEL_PROVIDER: replay
+      CI: "true"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -41,6 +44,9 @@ jobs:
           python scripts/eval_b2.py --provider stub --out reports/eval \
             --self-test-simulated-review
           cat reports/eval/eval_report.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Compare offline evidence (no model-quality claims)
+        if: always()
+        run: python scripts/compare_models.py reports/eval/eval_report.json --out reports/eval/comparison
       - name: Category coverage check (each category has tests)
         if: always()
         run: |

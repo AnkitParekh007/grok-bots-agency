@@ -20,9 +20,9 @@ def load_json(p):
 # ---------------- secret redaction ----------------
 import os as _os, re as _re
 
-_SECRET_ENV_NAMES = {"XAI_API_KEY"}
+_SECRET_ENV_NAMES = {"MODEL_API_KEY", "GROQ_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY", "NVIDIA_API_KEY"}
 _SECRET_PATTERNS = [
-    _re.compile(r"xai-[A-Za-z0-9_\-]{8,}"),
+    _re.compile(r"sk-[A-Za-z0-9_\-]{8,}"),
     _re.compile(r"sk-[A-Za-z0-9_\-]{16,}"),
     _re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._\-]{8,}"),
     _re.compile(r"""(?i)(authorization["']?\s*[:=]\s*["']?basic\s+)[A-Za-z0-9+/=]{8,}"""),

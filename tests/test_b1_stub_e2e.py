@@ -1,4 +1,4 @@
-"""Full pipeline with GrokProvider pointed at the LOCAL OpenAI-compatible stub (127.0.0.1). The stub answers from
+"""Full pipeline with OpenAICompatibleProvider pointed at the LOCAL OpenAI-compatible stub (127.0.0.1). The stub answers from
 hand-authored recordings: this exercises transport, schema, repair, policy, cost and execution - NOT model reasoning."""
 import json, shutil, sqlite3, zipfile
 from datetime import datetime, timezone
@@ -17,7 +17,7 @@ pytestmark = [pytest.mark.integration, pytest.mark.provider, pytest.mark.plannin
 @pytest.fixture
 def key(monkeypatch):
     k = fake_key()
-    monkeypatch.setenv("XAI_API_KEY", k)
+    monkeypatch.setenv("MODEL_API_KEY", k)
     return k
 
 
@@ -28,7 +28,7 @@ def stub():
 
 
 def mk(tmp_path, stub, **over):
-    return QAAgent(tmp_path, agent_cfg=agent_cfg("grok", stub.base, **over))
+    return QAAgent(tmp_path, agent_cfg=agent_cfg("compatible", stub.base, **over))
 
 
 def plan(agent, key_, wait=True):
@@ -134,7 +134,7 @@ def test_per_run_and_daily_budget_caps(tmp_path, stub, key):
     assert run["status"] == "failed" and "per-run cap" in run["error"] and stub.requests() == []
     assert any(r["tool"] == "model.budget_gate" and r["decision"] == "deny" for r in a.store.audit_rows(rid))
     b = mk(tmp_path / "b", stub, budget={"per_run_usd": 10, "daily_usd": 1.0})
-    b.store.add_usage("old-run", "grok", "grok-4.7", "plan_story", 0, {"total_tokens": 1}, 1.0, True, "stop")
+    b.store.add_usage("old-run", "compatible", "contract-model", "plan_story", 0, {"total_tokens": 1}, 1.0, True, "stop")
     rid2, run2 = plan(b, "PCC-DEMO-2")
     assert run2["status"] == "failed" and "daily cap" in run2["error"] and stub.requests() == []
 
@@ -155,13 +155,13 @@ def test_model_failure_no_fallback(tmp_path, stub, key):
     a = mk(tmp_path, stub)
     rid, run = plan(a, "PCC-DEMO-2")
     assert run["status"] == "failed" and "HTTP 500" in run["error"]
-    assert run["model_provider"] == "grok" and run["plan_json"] is None and "REPLAY" not in run["model_label"]
+    assert run["model_provider"] == "compatible" and run["plan_json"] is None and "REPLAY" not in run["model_label"]
 
 
 def test_secret_never_persisted_or_exposed(tmp_path, stub, key, monkeypatch, sut_factory):
     with sut_factory("all") as url:
         monkeypatch.setenv("SYNTHETIC_SUT_URL", url)
-        app = create_app(tmp_path, agent_cfg=agent_cfg("grok", stub.base))
+        app = create_app(tmp_path, agent_cfg=agent_cfg("compatible", stub.base))
         c = TestClient(app)
         stub.queue([{"status": 401, "echo_auth": True}])
         r1 = c.post("/api/chat", json={"message": "Plan PCC-DEMO-2"}).json()["run_id"]

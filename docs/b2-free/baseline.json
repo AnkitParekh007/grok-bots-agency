@@ -1,0 +1,69 @@
+{
+  "commit": "f50f51c",
+  "branch": "main",
+  "date": "2026-10-15",
+  "platform": "Windows",
+  "python": "3.13.14",
+  "command": "python -m pytest -q --junitxml=reports/baseline.xml",
+  "tests": 307,
+  "passed": 294,
+  "failed": 13,
+  "errors": 0,
+  "elapsed_s": 1315.019,
+  "failures": [
+    {
+      "test": "tests.test_b1_reliability::test_controlled_cancellation_mid_execution",
+      "message": "AssertionError: assert ('blocked' == 'passed'\n  \n  - passed\n  + blocked)"
+    },
+    {
+      "test": "tests.test_b1_reliability::test_timeouts_produce_error_never_pass_with_evidence",
+      "message": "AssertionError: {'id': 'TC-02', 'title': 'API: inch length converted to mm (SKU-1001)', 'type': 'api', 'skill': 'attribute_mapping_validation', ...}\nassert ('blocked' == 'error'\n  \n  - error\n  + blocked)"
+    },
+    {
+      "test": "tests.test_b1_stub_e2e::test_new_story_via_stub_full_execution",
+      "message": "AssertionError: [{'id': 'TC-01', 'title': 'API: gram weight normalised to kg (SKU-3002)', 'type': 'api', 'skill': 'attribute_mapping_v...C-03', 'title': 'API: unknown unit row rejected with UNIT_UNKNOWN', 'type': 'api', 'skill': 'pim_import_testing', ...}]\nassert ('completed' == 'completed'\n  \n    completed and 0 == 3)"
+    },
+    {
+      "test": "tests.test_b1_stub_e2e::test_edge_story_and_defect_detection_on_unseen_story",
+      "message": "assert 0 == 2"
+    },
+    {
+      "test": "tests.test_b2_eval::test_harness_stub_subset_is_smoke_never_pass",
+      "message": "UnicodeEncodeError: 'charmap' codec can't encode character '\\u2705' in position 687: character maps to <undefined>"
+    },
+    {
+      "test": "tests.test_b2_grants::test_resumable_first_plan_approval_success_and_restart",
+      "message": "UnicodeEncodeError: 'charmap' codec can't encode character '\\u2705' in position 739: character maps to <undefined>"
+    },
+    {
+      "test": "tests.test_b2_review::test_plan_only_is_smoke",
+      "message": "UnicodeEncodeError: 'charmap' codec can't encode character '\\u2705' in position 670: character maps to <undefined>"
+    },
+    {
+      "test": "tests.test_c0_integrations::test_jira_issue_ac_comments_attachments[JiraCloudProvider]",
+      "message": "AssertionError: assert 'sku,name,len...White,PVC\\r\\n' == 'sku,name,len...g,White,PVC\\n'\n  \n  Skipping 52 identical leading characters in diff, use -v to show\n  - r,material\n  + r,material\n  ?           +\n  - SKU-1001,Cable Tray 300,10,in,5,lb,Red,Steel\n  + SKU-1001,Cable Tray 300,10,in,5,lb,Red,Steel...\n  \n  ...Full output truncated (7 lines hidden), use '-vv' to show"
+    },
+    {
+      "test": "tests.test_c0_integrations::test_jira_issue_ac_comments_attachments[JiraDataCenterProvider]",
+      "message": "AssertionError: assert 'sku,name,len...White,PVC\\r\\n' == 'sku,name,len...g,White,PVC\\n'\n  \n  Skipping 52 identical leading characters in diff, use -v to show\n  - r,material\n  + r,material\n  ?           +\n  - SKU-1001,Cable Tray 300,10,in,5,lb,Red,Steel\n  + SKU-1001,Cable Tray 300,10,in,5,lb,Red,Steel...\n  \n  ...Full output truncated (7 lines hidden), use '-vv' to show"
+    },
+    {
+      "test": "tests.test_c0_integrations::test_bitbucket_discovery_files_listing_context[BitbucketCloudProvider]",
+      "message": "AssertionError: assert {'src\\\\import...rc\\\\units.py'} == {'src/importe...src/units.py'}\n  \n  Extra items in the left set:\n  'src\\\\importer.py'\n  'src\\\\units.py'\n  Extra items in the right set:\n  'src/units.py'\n  'src/importer.py'\n  Use -v to get more diff"
+    },
+    {
+      "test": "tests.test_c0_integrations::test_bitbucket_code_search_cloud_flag_and_dc_unsupported",
+      "message": "AssertionError: assert ({'src\\\\importer.py'} == {'README.md',.../importer.py'}\n  \n  Extra items in the left set:\n  'src\\\\importer.py'\n  Extra items in the right set:\n  'README.md'\n  'src/importer.py'\n  Use -v to get more diff or 'src/importer.py' in {'src\\\\importer.py'})"
+    },
+    {
+      "test": "tests.test_e2e_smoke::test_full_workflow_with_seeded_defects",
+      "message": "AssertionError: {'TC-01': 'blocked', 'TC-02': 'blocked', 'TC-03': 'blocked', 'TC-04': 'blocked', ...}\nassert {'TC-01': 'bl...blocked', ...} == {'TC-01': 'pa...'passed', ...}\n  \n  Differing items:\n  {'TC-03': 'blocked'} != {'TC-03': 'passed'}\n  {'TC-06': 'blocked'} != {'TC-06': 'failed'}\n  {'TC-04': 'blocked'} != {'TC-04': 'passed'}\n  {'TC-01': 'blocked'} != {'TC-01': 'passed'}\n  {'TC-05': 'blocked'} != {'TC-05': 'failed'}...\n  \n  ...Full output truncated (4 lines hidden), use '-vv' to show"
+    },
+    {
+      "test": "tests.test_e2e_smoke::test_all_pass_when_defects_disabled",
+      "message": "AssertionError: [{'id': 'TC-01', 'title': 'API: valid CSV import reports 3 imported / 0 rejected', 'type': 'api', 'skill': 'pim_import...', 'title': 'API: row without SKU rejected with SKU_REQUIRED', 'type': 'api', 'skill': 'pim_import_testing', ...}, ...]\nassert {'total': 8, ...rror': 0, ...} == {'total': 8, ...rror': 0, ...}\n  \n  Omitting 3 identical items, use -vv to show\n  Differing items:\n  {'blocked': 8} != {'blocked': 0}\n  {'passed': 0} != {'passed': 8}\n  Use -v to get more diff"
+    }
+  ],
+  "milestones": "A/B1/B2-preparation/C0 present on main; PRs #1/#2/#3 merged",
+  "earlier_b2_multi_provider_work": "No existing B2-M branch or PR found during baseline inspection."
+}

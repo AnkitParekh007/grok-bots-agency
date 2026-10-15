@@ -1,21 +1,22 @@
 {
   "_comment": "Model choice is configuration, never code. Override provider with env QA_MODEL_PROVIDER. No automatic fallback between providers.",
   "model": {
-    "provider": "replay"
+    "provider": "ollama"
   },
   "providers": {
     "replay": {
       "replay_dir": "fixtures/replay",
-      "label": "REPLAYED (mock model)"
+      "label": "REPLAYED (mock model)",
+      "model": "replay"
     },
-    "grok": {
-      "_comment": "xAI Chat Completions (OpenAI-compatible) POST {base_url}/chat/completions with response_format json_schema strict. Disabled until Milestone B2 approval. Prices MUST be entered from the xAI console/models page (USD per 1M tokens); null => refuses to run.",
+    "compatible": {
+      "_comment": "Generic Chat Completions adapter retained for priced contract tests; disabled. Production use requires independent host policy, approval, credentials and prices.",
       "enabled": false,
       "approved": false,
       "approval_ref": null,
-      "model": "grok-4.7",
-      "base_url": "https://api.x.ai/v1",
-      "api_key_env": "XAI_API_KEY",
+      "model": "contract-model",
+      "base_url": "https://unconfigured.invalid/v1",
+      "api_key_env": "MODEL_API_KEY",
       "allowed_data_classes": [
         "synthetic"
       ],
@@ -29,7 +30,305 @@
         "cached_input_per_mtok_usd": null,
         "output_per_mtok_usd": null
       },
-      "_egress_comment": "Approved external model hosts live in config/policy.json tools.model.request.approved_hosts (separate from this base_url). Non-loopback endpoints must use https."
+      "_egress_comment": "Approved external model hosts live in config/policy.json tools.model.request.approved_hosts (separate from this base_url). Non-loopback endpoints must use https.",
+      "cost_type": "paid",
+      "classification": "hosted"
+    },
+    "ollama": {
+      "enabled": true,
+      "approved": true,
+      "approval_ref": "loopback-local-default",
+      "allowed_data_classes": [
+        "synthetic"
+      ],
+      "structured_output": "json_schema",
+      "context_window": 32768,
+      "max_completion_tokens": 4096,
+      "timeout_s": 60,
+      "max_retries": 2,
+      "backoff_base_s": 1,
+      "max_backoff_s": 30,
+      "version": null,
+      "quotas": {
+        "rpm": 20,
+        "rpd": 1000,
+        "tpm": 100000,
+        "tpd": 1000000,
+        "concurrency": 1
+      },
+      "audit_restrictions": [
+        "gateway-required",
+        "no-redirects",
+        "no-automatic-fallback"
+      ],
+      "classification": "local",
+      "cost_type": "local",
+      "api_key_env": null,
+      "base_url": "http://127.0.0.1:11434",
+      "model": "qwen3:8b"
+    },
+    "lmstudio": {
+      "enabled": false,
+      "approved": false,
+      "approval_ref": null,
+      "allowed_data_classes": [
+        "synthetic"
+      ],
+      "structured_output": "json_schema",
+      "context_window": 32768,
+      "max_completion_tokens": 4096,
+      "timeout_s": 60,
+      "max_retries": 2,
+      "backoff_base_s": 1,
+      "max_backoff_s": 30,
+      "version": null,
+      "quotas": {
+        "rpm": 20,
+        "rpd": 1000,
+        "tpm": 100000,
+        "tpd": 1000000,
+        "concurrency": 1
+      },
+      "audit_restrictions": [
+        "gateway-required",
+        "no-redirects",
+        "no-automatic-fallback"
+      ],
+      "classification": "local",
+      "cost_type": "local",
+      "api_key_env": null,
+      "base_url": "http://127.0.0.1:1234/v1",
+      "model": "configure-local-model"
+    },
+    "llamacpp": {
+      "enabled": false,
+      "approved": false,
+      "approval_ref": null,
+      "allowed_data_classes": [
+        "synthetic"
+      ],
+      "structured_output": "json_schema",
+      "context_window": 32768,
+      "max_completion_tokens": 4096,
+      "timeout_s": 60,
+      "max_retries": 2,
+      "backoff_base_s": 1,
+      "max_backoff_s": 30,
+      "version": null,
+      "quotas": {
+        "rpm": 20,
+        "rpd": 1000,
+        "tpm": 100000,
+        "tpd": 1000000,
+        "concurrency": 1
+      },
+      "audit_restrictions": [
+        "gateway-required",
+        "no-redirects",
+        "no-automatic-fallback"
+      ],
+      "classification": "local",
+      "cost_type": "local",
+      "api_key_env": null,
+      "base_url": "http://127.0.0.1:8080/v1",
+      "model": "configure-local-model"
+    },
+    "vllm": {
+      "enabled": false,
+      "approved": false,
+      "approval_ref": null,
+      "allowed_data_classes": [
+        "synthetic"
+      ],
+      "structured_output": "json_schema",
+      "context_window": 32768,
+      "max_completion_tokens": 4096,
+      "timeout_s": 60,
+      "max_retries": 2,
+      "backoff_base_s": 1,
+      "max_backoff_s": 30,
+      "version": null,
+      "quotas": {
+        "rpm": 20,
+        "rpd": 1000,
+        "tpm": 100000,
+        "tpd": 1000000,
+        "concurrency": 1
+      },
+      "audit_restrictions": [
+        "gateway-required",
+        "no-redirects",
+        "no-automatic-fallback"
+      ],
+      "classification": "local",
+      "cost_type": "local",
+      "api_key_env": null,
+      "base_url": "http://127.0.0.1:8000/v1",
+      "model": "configure-local-model"
+    },
+    "groq": {
+      "enabled": false,
+      "approved": false,
+      "approval_ref": null,
+      "allowed_data_classes": [
+        "synthetic"
+      ],
+      "structured_output": "json_schema",
+      "context_window": 32768,
+      "max_completion_tokens": 4096,
+      "timeout_s": 60,
+      "max_retries": 2,
+      "backoff_base_s": 1,
+      "max_backoff_s": 30,
+      "version": null,
+      "quotas": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "concurrency": 1
+      },
+      "audit_restrictions": [
+        "gateway-required",
+        "no-redirects",
+        "no-automatic-fallback"
+      ],
+      "classification": "hosted",
+      "cost_type": "free",
+      "api_key_env": "GROQ_API_KEY",
+      "base_url": "https://api.groq.com/openai/v1",
+      "model": "openai/gpt-oss-20b",
+      "free_only": true,
+      "account_tier": "unknown",
+      "account_verified_ref": null,
+      "quota_scope": "groq-account",
+      "_comment": "Disabled; administrator must verify actual free-account entitlement and limits, select exact model, authorize synthetic egress, and approve host in policy.json. Never auto-upgrades.",
+      "models": [
+        {
+          "id": "openai/gpt-oss-120b",
+          "approved": false,
+          "structured_output": "json_schema",
+          "context_window": 32768,
+          "max_completion_tokens": 4096
+        },
+        {
+          "id": "qwen/qwen3.8-27b",
+          "approved": false,
+          "structured_output": "json_schema",
+          "context_window": 32768,
+          "max_completion_tokens": 4096
+        }
+      ]
+    },
+    "gemini": {
+      "enabled": false,
+      "approved": false,
+      "approval_ref": null,
+      "allowed_data_classes": [
+        "synthetic"
+      ],
+      "structured_output": "json_schema",
+      "context_window": 32768,
+      "max_completion_tokens": 4096,
+      "timeout_s": 60,
+      "max_retries": 2,
+      "backoff_base_s": 1,
+      "max_backoff_s": 30,
+      "version": null,
+      "quotas": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "concurrency": 1
+      },
+      "audit_restrictions": [
+        "gateway-required",
+        "no-redirects",
+        "no-automatic-fallback"
+      ],
+      "classification": "hosted",
+      "cost_type": "free",
+      "api_key_env": "GEMINI_API_KEY",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta",
+      "model": null,
+      "free_only": true,
+      "account_tier": "unknown",
+      "account_verified_ref": null,
+      "quota_scope": "gemini-account",
+      "_comment": "Disabled; administrator must verify actual free-account entitlement and limits, select exact model, authorize synthetic egress, and approve host in policy.json. Never auto-upgrades."
+    },
+    "openrouter": {
+      "enabled": false,
+      "approved": false,
+      "approval_ref": null,
+      "allowed_data_classes": [
+        "synthetic"
+      ],
+      "structured_output": "json_schema",
+      "context_window": 32768,
+      "max_completion_tokens": 4096,
+      "timeout_s": 60,
+      "max_retries": 2,
+      "backoff_base_s": 1,
+      "max_backoff_s": 30,
+      "version": null,
+      "quotas": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "concurrency": 1
+      },
+      "audit_restrictions": [
+        "gateway-required",
+        "no-redirects",
+        "no-automatic-fallback"
+      ],
+      "classification": "hosted",
+      "cost_type": "free",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "base_url": "https://openrouter.ai/api/v1",
+      "model": null,
+      "free_only": true,
+      "account_tier": "unknown",
+      "account_verified_ref": null,
+      "quota_scope": "openrouter-account",
+      "_comment": "Disabled; administrator must verify actual free-account entitlement and limits, select exact model, authorize synthetic egress, and approve host in policy.json. Never auto-upgrades."
+    },
+    "nvidia": {
+      "enabled": false,
+      "approved": false,
+      "approval_ref": null,
+      "allowed_data_classes": [
+        "synthetic"
+      ],
+      "structured_output": "json_schema",
+      "context_window": 32768,
+      "max_completion_tokens": 4096,
+      "timeout_s": 60,
+      "max_retries": 2,
+      "backoff_base_s": 1,
+      "max_backoff_s": 30,
+      "version": null,
+      "quotas": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "concurrency": 1
+      },
+      "audit_restrictions": [
+        "gateway-required",
+        "no-redirects",
+        "no-automatic-fallback"
+      ],
+      "classification": "hosted",
+      "cost_type": "free",
+      "base_url": "https://integrate.api.nvidia.com/v1",
+      "api_key_env": "NVIDIA_API_KEY",
+      "model": null,
+      "_comment": "Deferred. No adapter enabled before developer access, permitted use and free-model availability are confirmed."
     }
   },
   "issue_tracker": {
@@ -41,7 +340,7 @@
   "fixture_data_dir": "fixtures/data",
   "default_environment": "synthetic-local",
   "budget": {
-    "_comment": "PROPOSED caps for the B2 live eval (not an approved authorization). total_usd is persisted per scope across runs and days; the xAI Console spend limit is a separate provider-side prerequisite.",
+    "_comment": "Dollar spending controls remain independent of token quotas; paid adapters require pricing and account-side spend backstops.",
     "per_run_usd": 1.0,
     "daily_usd": 15.0,
     "total_usd": 15.0,

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Start the synthetic SUT (seeded defects on by default) and the QA agent workspace, loopback only.
+export QA_MODEL_PROVIDER=replay
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PY=${PY:-.venv/bin/python}

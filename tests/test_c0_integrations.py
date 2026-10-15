@@ -160,7 +160,7 @@ def test_jira_issue_ac_comments_attachments(mock, cls):
     at = j.list_attachments("PCC-DEMO-1")
     assert at[0]["filename"] == "supplier_valid.csv"
     body = j.get_attachment("PCC-DEMO-1", at[0]["id"])
-    assert body["text"] == (ROOT / "fixtures/data/supplier_valid.csv").read_text()
+    assert body["text"] == (ROOT / "fixtures/data/supplier_valid.csv").read_bytes().decode("utf-8")
 
 
 @pytest.mark.integration

@@ -7,7 +7,7 @@ import httpx
 from playwright.sync_api import sync_playwright
 
 ROOT = Path(__file__).resolve().parent.parent
-SHOTS = ROOT / "docs/screenshots"
+SHOTS = Path(os.environ.get("QA_SCREENSHOTS_DIR", ROOT / "docs/screenshots"))
 PROMPT = "Read the synthetic supplier import story, generate test cases, execute the approved tests, and give me the results."
 
 
@@ -23,7 +23,7 @@ def up(url):
 
 def main():
     SHOTS.mkdir(parents=True, exist_ok=True)
-    env = dict(os.environ, SUT_DEFECTS=os.environ.get("SUT_DEFECTS", "all"), SYNTHETIC_SUT_URL="http://127.0.0.1:8601")
+    env = dict(os.environ, QA_MODEL_PROVIDER="replay", SUT_DEFECTS=os.environ.get("SUT_DEFECTS", "all"), SYNTHETIC_SUT_URL="http://127.0.0.1:8601")
     procs = [subprocess.Popen([sys.executable, "-m", "uvicorn", "sut.app:app", "--host", "127.0.0.1", "--port", "8601"], cwd=ROOT, env=env),
              subprocess.Popen([sys.executable, "-m", "qa_agent.server"], cwd=ROOT, env=env)]
     try:
@@ -33,14 +33,17 @@ def main():
             page = b.new_page(viewport={"width": 1400, "height": 1000})
             page.goto("http://127.0.0.1:8600/")
             page.add_style_tag(content="body{height:auto!important} #main{height:auto} #chat{overflow:visible!important}")
+            page.wait_for_selector("#model-choice option", state="attached")
+            assert page.is_visible("#model-settings")
+            assert "replay" in page.locator("#model-choice option:checked").inner_text()
             page.fill("#msg", PROMPT)
             page.click("#send")
             page.wait_for_selector("#approve", timeout=30000)
             page.screenshot(path=str(SHOTS / "01_plan_awaiting_approval.png"), full_page=True)
             page.click("#approve")
-            page.wait_for_selector("#results", timeout=30000)
+            page.wait_for_selector("#results", timeout=180000)
             page.screenshot(path=str(SHOTS / "02_after_approval_execution_started.png"), full_page=True)
-            page.wait_for_selector("#links", timeout=180000)
+            page.wait_for_selector("#links", timeout=300000)
             page.screenshot(path=str(SHOTS / "03_results_with_evidence.png"), full_page=True)
             rid = page.inner_text("#chat .card b").split()[-1]
             rp = b.new_page(viewport={"width": 1400, "height": 1000})

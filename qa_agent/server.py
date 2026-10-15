@@ -9,19 +9,23 @@ import os
 from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from . import ROOT
 from .auth import Principal, UserStore, has_role
 from .runtime import QAAgent, ConflictError
 from .store import verify_chain
+from .providers.models import ProviderNotApproved
 
 
 class ChatIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     message: str
     environment: str | None = None
     project: str | None = None
     story_key: str | None = None
     repository: str | None = None
+    model_provider: str | None = None
+    model_id: str | None = None
 
 
 class ApprovalIn(BaseModel):
@@ -87,7 +91,7 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
 
     @app.get("/", response_class=HTMLResponse)
     def index():
-        return (ROOT / "qa_agent/static/index.html").read_text()
+        return (ROOT / "qa_agent/static/index.html").read_text(encoding="utf-8")
 
     @app.post("/api/login")
     def login(body: LoginIn, response: Response):
@@ -124,8 +128,25 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
         except ValueError as e:
             agent.gateway.record(None, "workspace.select", {"user": p.name, "project": body.project, "repository": body.repository}, "deny", str(e))
             raise HTTPException(400, str(e))
-        return {"run_id": agent.start_run(body.message, body.environment, story_key=body.story_key, requested_by=p.name,
-                                          project=body.project, repository=body.repository)}
+        try:
+            return {"run_id": agent.start_run(body.message, body.environment, story_key=body.story_key, requested_by=p.name,
+                                              project=body.project, repository=body.repository,
+                                              model_provider=body.model_provider, model_id=body.model_id)}
+        except (ValueError, ProviderNotApproved) as e:
+            agent.gateway.record(None, "model.select", {"provider": body.model_provider, "model": body.model_id}, "deny", str(e))
+            raise HTTPException(403, str(e))
+
+    @app.get("/api/models")
+    def models(p: Principal = Depends(need("viewer"))):
+        return agent.models.list()
+
+    @app.post("/api/models/{provider}/probe")
+    def model_probe(provider: str, model_id: str | None = None, p: Principal = Depends(need("requester"))):
+        from .providers.models import ProviderNotApproved
+        try:
+            return agent.models.probe(provider, model_id)
+        except (ProviderNotApproved, ValueError) as e:
+            raise HTTPException(403, str(e))
 
     # ---- workspace selection (read-only providers, every call goes through the audited gateway) ----
     from .integrations.http import IntegrationError

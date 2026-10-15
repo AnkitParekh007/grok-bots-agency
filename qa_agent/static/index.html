@@ -1,11 +1,12 @@
 <!doctype html><html><head><meta charset="utf-8"><title>QA Agent workspace</title>
 <style>
 body{font-family:system-ui,sans-serif;margin:0;display:flex;height:100vh;font-size:14px}
-#side{width:260px;border-right:1px solid #ddd;padding:10px;overflow:auto;background:#fafafa}
+#side{width:320px;border-right:1px solid #ddd;padding:10px;overflow:auto;background:#fafafa}
 #main{flex:1;display:flex;flex-direction:column}
 #chat{flex:1;overflow:auto;padding:12px}
 #bar{display:flex;gap:6px;padding:10px;border-top:1px solid #ddd}
 #msg{flex:1;padding:8px}
+#model-detail{overflow-wrap:anywhere;font-size:12px}
 .run{padding:6px;border-radius:4px;cursor:pointer;margin-bottom:4px}.run:hover,.run.sel{background:#e6eefc}
 .ev{color:#333;font-family:monospace;font-size:12px;margin:1px 0}
 .lbl{background:#ffe08a;padding:2px 6px;border-radius:3px;font-weight:600}
@@ -16,12 +17,12 @@ table{border-collapse:collapse;width:100%;margin:8px 0}td,th{border:1px solid #d
 button{padding:6px 12px;cursor:pointer}#approve{background:#2a8a3e;color:#fff;border:0}#reject{background:#c0392b;color:#fff;border:0}
 .user{background:#e6eefc;padding:8px;border-radius:6px;margin:6px 0}
 </style></head><body>
-<div id="side"><b>Bluemeteor QA Agent</b><div style="font-size:12px;color:#666">Milestone B1 · local · synthetic</div>
-<div id="cfg" style="margin:8px 0;font-size:12px"></div><div id="envs" style="margin:8px 0;font-size:12px"></div><div id="auth" style="margin:8px 0;font-size:12px"></div><b>History</b><div id="runs"></div></div>
+<div id="side"><b>Bluemeteor QA Agent</b><div style="font-size:12px;color:#666">Offline first · synthetic</div>
+<div id="cfg" style="margin:8px 0;font-size:12px"></div><div id="envs" style="margin:8px 0;font-size:12px"></div><div id="auth" style="margin:8px 0;font-size:12px"></div><section class="card" id="model-settings"><b>Model Settings</b><p>Choose an approved model for a new run.</p><select id="model-choice" aria-label="Model for new run" style="width:100%"></select><p id="model-detail"></p><button id="model-probe" onclick="probeModel()">Check connection</button><button onclick="loadModels()">Refresh status</button><details><summary>All configured models</summary><div id="model-catalog"></div></details></section><b>History</b><div id="runs"></div></div>
 <div id="main"><div id="chat"><p style="color:#666">Ask, e.g.: <i>Read the synthetic supplier import story, generate test cases, execute the approved tests, and give me the results.</i></p></div>
 <div id="bar"><select id="proj" title="Project"><option value="">(no project: demo)</option></select><select id="story" title="Story"><option value="">(story from message)</option></select><select id="repo" title="Repository (read-only)"><option value="">(no repository)</option></select><select id="env"></select><input id="msg" placeholder="Message the QA agent"><button id="send">Send</button></div></div>
 <script>
-let current = null, timer = null, plan_hash = null;
+let current = null, timer = null, plan_hash = null, modelRecords = [], defaultModelProvider = null;
 const $ = s => document.querySelector(s), esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 async function j(u, o) { const r = await fetch(u, o); if (!r.ok) throw new Error(await r.text()); return r.json(); }
 async function loadAuth() { const me = await (await fetch('/api/me')).json().catch(() => ({}));
@@ -31,7 +32,7 @@ async function loadAuth() { const me = await (await fetch('/api/me')).json().cat
 async function login() { const r = await fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({token: $('#tok').value})});
   if (!r.ok) { alert('invalid token'); return; } boot(); }
 async function logout() { await fetch('/api/logout', {method:'POST'}); location.reload(); }
-async function loadCfg() { const c = await j('/api/config');
+async function loadCfg() { const c = await j('/api/config'); defaultModelProvider = c.model_provider;
   $('#cfg').innerHTML = `Model: <span class="lbl">${esc(c.model_label)}</span><br>Skills: ${c.skills.map(s => esc(s.name)).join(', ')}<br>Budget: $${c.budget.per_run_usd}/run, $${c.budget.daily_usd}/day`;
   $('#env').innerHTML = c.environments.map(e => `<option>${esc(e)}</option>`).join('');
   const envs = await j('/api/environments'); $('#envs').innerHTML = '<b>Environments</b><br>' + envs.map(e => `${esc(e.name)}: <span class="badge ${e.executable ? 'passed' : 'blocked'}">${e.executable ? 'executable' : esc(e.status)}</span>`).join('<br>');
@@ -39,6 +40,23 @@ async function loadCfg() { const c = await j('/api/config');
 $('#proj').onchange = async () => { const p = $('#proj').value; $('#story').innerHTML = '<option value="">(story from message)</option>'; $('#repo').innerHTML = '<option value="">(no repository)</option>'; if (!p) return;
   const ss = await j(`/api/projects/${encodeURIComponent(p)}/stories`); $('#story').innerHTML += ss.map(s => `<option value="${esc(s.key)}">${esc(s.key)} · ${esc(s.summary.slice(0,40))}</option>`).join('');
   const rs = await j(`/api/projects/${encodeURIComponent(p)}/repositories`); $('#repo').innerHTML += rs.map(r => `<option>${esc(r.full_name)}</option>`).join(''); };
+function selectedModel() { return modelRecords[Number($('#model-choice').value)]; }
+function showModelDetail() { const m = selectedModel(); if (!m) return;
+  $('#model-detail').textContent = `${m.classification} · ${m.cost_type} · discovered models ${(m.available_models || []).map(x => x.id).join(", ") || "not checked"} · configured ${m.configured ? 'yes' : 'no'} · approved ${m.approved ? 'yes' : 'no'} · permitted ${m.permitted ? 'yes' : 'no'} · ${m.health} · availability ${m.available ?? 'unknown'} · format ${m.structured_output} · context ${m.context_window ?? 'unknown'} · output ${m.output_limit ?? 'unknown'} · latency ${m.latency_ms ?? 'unknown'} ms · throughput ${m.tokens_per_second ?? 'unknown'} tok/s · memory ${m.memory_bytes ?? 'unknown'} bytes · remaining quota ${m.quota.remaining === null ? 'unknown' : JSON.stringify(m.quota.remaining)} · configured limits ${JSON.stringify(m.quota.limits)} · last evaluation ${m.last_evaluation ? JSON.stringify(m.last_evaluation) : 'not evaluated'}`;
+  $('#model-probe').disabled = !m.permitted;
+}
+async function loadModels() { const previous = selectedModel(); modelRecords = await j('/api/models');
+  $('#model-choice').innerHTML = modelRecords.map((m,i) => `<option value="${i}" ${m.permitted ? '' : 'disabled'}>${esc(m.provider)} / ${esc(m.model)} · ${esc(m.cost_type)}${m.permitted ? '' : ' · not permitted'}</option>`).join('');
+  const preferred = modelRecords.findIndex(m => previous ? m.provider === previous.provider && m.model === previous.model : m.provider === defaultModelProvider && m.permitted);
+  const chosen = preferred >= 0 ? preferred : modelRecords.findIndex(m => m.permitted);
+  if (chosen >= 0) $('#model-choice').value = String(chosen);
+  $('#model-catalog').innerHTML = modelRecords.map(m => `<p><b>${esc(m.provider)} / ${esc(m.model)}</b><br>enabled ${m.enabled} · approved ${m.approved} · configured ${m.configured} · permitted ${m.permitted}<br>${esc(m.reason || m.health)}</p>`).join('');
+  $('#model-choice').onchange = showModelDetail; showModelDetail();
+}
+async function probeModel() { const m = selectedModel(); if (!m) return;
+  try { const result = await j(`/api/models/${encodeURIComponent(m.provider)}/probe?model_id=${encodeURIComponent(m.model)}`, {method:'POST'}); await loadModels(); if (result.error) alert(result.error); }
+  catch(e) { alert(e.message); }
+}
 async function loadRuns() { const rs = await j('/api/runs');
   $('#runs').innerHTML = rs.map(r => `<div class="run ${r.id === current ? 'sel' : ''}" onclick="show('${r.id}')">${esc(r.story_key || '?')} · <b>${esc(r.status)}</b><br><small>${esc(r.created.slice(0,19))} · ${esc(r.id)}</small></div>`).join(''); }
 async function show(id) { current = id; clearInterval(timer); await render(); timer = setInterval(render, 1000); }
@@ -46,6 +64,7 @@ async function render() {
   if (!current) return; const r = await j('/api/runs/' + current); const base = '/api/runs/' + current;
   let h = `<div class="user">${esc(r.request)}</div><div class="card"><b>Run ${esc(r.id)}</b> · status <b id="status">${esc(r.status)}</b> · env ${esc(r.environment)}${r.project ? ` · project ${esc(r.project)}` : ''}${r.repository ? ` · repo ${esc(r.repository)} (read-only)` : ''} · <span class="lbl">${esc(r.model_label)}</span>
    ${['planning','awaiting_approval','executing'].includes(r.status) ? `<button id="cancel" onclick="cancelRun()">Cancel run</button>` : ''}
+   <div>Model: ${esc(r.model_provider)} / ${esc(r.model_id)} · version ${esc(r.model_version || 'not reported')}</div>
    <div>Model usage: ${r.usage.calls} call(s), ${r.usage.total_tokens} tokens, $${r.usage.cost_usd.toFixed(6)}</div>
    <div id="events">${r.events.map(e => `<div class="ev">${esc(e.ts.slice(11,19))} [${esc(e.step)}] ${esc(e.message)}</div>`).join('')}</div></div>`;
   if (r.ac_json) h += `<div class="card"><b>Acceptance criteria</b> <span class="lbl">${esc(r.model_label)}</span><table>${r.ac_json.acceptance_criteria.map(a => `<tr><td>${a.id}</td><td>${esc(a.text)}</td><td><i>"${esc(a.source_quote)}"</i></td></tr>`).join('')}</table></div>`;
@@ -68,8 +87,8 @@ async function render() {
 async function cancelRun() { await j(`/api/runs/${current}/cancel`, {method:'POST'}); render(); }
 async function decide(d) { try { await j(`/api/runs/${current}/approval`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({approver: $('#who').value, decision: d, plan_hash})}); } catch (e) { alert(e.message); } show(current); }
 $('#send').onclick = async () => { const m = $('#msg').value.trim(); if (!m) return; $('#msg').value = '';
-  const r = await j('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message: m, environment: $('#env').value, project: $('#proj').value || null, story_key: $('#story').value || null, repository: $('#repo').value || null})}); show(r.run_id); };
+  const r = await j('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message: m, environment: $('#env').value, project: $('#proj').value || null, story_key: $('#story').value || null, repository: $('#repo').value || null, model_provider: selectedModel()?.provider, model_id: selectedModel()?.model})}); show(r.run_id); };
 $('#msg').onkeydown = e => { if (e.key === 'Enter') $('#send').click(); };
-async function boot() { if (await loadAuth()) { loadCfg(); loadRuns(); } }
+async function boot() { if (await loadAuth()) { await loadCfg(); await loadModels(); loadRuns(); } }
 boot();
 </script></body></html>
