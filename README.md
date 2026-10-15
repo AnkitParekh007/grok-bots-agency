@@ -156,6 +156,8 @@ Demo auth is unauthenticated and intended for one trusted workstation. Use [loca
 
 Follow the [complete Windows local-model tutorial](docs/SETUP_LOCAL.md): install Ollama, size and manually pull a model, verify the local service, configure the exact installed ID and context, select it in Model Settings, generate a real plan, review/approve it, execute against synthetic data, and open the report. It includes GPU/VRAM guidance and model, memory, context and JSON troubleshooting. The application never downloads a model. Local inference has no hosted API requirement, but quality and speed depend on your model and hardware.
 
+[B3 diagnostics and supervised local evaluation](docs/b3/LOCAL_MODEL_EVALUATION.md) records the CPU/Intel trial and authenticated handoff. Native Ollama 0.40.4 / Qwen3 1.7B Q4_K_M completed real inference in 415.76 s at 4.899 generated tokens/s, but **planning failed** an oracle/action policy check. No tests executed; the full benchmark remains **NOT_EVALUABLE**. Offline tests do not upgrade model quality.
+
 ## Free hosted LLM configuration
 
 [The hosted setup guide](docs/SETUP_HOSTED.md) covers each implemented service, process-environment credentials, exact model approval, free-account verification, quotas and the independent HTTPS host allowlist. Hosted services start disabled. The UI cannot grant authorization, install keys or change endpoints. Only synthetic data may enter hosted inference in B2-FREE; a real Jira story is not automatically synthetic. NVIDIA NIM remains deferred.
