@@ -399,6 +399,9 @@ class OpenAICompatibleProvider(ModelProvider):
                 if self.cost_type == "free" and (raw.get("billing_mode", "free") != "free" or (raw.get("usage") or {}).get("cost", 0) not in (0, None)):
                     raise ProviderNotApproved("unexpected billing mode in free-only response")
                 usage = self.parse_usage(data)
+                version = data.get("model_version") or self.version or raw.get("system_fingerprint")
+                if version is not None and (not isinstance(version, str) or len(version) > 500):
+                    raise ValueError("invalid model version metadata")
                 choice = (data.get("choices") or [{}])[0]
                 text = (choice.get("message") or {}).get("content") or ""
                 if not isinstance(text, str): raise ValueError("content is not text")
@@ -413,7 +416,7 @@ class OpenAICompatibleProvider(ModelProvider):
             settle(usage, self.cost(usage), True, choice.get("finish_reason") or "unknown")
             qsettle(usage, "ok")
             if self.quota: self.quota.observe(self.quota_scope, resp.headers)
-            self.version = data.get("model_version") or self.version or raw.get("system_fingerprint")
+            self.version = redact(version) if version else None
             label = self.label
             if "STUB" in str(raw.get("system_fingerprint", "")).upper() or raw.get("_qa_stub") is True:
                 label = f"STUB ENDPOINT ({self.name}/{self.model}; NOT real model reasoning)"

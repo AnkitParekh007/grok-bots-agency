@@ -275,6 +275,15 @@ def test_stub_fingerprint_cannot_claim_real_model_label(agent):
     assert p.generate("plan_story", CTX, SCHEMA).label.startswith("STUB ENDPOINT (")
 
 
+def test_untrusted_catalog_cannot_echo_credentials_to_ui(agent, monkeypatch):
+    secret = "test-secret-GROQ_API_KEY"
+    p = provider(agent, "groq", lambda r: httpx.Response(200, json={"data": [{"id": secret, "version": secret}]}))
+    monkeypatch.setattr(agent.models, "resolve", lambda *args: p)
+    result = agent.models.probe("groq")
+    assert secret not in json.dumps(result)
+    assert "[REDACTED]" in json.dumps(result)
+
+
 def test_comparison_never_promotes_recordings_or_incomplete_reports(tmp_path):
     from scripts.compare_models import compare
     reports = []

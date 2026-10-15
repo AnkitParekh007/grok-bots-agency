@@ -100,6 +100,12 @@ class ModelRegistry:
                 detail.update(obj.memory())
         except Exception as e:
             detail = {"status": "error", "available": False, "error": redact(str(e))[:300]}
+        def scrub(value):
+            if isinstance(value, str): return redact(value)
+            if isinstance(value, list): return [scrub(v) for v in value]
+            if isinstance(value, dict): return {redact(str(k)): scrub(v) for k, v in value.items()}
+            return value
+        detail = scrub(detail)
         self.health[(provider, obj.model)] = detail
         self.agent.gateway.record(None, "model.health", {"provider": provider, "model": obj.model}, "allow", detail["status"])
         return detail
