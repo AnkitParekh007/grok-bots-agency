@@ -2,7 +2,7 @@
 
 [README](../../README.md) · [Local setup](../SETUP_LOCAL.md) · [B2 authorization](../b2/ENABLE_LIVE_EVAL.md)
 
-**Real-model verdict: NOT_EVALUABLE.** No Ollama installation/service or installed local model was found at inspection. No real plan, human approval, model-driven execution or model-quality benchmark is claimed. B3 supplies diagnostics and an authenticated smoke/benchmark handoff. The user subsequently approved Ollama installation and the `qwen3:1.7b` download; the official installer was downloaded and verified, but automatic approval review blocked launching it. **Manual installation is the current checkpoint.** No hosted inference, corporate integration, deployment or merge is part of this work.
+**Planning trial: FAIL. Full benchmark: NOT_EVALUABLE.** The approved native Ollama/Qwen3 1.7B CPU trial completed, but its plan was rejected for an unauthorized oracle/action pairing. No valid plan hash, human approval or test execution exists. The failed attempt is preserved; the full multi-story benchmark cannot proceed before a successful supervised smoke test. See the [sanitized machine-readable trial receipt](QWEN3_1_7B_TRIAL.json). No hosted inference, corporate integration, deployment or merge occurred.
 
 ## Baseline and scope
 
@@ -24,7 +24,7 @@ This is the accessible Windows machine, not a remote Linux/container benchmark. 
 | System RAM | 16,905,961,472 usable bytes (about 15.75 GiB); initially about 1.94 GiB free. During parallel browser tests free RAM fell to about 0.4 GiB / 97% load. These are transient observations, not inference measurements. |
 | Dedicated VRAM | No NVIDIA measurement. WMI reported `AdapterRAM=2147479552` for Intel; this driver field is **not** a reliable 2 GB dedicated-VRAM claim for integrated/WDDM graphics. |
 | C: free space | Initially 106,018,545,664 bytes (about 98.7 GiB); later readings vary with generated test artifacts. |
-| Ollama | CLI absent from PATH and checked installation paths; loopback `/api/version` unavailable; no default model store found. No installation or pull performed. |
+| Ollama | Initially absent. After user installation, the per-user CLI exists and native loopback `/api/version` reports **0.40.4**; `/api/tags` initially returned an empty model list. Approved `qwen3:1.7b` pull completed with digest verification; 1,359,293,444 installed bytes, Q4_K_M. The tag reports `parameter_size=2.0B` in native metadata; the selected tag remains exactly `qwen3:1.7b`. |
 
 One automated CIM hardware collection timed out under memory pressure; a subsequent lighter query successfully recorded CPU/video/driver data. The earlier direct queries also confirmed the signed display driver. The diagnostic retains unknown/error fields instead of inferring missing hardware. Parallel browser tests were serialized after RAM exhaustion; the interrupted offline run remains incomplete. Model inference should start only after test processes finish and memory is rechecked. No apps were closed on the user's behalf.
 
@@ -34,14 +34,41 @@ Current official tags were checked on 2026-10-15. Download sizes below are regis
 
 | Candidate | Registry quantization / download | Decision for this machine |
 |---|---|---|
-| [Qwen3 1.7B](https://ollama.com/library/qwen3:1.7b) | Q4_K_M / about 1.4 GB | Selected **first CPU trial**; installation/download approved, awaiting manual installation and RAM recheck. Task capability not established. |
+| [Qwen3 1.7B](https://ollama.com/library/qwen3:1.7b) | Q4_K_M / about 1.4 GB | Selected **first CPU trial**; installation/download approved, runtime/model installed; first CPU trial completed with failed planning validation. Task capability not established. |
 | [Qwen3 4B](https://ollama.com/library/qwen3:4b) | Q4_K_M / about 2.5 GB | Possible second trial if the smaller model fails quality and sufficient RAM is available; separate download approval. |
 | [Qwen3 8B](https://ollama.com/library/qwen3:8b) | Q4_K_M / about 5.2 GB | Not the first trial given current free RAM and CPU-only latency risk. |
 | [Qwen3 14B](https://ollama.com/library/qwen3:14b) | Q4_K_M / about 9.3 GB | Deferred on this loaded 16 GB machine. |
 | [gpt-oss:20b](https://ollama.com/library/gpt-oss:20b) | MXFP4 / about 14 GB | Deferred; inadequate current memory headroom for weights plus runtime/context. |
 | [Qwen2.5-Coder 3B](https://ollama.com/library/qwen2.5-coder:3b) | Q4_K_M / about 1.9 GB | A coding-model alternative for a separately approved trial; verify its separate model terms. Coding ability alone does not demonstrate faithful QA planning. |
 
-Proposed first-trial settings: exact tag `qwen3:1.7b`, native JSON schema, context **16,384**, output allowance 4,096, timeout 600 seconds. A no-inference preflight measured a conservative full input/schema/catalog plus output ceiling of **11,374**, so the local trial configuration was reduced from 32k to 16k to reduce KV-cache demand. Actual model context support must still be verified after installation. The existing evaluation profile sets a transport retry ceiling of one. These are trial parameters, not a performance promise or relaxed quality threshold. Thinking/temperature/seed are not explicitly set by the existing adapter; server/model defaults apply. Version, template hash, parameters and effective settings are recorded when available. If reasoning consumes the allowance or schema output truncates, record the failure before considering a justified compatibility change.
+Measured first-trial settings: exact tag `qwen3:1.7b`, native JSON schema, context **16,384**, output allowance 4,096, timeout 600 seconds. A no-inference preflight measured a conservative full input/schema/catalog plus output ceiling of **11,374**, so the local trial configuration was reduced from 32k to 16k to reduce KV-cache demand. Subsequent native metadata verified a 40,960-token model context limit. The existing evaluation profile sets a transport retry ceiling of one. These are trial parameters, not a performance promise or relaxed quality threshold. Thinking/temperature/seed are not explicitly set by the existing adapter; server/model defaults apply. Version, template hash, parameters and effective settings are recorded when available. If reasoning consumes the allowance or schema output truncates, record the failure before considering a justified compatibility change.
+
+## Measured first real trial
+
+The approved pull completed and verified its digest. Native Ollama **0.40.4** served exact tag **`qwen3:1.7b`**, Q4_K_M, installed bytes **1,359,293,444**, digest **`8f68893c685c3ddff2aa3fffce2aa60a30bb2da65ca488b61fff134a4d1730e7`**. Native metadata calls this tag's parameter size `2.0B`; the selected ID was not changed. Model context support is 40,960; the trial used 16,384 with 4,096 output tokens and 600-second timeout. Model defaults reported temperature 0.6, top_k 20, top_p 0.95, repeat_penalty 1. Thinking/seed were not explicitly set. The result receipt records the template/settings/prompt/source hashes.
+
+An actual authenticated **automation requester**, `b3_agent_requester`, initiated PCC-DEMO-5 in local auth mode. Its token was held in the planning process, not printed or committed. No human approver was created. The run used the native adapter and synthetic story/catalog, with no replay response or gold answer inserted into the prompt. Tested source commit was `b788c797749ae6c9f427cd3e9a55eaa73b832e24`; the working tree had documentation edits only. Relevant runtime/source hashes were recorded.
+
+| Measurement | Observed result |
+|---|---|
+| Run / completion time | `run-da6b623233`, 2026-10-15 16:57:29 UTC |
+| Native calls / finish | One real `/api/chat` completion; normal `stop`; no transport retry or format repair |
+| Tokens | 1,019 prompt + 1,896 generated = 2,915 total; separate reasoning breakdown unavailable (the existing normalized ledger's zero is not a measured reasoning count) |
+| Latency / generation speed | Planning 415.76 s; native-adapter call 414,318.777 ms; 4.899 generated tokens/s |
+| Context / output / timeout | Conservative preflight 11,374 fits 16,384; normal stop below the 4,096 output and 600-second limits. No observed truncation/context/timeout failure. |
+| Loaded model / GPU | `/api/ps`: 3,384,016,895 loaded bytes, `size_vram=0`, context 16,384. CPU inference; no Intel acceleration claim. |
+| System RAM | 177 best-effort samples; peak **99%** load, lowest available **49,176,576 bytes**. This is system-wide pressure, not model-process RSS. The model was unloaded after the trial. |
+| Validation | JSON parsing/schema checks passed before semantic validation rejected `TC-1`: `ORC5-CLASS-5001` is not approved for `api_import`. One policy violation; no valid plan/hash. |
+| Audit / approval / execution | Audit chains verify; zero human approvals; zero API/browser test execution; no screenshots/traces or execution report |
+| Quality / full benchmark | Unavailable after failed validation. Defect recall, false alarms, coverage and repeatability are not measured. **NOT_EVALUABLE**, never PASS. |
+
+The exact prompt catalog lists only `api_product_after_import` for `ORC5-CLASS-5001`, and the system instruction requires the oracle's allowed actions to include the selected action. The observed failure is therefore an invalid model-generated pairing despite the provided mapping. JSON-schema support alone did not ensure semantic correctness. This trial ran under memory pressure; its separate contribution to latency or the mapping error is unknown, and one attempt does not establish a model-wide failure rate.
+
+The validator correctly treated this as a non-repairable policy violation. No security check, action/oracle allowance or expected value was relaxed, and the invalid plan was not manually rewritten into a passing one. The existing runtime retains the rejected output's SHA-256 and denial reason rather than the raw invalid candidate. Consequently the review artifact has `planning:null`, `plan_hash:null`, `validation_status:failed`; detailed scores or the full rejected candidate cannot be reconstructed. The summary's `real_reasoning_evidence:false` means there is no validated plan evidence; **an actual native completion did occur**.
+
+Local evidence: ignored `reports/b3/qwen3-1_7b/on/{b3_attempt.json,b3_summary.json,review_plan.json}`, the named telemetry JSON, `data/qa_agent.db`, `data/audit.jsonl`, and `reports/b3/qwen3-1_7b/loaded-model.json`. The committed [receipt](QWEN3_1_7B_TRIAL.json) records checksums and measured values without tokens, model binaries, raw machine configuration or confidential data.
+
+Further inference needs materially more free RAM than this trial had. A larger candidate remains a separate download decision; none is installed/authorized beyond the selected 1.7B tag. First obtain a valid new plan, then a distinct authenticated human must review it. The defect-off execution and full B2 benchmark remain gated on separately approved successful smoke runs.
 
 ## Tool behavior and evidence
 
@@ -58,12 +85,12 @@ Artifacts are ignored by Git: timestamped `diagnostics-*.json` and `telemetry-*.
 
 ## Exact Windows continuation
 
-Run from the repository root. Existing Python dependencies/Chromium must be available as in the [README](../../README.md#quick-start--windows). Installation and this exact model download are now authorized. Commands below requiring Ollama are **next actions**, not commands already run in B3. Complete installation manually, reopen PowerShell and keep cloud features disabled. This CPU trial does not assume Intel GPU acceleration.
+Run from the repository root. Existing Python dependencies/Chromium must be available as in the [README](../../README.md#quick-start--windows). Installation and this exact model download are now authorized. The user completed manual installation; the local runtime and approved pull completed verification. The commands below also document reproduction. Keep cloud features disabled. This CPU trial does not assume Intel GPU acceleration.
 
-The verified official [Ollama v0.40.4 release](https://github.com/ollama/ollama/releases/tag/v0.40.4) installer is in ignored `reports/b3-installer/OllamaSetup.exe` (1,581,967,176 bytes). Its SHA-256 matches the release asset: `45fcd47d70dd047ab95736802e71a7497ef1a473a50470471fc2fb0eb90badde`. Windows Authenticode status is **Valid**, publisher **Ollama Inc.** Automatic approval review rejected the attempted installer launch with only “blocked by policy”; no alternative automation was used to bypass it. Run the verified file manually. Local receipts are `verification.json` and `launch-blocked.json` in the same ignored directory. `~/.ollama/server.json` was prepared with `disable_ollama_cloud:true`, preserving any existing settings.
+The verified official [Ollama v0.40.4 release](https://github.com/ollama/ollama/releases/tag/v0.40.4) installer is in ignored `reports/b3-installer/OllamaSetup.exe` (1,581,967,176 bytes). Its SHA-256 matches the release asset: `45fcd47d70dd047ab95736802e71a7497ef1a473a50470471fc2fb0eb90badde`. Windows Authenticode status is **Valid**, publisher **Ollama Inc.** Automatic approval review rejected the attempted installer launch with only “blocked by policy”; no alternative automation was used to bypass it. The user ran the verified file manually and reported installation complete. A subsequent automatic service-start attempt was also rejected before execution; read-only probes then confirmed the user-started service was already available, so no alternate launch was attempted. Local receipts are `verification.json` and `launch-blocked.json` in the same ignored directory. `~/.ollama/server.json` was prepared with `disable_ollama_cloud:true`, preserving any existing settings.
 
 ```powershell
-# After completing the already approved manual installation:
+# Reproduction after the already approved installation:
 ollama --version
 ollama pull qwen3:1.7b
 ollama list
@@ -92,7 +119,7 @@ $env:QA_AGENT_CONFIG = (Resolve-Path 'data/b3-local.json').Path
 .\.venv\Scripts\python.exe scripts/local_model_b3.py diagnose --out reports/b3/diagnostics
 ```
 
-Create identities for actual people; each CLI command prints a token once. A distinct approver must retain/control their own token. Do not paste tokens into chat or logs. These identities have **not** been created by the B3 implementation:
+The first trial uses an authenticated automation requester named `b3_agent_requester`, created in ignored `data/users-b3.json`; its token was held only in the planning process and never printed. No human approver identity or approval was created. For subsequent manual runs, create a requester and a distinct human approver; each CLI command prints a token once. The human must retain/control their own approver token. Do not paste tokens into chat or logs:
 
 ```powershell
 .\.venv\Scripts\python.exe -m qa_agent.auth add-user b3_requester --role requester --users-file data/users-b3.json
@@ -100,10 +127,10 @@ Create identities for actual people; each CLI command prints a token once. A dis
 $qaToken = Read-Host 'Your requester token' -AsSecureString
 $env:QA_TOKEN = [System.Net.NetworkCredential]::new('', $qaToken).Password
 Remove-Variable qaToken
-.\.venv\Scripts\python.exe scripts/local_model_b3.py plan --phase defect_on --users-file data/users-b3.json --out reports/b3/qwen3-1_7b/on
+.\.venv\Scripts\python.exe scripts/local_model_b3.py plan --phase defect_on --users-file data/users-b3.json --out reports/b3/qwen3-1_7b/on-next
 ```
 
-On a valid real plan this prints its **actual** run ID/hash and review-file path, exits 4 and pauses. If it fails, preserve diagnostics/error/audit evidence; use a fresh attempt directory after fixing the cause. No run ID or generated plan exists for the current missing-runtime checkpoint.
+On a valid real plan this prints its **actual** run ID/hash and review-file path, exits 4 and pauses. If it fails, preserve diagnostics/error/audit evidence; use a fresh attempt directory after fixing the cause. The first real attempt, `run-da6b623233`, failed policy validation with a null plan hash. It cannot be approved or executed; do not use its directory for a new attempt. A future valid attempt must use a fresh output directory.
 
 For defect-on execution, Terminal A starts the synthetic application:
 
@@ -117,7 +144,7 @@ Terminal B serves the **same** plan data with local auth:
 ```powershell
 $env:PYTHONUTF8 = '1'
 $env:QA_AGENT_CONFIG = (Resolve-Path 'data/b3-local.json').Path
-$env:QA_DATA_DIR = (Resolve-Path 'reports/b3/qwen3-1_7b/on/data').Path
+$env:QA_DATA_DIR = (Resolve-Path 'reports/b3/qwen3-1_7b/on-next/data').Path
 $env:QA_AUTH_MODE = 'local'
 $env:QA_USERS_FILE = (Resolve-Path 'data/users-b3.json').Path
 .\.venv\Scripts\python.exe -m qa_agent.server
@@ -128,11 +155,11 @@ The distinct human approver opens [the workspace](http://127.0.0.1:8600), signs 
 After completion, open HTML/JSON and screenshot/trace/log links, then collect the actual outcome:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/local_model_b3.py summarize --out reports/b3/qwen3-1_7b/on
-.\.venv\Scripts\python.exe -m qa_agent.audit_verify --data-dir reports/b3/qwen3-1_7b/on/data
+.\.venv\Scripts\python.exe scripts/local_model_b3.py summarize --out reports/b3/qwen3-1_7b/on-next
+.\.venv\Scripts\python.exe -m qa_agent.audit_verify --data-dir reports/b3/qwen3-1_7b/on-next/data
 ```
 
-For defect-off, stop **both** SUT and agent. Set `$env:SUT_DEFECTS = ''` and restart Terminal A. Generate a **new** plan using the requester token with `plan --phase defect_off --users-file data/users-b3.json --out reports/b3/qwen3-1_7b/off`. Restart Terminal B with `QA_DATA_DIR` pointing to `reports/b3/qwen3-1_7b/off/data`. The human must separately review/approve that new run/hash and verify defect-off mode. Summarize/verify the `off` directory. Never reuse the on-plan approval for off execution.
+For defect-off, only after a valid and separately approved defect-on run completes, stop **both** SUT and agent. Set `$env:SUT_DEFECTS = ''` and restart Terminal A. Generate a **new** plan using the requester token with `plan --phase defect_off --users-file data/users-b3.json --out reports/b3/qwen3-1_7b/off-next`. Restart Terminal B with `QA_DATA_DIR` pointing to `reports/b3/qwen3-1_7b/off-next/data`. The human must separately review/approve that new run/hash and verify defect-off mode. Summarize/verify the `off-next` directory. Never reuse the on-plan approval for off execution.
 
 Inspect actual selected test types: a per-product API action also opens Chromium for evidence, but that is not proof of a browser assertion for an unsupported UI requirement. Keep such requirements as coverage gaps. Counts are model-generated and must not be copied from replay. Compare failed oracle IDs with expected seeded defects, require zero defect-off false alarms and preserve errors/blocked cases.
 
@@ -141,7 +168,7 @@ Inspect actual selected test types: a per-product API action also opens Chromium
 The wrapper verifies both completed smoke runs from their original stores and audit bindings, not a self-declared success file. It requires distinct authenticated approval, faithful coverage, seeded-defect detection, no false alarms/errors/policy violations, successful API/browser audit events, report checksum and screenshot/trace/log hashes, and unchanged model digest/runtime/generation sources/settings. It then invokes the existing B2 harness; there is no second scoring framework. Separately authorized evaluation-grant enablement is excluded from the planning-configuration fingerprint, so the subsequent scoped-grant step can proceed without altering a reviewed plan.
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/local_model_b3.py benchmark --users-file data/users-b3.json --smoke-on reports/b3/qwen3-1_7b/on --smoke-off reports/b3/qwen3-1_7b/off --out reports/b3/qwen3-1_7b/full
+.\.venv\Scripts\python.exe scripts/local_model_b3.py benchmark --users-file data/users-b3.json --smoke-on reports/b3/qwen3-1_7b/on-next --smoke-off reports/b3/qwen3-1_7b/off-next --out reports/b3/qwen3-1_7b/full-next
 ```
 
 This first full-harness invocation still pauses for its own authenticated first-plan review. Follow [B2 first-plan review and grant authorization](../b2/ENABLE_LIVE_EVAL.md). A real authenticated approver issues any scoped grant; the wrapper does not. Enable `unattended_eval_approval` in the local config only for a separately authorized grant scope. Preserve story/environment/skill/action/LIVE MODEL limits, expiry/use limits and external sealed-gold custody. Resume the same benchmark command with `--grant <actual-grant-id> --sealed-gold-dir <actual-custody-directory>`. Never use `--self-test-simulated-review` with a real model. A change of requester/digest or failed first plan requires a fresh reviewed handoff.
@@ -151,14 +178,14 @@ Without all required stories, repetitions, executions, verified held-out gold an
 Compare reports without further inference:
 
 ```powershell
-.\.venv\Scripts\python.exe scripts/compare_models.py reports/b3/qwen3-1_7b/full/eval_report.json --out reports/b3/comparison
+.\.venv\Scripts\python.exe scripts/compare_models.py reports/b3/qwen3-1_7b/full-next/eval_report.json --out reports/b3/comparison
 ```
 
 Add other model report paths only after separately approved installations and supervised runs for those exact models. B2 supplies AC precision/recall, coverage, skill/action validity, schema/repairs, gaps, injection/policy behavior, detection/false alarms, latency/usage and repeatability. B3 records native throughput and hardware samples where reported; unknown Intel GPU data stays unknown. No comparison score exists yet for a real local model.
 
 ## Failed attempts, tests and outstanding sign-offs
 
-Actual local preflight: service unreachable, no generation performed, exit 3 / NOT_EVALUABLE. One CIM collection timed out under test memory pressure. An offline stub evaluation was interrupted to reduce RAM load and is incomplete; its recordings are not local-model inference. No context/schema/output/skill compatibility failure from a **real model** has been observed, so no speculative relaxation or provider/schema change was made.
+Initial local preflight: service unreachable, no generation performed, exit 3 / NOT_EVALUABLE. After user installation and approved pull, the real trial completed but failed semantic policy validation as recorded above. One CIM collection timed out under test memory pressure. An offline stub evaluation was interrupted to reduce RAM load and is incomplete; its recordings are not local-model inference. The real candidate passed JSON-schema validation but violated the provided oracle/action mapping. No provider/schema/security relaxation was justified or made.
 
 | Validation | Result / evidence |
 |---|---|
@@ -166,9 +193,9 @@ Actual local preflight: service unreachable, no generation performed, exit 3 / N
 | Targeted provider/B2/B3 regression run | **83 passed**, one upstream warning; local receipt `reports/b3-targeted.log`. |
 | Final B3 contracts | **16 passed**, covering local-only/fixture-only boundaries, metadata-only probes, authenticated requester and distinct-reviewer enforcement, paused planning, contamination rejection, unavailable runtime, audit-bound phase metadata, pinned model versions, missing/tampered evidence and grant handoff. All are offline mocks, not reasoning evidence. |
 | Documentation / syntax | Python compilation and CLI help checked; 57 local Markdown references resolved and all 15 PowerShell blocks in README/B3 guide parsed. Embedded Python configuration example parsed. No shared machine-specific defaults were changed. |
-| Actual local model | **NOT_EVALUABLE**, metadata preflight could not reach Ollama; no generation, token/TPS/latency measurement, approval or actual model-driven execution. |
+| Actual local model | Real native completion measured: 415.76 s, 4.899 generated tokens/s, 1,019 prompt / 1,896 generated tokens. **Planning FAIL** (invalid oracle/action pairing); full benchmark **NOT_EVALUABLE**. No approval/execution. |
 | Offline evaluation / CI | [Successful complete workflow on implementation commit ef88e75](https://github.com/AnkitParekh007/grok-bots-agency/actions/runs/38768459633): **333 unit + 46 integration tests passed**, complete **30-run stub evaluation PASS**, 18/18 seeded-defect recall, zero defect-off false alarms, comparison and headless replay succeeded. The comparison remains ineligible for model-quality claims. Local browser-heavy attempts were interrupted under memory pressure; no partial local report is called PASS. Exact final-head checks are linked in the draft PR. |
 
-CI remains offline and credential-free; tests use native-protocol mocks and temporary synthetic identities only. No model binaries, raw hardware/configuration files, credentials or machine state are committed.
+CI remains offline and credential-free; tests use native-protocol mocks and temporary synthetic identities only. No model binaries, raw hardware/configuration dumps, credentials or machine-specific settings are committed.
 
-Outstanding user checkpoints: finish the approved manual Ollama installation, then download only the approved model and recheck RAM for a measured CPU trial; supply real requester/approver identities, review the first actual plan and the separate defect-off run, then authorize any larger benchmark/grants. Sealed gold and independent human/QA-lead sign-offs remain outside this implementation's authority.
+Outstanding checkpoints: free sufficient RAM and obtain a valid fresh planning result; a distinct real approver must then create/control their own token, review the plan and separately approve defect-on/off runs. A larger model requires a separate download decision. Only successful supervised smoke permits a full benchmark/grant handoff. Sealed gold and independent human/QA-lead sign-offs remain outside this implementation's authority.
