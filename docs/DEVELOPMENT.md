@@ -103,3 +103,7 @@ Usage and latency come from runtime/provider observations, with unknown/missing 
 Inspect licensing before reusing or redistributing code: no `LICENSE` is present at this revision. A public GitHub repository is not itself an explicit redistribution/modification license. Do not add a license without owner approval.
 
 For changes proposed to the owner, use a focused branch and PR with the problem, resulting behavior and relevant checks. Follow the existing push/pull-request workflow, review CI artifacts and keep tests offline by default. Never commit actual keys/tokens, customer stories, generated `data/`/`reports/` or sealed gold. Historical evidence under `docs/history/` is preserved as superseded provenance; update current guides rather than rewriting historical results. No merge, release or deployment is part of a documentation contribution.
+
+## Workspace frontend
+
+The UI remains vanilla HTML/CSS and native JavaScript modules in `qa_agent/static/`, served from `/static`. `app.js` coordinates API/state/actions; `components.js` renders reusable views; `ui.js` escapes text and implements shared primitives; `workspace.css` holds semantic tokens and responsive styling. No Node build step or runtime package is required. See the [UI-1 audit and workflow map](ui-1/WORKSPACE_REDESIGN.md). Browser interaction coverage is in `tests/test_ui_workspace.py` and runs with the integration suite, using replay and temporary test identities. Set `QA_UI_SCREENSHOTS_DIR` to keep its actual UI captures in a chosen directory.

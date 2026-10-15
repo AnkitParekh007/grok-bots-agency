@@ -1,0 +1,38 @@
+{
+  "baseline_commit": "06d2917219d2a3dba04e6b97c0967350d1fde53b",
+  "branch": "feature/ui-production-redesign",
+  "runtime_dependencies_added": false,
+  "framework_migration": false,
+  "unit": {
+    "passed": 333,
+    "deselected": 50,
+    "duration_s": 200.33,
+    "warnings": 1
+  },
+  "ui_browser_tests": {
+    "passed": 4,
+    "duration_s": 73.11,
+    "browser": "Chromium",
+    "inference": "replay; unavailable native loopback endpoint used only to test metadata failure"
+  },
+  "demo": {
+    "run_id": "run-febbb57235",
+    "status": "completed",
+    "total": 8,
+    "passed": 3,
+    "failed": 5,
+    "error": 0,
+    "blocked": 0,
+    "inference": "replay, not real-model quality evidence"
+  },
+  "screenshots": 23,
+  "local_references_checked": 81,
+  "backend_change": "Public static asset mount only; API authorization/execution contracts unchanged",
+  "ci": "Final-head offline checks linked in draft PR",
+  "known_limits": [
+    "No independent WCAG certification or manual Safari/Firefox/assistive technology validation",
+    "No real-model quality claim",
+    "No cross-platform golden pixel comparison; actual screenshots and geometry/contrast checks supplied",
+    "Existing standalone HTML report format preserved"
+  ]
+}

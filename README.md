@@ -39,6 +39,7 @@ The current runnable domain is **synthetic supplier imports and attribute mappin
 | Test reports | Available | HTML, JSON and JSON checksum per run. |
 | Screenshots and traces | Available | Real Chromium evidence with artifact manifests. |
 | Human approvals | Available | Exact plan hash, expiry, rejection/cancellation; authenticated roles in local auth mode. |
+| Responsive QA workspace | Available | Conversation, dedicated plan review, execution/evidence tabs, light/dark themes and mobile drawers. |
 | Model selection | Available | Administrator-approved provider/model for each new run; read-only settings and connection probes. |
 | Local inference | Experimental | Native Ollama and compatible LM Studio/llama.cpp/vLLM; protocol tests passed, installed-model evaluation pending. |
 | Free hosted inference | Experimental | Groq, Gemini and explicit OpenRouter free models; disabled pending account and egress approval. |
@@ -49,22 +50,30 @@ The current runnable domain is **synthetic supplier imports and attribute mappin
 
 ## Screenshots and demonstrations
 
-These are real UI captures using **recorded replay plans**, not evidence of LLM reasoning. Browser/API execution and its evidence are real. Existing [Milestone B1 plan review](docs/screenshots/01_plan_awaiting_approval.png) remains available as historical UI evidence; current captures below include the model selector.
+The redesigned workspace keeps the conversation in the center, request context and execution in a collapsible panel, and navigation in a sidebar or compact rail. Light/dark themes and mobile drawers are included. See the [UI-1 audit, workflow map and validation](docs/ui-1/WORKSPACE_REDESIGN.md) and [before/after gallery](docs/ui-1/SCREENSHOTS.md).
 
-![QA workspace with the project and synthetic story selected](docs/screenshots/readme_story_selection.png)
+These are real browser captures of the running app with **recorded replay plans** and temporary local test identities. They demonstrate UI behavior and actual synthetic browser/API execution, not LLM reasoning or production certification.
 
-Project/story/repository/environment selection is at the bottom. The sidebar chooses a model for a new run. [Plan review](docs/b2-free/screenshots/01_plan_awaiting_approval.png) shows quoted ACs, gaps, actions and the approval hash; [execution](docs/b2-free/screenshots/02_after_approval_execution_started.png) shows the approved run.
+![Redesigned QA workspace in the light theme](docs/ui-1/screenshots/after/initial-light-1440x900.png)
+
+Open **Context** to choose a project, Jira story, repository, environment and permitted model. A generated plan opens in a dedicated review dialog; a distinct authenticated reviewer authorizes its exact hash in local auth mode.
+
+![Dedicated authenticated test-plan review](docs/ui-1/screenshots/after/approval-review.png)
 
 <details>
-<summary>Results, evidence, report and model settings</summary>
+<summary>Execution, evidence, model settings, dark theme and mobile</summary>
 
-![Completed synthetic run with evidence links](docs/b2-free/screenshots/03_results_with_evidence.png)
+![Approved synthetic execution timeline](docs/ui-1/screenshots/after/execution-running.png)
 
-![Generated HTML report](docs/b2-free/screenshots/04_report.png)
+![Completed synthetic execution with results and evidence](docs/ui-1/screenshots/after/completed-evidence.png)
 
-![Model Settings showing the configured local default](docs/b2-free/screenshots/05_model_settings_local_default.png)
+![Read-only model catalog and selection](docs/ui-1/screenshots/after/models.png)
 
-The local-default capture reports availability as unknown until checked; it does not establish that Ollama was installed or evaluated. The synthetic application deliberately contains defects in these runs.
+![Workspace in the dark theme](docs/ui-1/screenshots/after/initial-dark-1440x900.png)
+
+![Mobile conversation workspace](docs/ui-1/screenshots/after/initial-light-390x844.png)
+
+The synthetic SUT deliberately contains planted defects. Provider availability is checked on demand; catalog configuration is not proof of live inference. Earlier [B1](docs/screenshots/01_plan_awaiting_approval.png) and [B2-FREE](docs/b2-free/screenshots/01_plan_awaiting_approval.png) captures remain historical evidence.
 
 </details>
 
@@ -199,7 +208,7 @@ This is a prototype, without enterprise SSO, managed secrets, encrypted evidence
 config/                 Agent/provider, tool policy, environment and evaluation settings
 qa_agent/
   server.py             FastAPI endpoints and authentication boundary
-  static/index.html     Single-page QA workspace
+  static/               Workspace shell, CSS tokens and native JavaScript modules
   runtime.py            Plan → validate → approve → execute lifecycle
   planning.py           Prompt, schema and catalog validation
   providers/            Replay, compatible/native models, quotas and registry

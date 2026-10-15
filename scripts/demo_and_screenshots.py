@@ -23,29 +23,43 @@ def up(url):
 
 def main():
     SHOTS.mkdir(parents=True, exist_ok=True)
-    env = dict(os.environ, QA_MODEL_PROVIDER="replay", SUT_DEFECTS=os.environ.get("SUT_DEFECTS", "all"), SYNTHETIC_SUT_URL="http://127.0.0.1:8601")
-    procs = [subprocess.Popen([sys.executable, "-m", "uvicorn", "sut.app:app", "--host", "127.0.0.1", "--port", "8601"], cwd=ROOT, env=env),
-             subprocess.Popen([sys.executable, "-m", "qa_agent.server"], cwd=ROOT, env=env)]
+    demo_config = json.loads((ROOT / "config/agent.json").read_text(encoding="utf-8"))
+    demo_config["model"]["provider"] = "replay"
+    demo_config["auth"]["mode"] = "demo"
+    config_path = ROOT / "reports/demo/agent.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(json.dumps(demo_config), encoding="utf-8")
+    env = dict(os.environ, QA_MODEL_PROVIDER="replay", QA_AUTH_MODE="demo",
+               QA_AGENT_CONFIG=str(config_path), QA_AGENT_PORT="8600",
+               QA_DATA_DIR=os.environ.get("QA_DATA_DIR", str(ROOT / "reports/demo-data")),
+               SUT_DEFECTS=os.environ.get("SUT_DEFECTS", "all"), SYNTHETIC_SUT_URL="http://127.0.0.1:8601")
+    flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    procs = [subprocess.Popen([sys.executable, "-m", "uvicorn", "sut.app:app", "--host", "127.0.0.1", "--port", "8601"], cwd=ROOT, env=env, creationflags=flags),
+             subprocess.Popen([sys.executable, "-m", "qa_agent.server"], cwd=ROOT, env=env, creationflags=flags)]
     try:
         up("http://127.0.0.1:8601/api/health"); up("http://127.0.0.1:8600/api/config")
         with sync_playwright() as pw:
             b = pw.chromium.launch(headless=True)
             page = b.new_page(viewport={"width": 1400, "height": 1000})
             page.goto("http://127.0.0.1:8600/")
-            page.add_style_tag(content="body{height:auto!important} #main{height:auto} #chat{overflow:visible!important}")
-            page.wait_for_selector("#model-choice option", state="attached")
-            assert page.is_visible("#model-settings")
-            assert "replay" in page.locator("#model-choice option:checked").inner_text()
+            page.wait_for_function("document.querySelector('#model-choice')?.selectedOptions[0]?.textContent.toLowerCase().includes('replay')")
+            assert page.is_visible("#composer-model")
+            assert "replay" in page.locator("#model-choice option:checked").text_content().lower()
             page.fill("#msg", PROMPT)
-            page.click("#send")
-            page.wait_for_selector("#approve", timeout=30000)
+            with page.expect_response(lambda r: r.url.endswith("/api/chat") and r.request.method == "POST") as submitted:
+                page.click("#send")
+            rid = submitted.value.json()["run_id"]
+            page.wait_for_selector("[data-action=review]", timeout=30000)
+            page.locator("#chat [data-action=review]").click()
+            page.wait_for_selector("#review-dialog[open]")
             page.screenshot(path=str(SHOTS / "01_plan_awaiting_approval.png"), full_page=True)
             page.click("#approve")
-            page.wait_for_selector("#results", timeout=180000)
+            page.wait_for_function("document.querySelector('#status')?.textContent.includes('Executing')", timeout=180000)
             page.screenshot(path=str(SHOTS / "02_after_approval_execution_started.png"), full_page=True)
-            page.wait_for_selector("#links", timeout=300000)
+            page.wait_for_function("document.querySelector('#status')?.textContent.includes('Completed')", timeout=300000)
+            page.locator("#chat [data-action=evidence]").click()
+            page.wait_for_selector("#links", timeout=30000)
             page.screenshot(path=str(SHOTS / "03_results_with_evidence.png"), full_page=True)
-            rid = page.inner_text("#chat .card b").split()[-1]
             rp = b.new_page(viewport={"width": 1400, "height": 1000})
             rp.goto(f"http://127.0.0.1:8600/api/runs/{rid}/report.html")
             rp.screenshot(path=str(SHOTS / "04_report.png"), full_page=True)
@@ -53,7 +67,7 @@ def main():
         run = httpx.get(f"http://127.0.0.1:8600/api/runs/{rid}").json()
         print(json.dumps({"run_id": rid, "status": run["status"], "summary": run["summary_json"],
                           "results": {r["id"]: r["status"] for r in run["results"]},
-                          "report": str(ROOT / "data/runs" / rid / "report.html")}, indent=2))
+                          "report": str(Path(env["QA_DATA_DIR"]) / "runs" / rid / "report.html")}, indent=2))
     finally:
         for p in procs:
             p.terminate(); p.wait(10)

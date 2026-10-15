@@ -1,94 +1,351 @@
-<!doctype html><html><head><meta charset="utf-8"><title>QA Agent workspace</title>
-<style>
-body{font-family:system-ui,sans-serif;margin:0;display:flex;height:100vh;font-size:14px}
-#side{width:320px;border-right:1px solid #ddd;padding:10px;overflow:auto;background:#fafafa}
-#main{flex:1;display:flex;flex-direction:column}
-#chat{flex:1;overflow:auto;padding:12px}
-#bar{display:flex;gap:6px;padding:10px;border-top:1px solid #ddd}
-#msg{flex:1;padding:8px}
-#model-detail{overflow-wrap:anywhere;font-size:12px}
-.run{padding:6px;border-radius:4px;cursor:pointer;margin-bottom:4px}.run:hover,.run.sel{background:#e6eefc}
-.ev{color:#333;font-family:monospace;font-size:12px;margin:1px 0}
-.lbl{background:#ffe08a;padding:2px 6px;border-radius:3px;font-weight:600}
-.badge{padding:1px 6px;border-radius:3px;color:#fff;font-size:12px}
-.passed{background:#2a8a3e}.failed{background:#c0392b}.error{background:#8e44ad}.blocked{background:#555}
-table{border-collapse:collapse;width:100%;margin:8px 0}td,th{border:1px solid #ddd;padding:4px;vertical-align:top;font-size:12px}
-.card{border:1px solid #ccc;border-radius:6px;padding:10px;margin:10px 0;background:#fff}
-button{padding:6px 12px;cursor:pointer}#approve{background:#2a8a3e;color:#fff;border:0}#reject{background:#c0392b;color:#fff;border:0}
-.user{background:#e6eefc;padding:8px;border-radius:6px;margin:6px 0}
-</style></head><body>
-<div id="side"><b>Bluemeteor QA Agent</b><div style="font-size:12px;color:#666">Offline first · synthetic</div>
-<div id="cfg" style="margin:8px 0;font-size:12px"></div><div id="envs" style="margin:8px 0;font-size:12px"></div><div id="auth" style="margin:8px 0;font-size:12px"></div><section class="card" id="model-settings"><b>Model Settings</b><p>Choose an approved model for a new run.</p><select id="model-choice" aria-label="Model for new run" style="width:100%"></select><p id="model-detail"></p><button id="model-probe" onclick="probeModel()">Check connection</button><button onclick="loadModels()">Refresh status</button><details><summary>All configured models</summary><div id="model-catalog"></div></details></section><b>History</b><div id="runs"></div></div>
-<div id="main"><div id="chat"><p style="color:#666">Ask, e.g.: <i>Read the synthetic supplier import story, generate test cases, execute the approved tests, and give me the results.</i></p></div>
-<div id="bar"><select id="proj" title="Project"><option value="">(no project: demo)</option></select><select id="story" title="Story"><option value="">(story from message)</option></select><select id="repo" title="Repository (read-only)"><option value="">(no repository)</option></select><select id="env"></select><input id="msg" placeholder="Message the QA agent"><button id="send">Send</button></div></div>
-<script>
-let current = null, timer = null, plan_hash = null, modelRecords = [], defaultModelProvider = null;
-const $ = s => document.querySelector(s), esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-async function j(u, o) { const r = await fetch(u, o); if (!r.ok) throw new Error(await r.text()); return r.json(); }
-async function loadAuth() { const me = await (await fetch('/api/me')).json().catch(() => ({}));
-  if (me.mode === 'local' && !me.authenticated) { $('#auth').innerHTML = `<b>Sign in</b><br><input id="tok" type="password" placeholder="local token" style="width:100%"><button id="login" onclick="login()">Sign in</button>`; return false; }
-  $('#auth').innerHTML = me.mode === 'demo' ? '<span class="lbl" style="background:#f9c">DEMO MODE: approver identity NOT authenticated</span>'
-    : `Signed in: <b>${esc(me.user)}</b> (${esc(me.role)}) <a href="#" onclick="logout()">sign out</a>`; return true; }
-async function login() { const r = await fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({token: $('#tok').value})});
-  if (!r.ok) { alert('invalid token'); return; } boot(); }
-async function logout() { await fetch('/api/logout', {method:'POST'}); location.reload(); }
-async function loadCfg() { const c = await j('/api/config'); defaultModelProvider = c.model_provider;
-  $('#cfg').innerHTML = `Model: <span class="lbl">${esc(c.model_label)}</span><br>Skills: ${c.skills.map(s => esc(s.name)).join(', ')}<br>Budget: $${c.budget.per_run_usd}/run, $${c.budget.daily_usd}/day`;
-  $('#env').innerHTML = c.environments.map(e => `<option>${esc(e)}</option>`).join('');
-  const envs = await j('/api/environments'); $('#envs').innerHTML = '<b>Environments</b><br>' + envs.map(e => `${esc(e.name)}: <span class="badge ${e.executable ? 'passed' : 'blocked'}">${e.executable ? 'executable' : esc(e.status)}</span>`).join('<br>');
-  const ps = await j('/api/projects'); $('#proj').innerHTML = '<option value="">(no project: demo)</option>' + ps.map(p => `<option value="${esc(p.key)}">${esc(p.key)} · ${esc(p.name)}</option>`).join(''); }
-$('#proj').onchange = async () => { const p = $('#proj').value; $('#story').innerHTML = '<option value="">(story from message)</option>'; $('#repo').innerHTML = '<option value="">(no repository)</option>'; if (!p) return;
-  const ss = await j(`/api/projects/${encodeURIComponent(p)}/stories`); $('#story').innerHTML += ss.map(s => `<option value="${esc(s.key)}">${esc(s.key)} · ${esc(s.summary.slice(0,40))}</option>`).join('');
-  const rs = await j(`/api/projects/${encodeURIComponent(p)}/repositories`); $('#repo').innerHTML += rs.map(r => `<option>${esc(r.full_name)}</option>`).join(''); };
-function selectedModel() { return modelRecords[Number($('#model-choice').value)]; }
-function showModelDetail() { const m = selectedModel(); if (!m) return;
-  $('#model-detail').textContent = `${m.classification} · ${m.cost_type} · discovered models ${(m.available_models || []).map(x => x.id).join(", ") || "not checked"} · configured ${m.configured ? 'yes' : 'no'} · approved ${m.approved ? 'yes' : 'no'} · permitted ${m.permitted ? 'yes' : 'no'} · ${m.health} · availability ${m.available ?? 'unknown'} · format ${m.structured_output} · context ${m.context_window ?? 'unknown'} · output ${m.output_limit ?? 'unknown'} · latency ${m.latency_ms ?? 'unknown'} ms · throughput ${m.tokens_per_second ?? 'unknown'} tok/s · memory ${m.memory_bytes ?? 'unknown'} bytes · remaining quota ${m.quota.remaining === null ? 'unknown' : JSON.stringify(m.quota.remaining)} · configured limits ${JSON.stringify(m.quota.limits)} · last evaluation ${m.last_evaluation ? JSON.stringify(m.last_evaluation) : 'not evaluated'}`;
-  $('#model-probe').disabled = !m.permitted;
-}
-async function loadModels() { const previous = selectedModel(); modelRecords = await j('/api/models');
-  $('#model-choice').innerHTML = modelRecords.map((m,i) => `<option value="${i}" ${m.permitted ? '' : 'disabled'}>${esc(m.provider)} / ${esc(m.model)} · ${esc(m.cost_type)}${m.permitted ? '' : ' · not permitted'}</option>`).join('');
-  const preferred = modelRecords.findIndex(m => previous ? m.provider === previous.provider && m.model === previous.model : m.provider === defaultModelProvider && m.permitted);
-  const chosen = preferred >= 0 ? preferred : modelRecords.findIndex(m => m.permitted);
-  if (chosen >= 0) $('#model-choice').value = String(chosen);
-  $('#model-catalog').innerHTML = modelRecords.map(m => `<p><b>${esc(m.provider)} / ${esc(m.model)}</b><br>enabled ${m.enabled} · approved ${m.approved} · configured ${m.configured} · permitted ${m.permitted}<br>${esc(m.reason || m.health)}</p>`).join('');
-  $('#model-choice').onchange = showModelDetail; showModelDetail();
-}
-async function probeModel() { const m = selectedModel(); if (!m) return;
-  try { const result = await j(`/api/models/${encodeURIComponent(m.provider)}/probe?model_id=${encodeURIComponent(m.model)}`, {method:'POST'}); await loadModels(); if (result.error) alert(result.error); }
-  catch(e) { alert(e.message); }
-}
-async function loadRuns() { const rs = await j('/api/runs');
-  $('#runs').innerHTML = rs.map(r => `<div class="run ${r.id === current ? 'sel' : ''}" onclick="show('${r.id}')">${esc(r.story_key || '?')} · <b>${esc(r.status)}</b><br><small>${esc(r.created.slice(0,19))} · ${esc(r.id)}</small></div>`).join(''); }
-async function show(id) { current = id; clearInterval(timer); await render(); timer = setInterval(render, 1000); }
-async function render() {
-  if (!current) return; const r = await j('/api/runs/' + current); const base = '/api/runs/' + current;
-  let h = `<div class="user">${esc(r.request)}</div><div class="card"><b>Run ${esc(r.id)}</b> · status <b id="status">${esc(r.status)}</b> · env ${esc(r.environment)}${r.project ? ` · project ${esc(r.project)}` : ''}${r.repository ? ` · repo ${esc(r.repository)} (read-only)` : ''} · <span class="lbl">${esc(r.model_label)}</span>
-   ${['planning','awaiting_approval','executing'].includes(r.status) ? `<button id="cancel" onclick="cancelRun()">Cancel run</button>` : ''}
-   <div>Model: ${esc(r.model_provider)} / ${esc(r.model_id)} · version ${esc(r.model_version || 'not reported')}</div>
-   <div>Model usage: ${r.usage.calls} call(s), ${r.usage.total_tokens} tokens, $${r.usage.cost_usd.toFixed(6)}</div>
-   <div id="events">${r.events.map(e => `<div class="ev">${esc(e.ts.slice(11,19))} [${esc(e.step)}] ${esc(e.message)}</div>`).join('')}</div></div>`;
-  if (r.ac_json) h += `<div class="card"><b>Acceptance criteria</b> <span class="lbl">${esc(r.model_label)}</span><table>${r.ac_json.acceptance_criteria.map(a => `<tr><td>${a.id}</td><td>${esc(a.text)}</td><td><i>"${esc(a.source_quote)}"</i></td></tr>`).join('')}</table></div>`;
-  if (r.planning_json) { const u = r.planning_json.understanding; h += `<div class="card"><b>Understanding</b> <span class="lbl">${esc(r.model_label)}</span><div>${esc(u.summary)}</div>${u.assumptions.length ? '<small>Assumptions: ' + u.assumptions.map(esc).join('; ') + '</small>' : ''}
-    <div id="gaps"><b>Coverage gaps</b><ul>${r.planning_json.coverage_gaps.map(g => `<li>${esc(g.ac_refs.join(',') || '-')} [${esc(g.kind)}] ${esc(g.reason)}</li>`).join('') || '<li>none</li>'}</ul></div></div>`; }
-  if (r.plan_json) { plan_hash = r.plan_hash; h += `<div class="card" id="plan"><b>Proposed test plan</b> <span class="lbl">${esc(r.model_label)}</span> <small>sha256 ${esc(r.plan_hash.slice(0,16))}</small><table><tr><th>ID</th><th>Title</th><th>Type</th><th>Category</th><th>Skill</th><th>AC</th><th>Oracle</th></tr>
-    ${r.plan_json.test_cases.map(t => `<tr><td>${t.id}</td><td>${esc(t.title)}</td><td>${t.type}</td><td>${esc(t.category || '')}</td><td>${esc(t.skill)}</td><td>${t.ac_refs.join(',')}</td><td>${esc(t.oracle_ref)}</td></tr>`).join('')}</table>`;
-    if (r.status === 'awaiting_approval') h += `Approver label: <input id="who" value="ankit.parekh"> <button id="approve" onclick="decide('approved')">Approve &amp; execute</button> <button id="reject" onclick="decide('rejected')">Reject</button>`;
-    else if (r.approval) h += `<div>Plan <b>${esc(r.approval.decision)}</b> by ${esc(r.approval.approver)} (${r.approval.identity ? 'authenticated' : 'UNAUTHENTICATED demo label'}) at ${esc(r.approval.ts)}</div>`;
-    h += `</div>`; }
-  if (r.results.length) h += `<div class="card" id="results"><b>Results</b>${r.summary_json ? ` — ${r.summary_json.passed} passed, ${r.summary_json.failed} failed, ${r.summary_json.error} error, ${r.summary_json.blocked} blocked` : ' (running…)'}${r.summary_json ? '' : ''}
-    <table><tr><th>ID</th><th>Test</th><th>Status</th><th>Mismatch / error</th><th>Evidence</th></tr>${r.results.map(x => `<tr><td>${x.id}</td><td>${esc(x.title)}</td><td><span class="badge ${x.status}">${x.status}</span></td>
-    <td>${x.diffs.length ? x.diffs.map(d => `${esc(d.field)}: expected ${esc(JSON.stringify(d.expected))}, got ${esc(JSON.stringify(d.actual))}`).join('<br>') : esc(x.error || '')}</td>
-    <td>${x.screenshot ? `<a href="${base}/artifacts/${x.screenshot}" target=_blank><img src="${base}/artifacts/${x.screenshot}" width=120></a>` : ''} ${x.trace ? `<a href="${base}/artifacts/${x.trace}">trace</a>` : ''} ${x.log ? `<a href="${base}/artifacts/${x.log}" target=_blank>log</a>` : ''}</td></tr>`).join('')}</table></div>`;
-  if (['completed','cancelled'].includes(r.status) && r.summary_json) h += `<div class="card" id="links"><a id="report-link" href="${base}/report.html" target=_blank>Report (HTML)</a> · <a href="${base}/report.json">Report (JSON)</a> · <a href="${base}/audit.jsonl" target=_blank>Audit log (${r.audit_count})</a></div>`;
-  if (r.error) h += `<div class="card" style="color:#c0392b">Error: ${esc(r.error)}</div>`;
-  $('#chat').innerHTML = h; loadRuns();
-  if (['completed','failed','rejected','blocked','interrupted','cancelled'].includes(r.status)) clearInterval(timer);
-}
-async function cancelRun() { await j(`/api/runs/${current}/cancel`, {method:'POST'}); render(); }
-async function decide(d) { try { await j(`/api/runs/${current}/approval`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({approver: $('#who').value, decision: d, plan_hash})}); } catch (e) { alert(e.message); } show(current); }
-$('#send').onclick = async () => { const m = $('#msg').value.trim(); if (!m) return; $('#msg').value = '';
-  const r = await j('/api/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message: m, environment: $('#env').value, project: $('#proj').value || null, story_key: $('#story').value || null, repository: $('#repo').value || null, model_provider: selectedModel()?.provider, model_id: selectedModel()?.model})}); show(r.run_id); };
-$('#msg').onkeydown = e => { if (e.key === 'Enter') $('#send').click(); };
-async function boot() { if (await loadAuth()) { await loadCfg(); await loadModels(); loadRuns(); } }
-boot();
-</script></body></html>
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Bluemeteor · QA Agent</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/static/workspace.css" />
+    <script src="/static/theme.js"></script>
+    <script type="module" src="/static/app.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#conversation">Skip to workspace</a>
+    <div id="shell" class="shell">
+      <aside id="sidebar" class="sidebar" aria-label="Workspace navigation">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">b.</span>
+          <div class="nav-label">
+            <strong>QA Agent</strong><span>Bluemeteor</span>
+          </div>
+          <button
+            class="icon-button mobile-only"
+            data-action="close-nav"
+            aria-label="Close navigation"
+          >
+            ×
+          </button>
+        </div>
+        <button
+          class="new-session"
+          data-action="new"
+          aria-label="New QA Session"
+          title="New QA Session"
+        >
+          <span data-icon="plus"></span
+          ><span class="nav-label">New QA Session</span>
+        </button>
+        <nav id="navigation" aria-label="Main navigation"></nav>
+        <div class="recent">
+          <div class="eyebrow nav-label">Recent sessions</div>
+          <div id="runs"></div>
+        </div>
+        <div class="sidebar-bottom">
+          <button
+            class="nav-button"
+            data-action="theme"
+            aria-label="Switch theme"
+            title="Switch theme"
+          >
+            <span data-icon="sun"></span
+            ><span class="nav-label">Switch theme</span></button
+          ><button
+            id="sidebar-collapse"
+            class="nav-button"
+            data-action="collapse"
+            aria-label="Collapse sidebar"
+            aria-expanded="true"
+          >
+            <span data-icon="panel"></span
+            ><span class="nav-label">Collapse sidebar</span>
+          </button>
+          <div id="auth" class="account"></div>
+        </div>
+      </aside>
+      <main id="main" class="main">
+        <header class="topbar">
+          <div class="header-title">
+            <button
+              class="icon-button mobile-only"
+              data-action="nav"
+              aria-label="Open navigation"
+              aria-controls="sidebar"
+              aria-expanded="false"
+            >
+              <span data-icon="menu"></span></button
+            ><span class="breadcrumb">Workspace</span
+            ><span class="separator">/</span
+            ><strong id="page-title">New session</strong>
+          </div>
+          <div class="header-actions">
+            <span id="auth-status" class="mode-label"></span
+            ><button
+              id="context-toggle"
+              class="button subtle"
+              data-action="context"
+              aria-controls="context-panel"
+              aria-expanded="true"
+            >
+              <span data-icon="panel-right"></span>Context
+            </button>
+          </div>
+        </header>
+        <div id="notice" class="notice" role="alert" hidden></div>
+        <section
+          id="conversation"
+          class="conversation"
+          tabindex="-1"
+          aria-label="QA conversation"
+        >
+          <div id="chat" class="chat"></div>
+        </section>
+        <section
+          id="page-view"
+          class="page-view"
+          hidden
+          tabindex="-1"
+        ></section>
+        <footer id="composer-area" class="composer-area">
+          <form id="composer" class="composer">
+            <label class="sr-only" for="msg">Message the QA agent</label
+            ><textarea
+              id="msg"
+              rows="2"
+              placeholder="Describe what you want to test…"
+              maxlength="20000"
+            ></textarea>
+            <div class="composer-toolbar">
+              <button type="button" class="model-shortcut" data-action="models">
+                <span data-icon="cpu"></span
+                ><span id="composer-model">Loading configuration</span
+                ><span aria-hidden="true">⌄</span></button
+              ><button
+                id="send"
+                class="send-button"
+                type="submit"
+                aria-label="Send QA request"
+              >
+                <span data-icon="arrow-up"></span>
+              </button>
+            </div>
+          </form>
+          <div class="composer-hint">
+            <span>Review every plan before execution.</span
+            ><span>Enter to send · Shift + Enter for a new line</span>
+          </div>
+        </footer>
+      </main>
+      <aside
+        id="context-panel"
+        class="context-panel"
+        aria-label="Context and execution"
+      >
+        <div class="panel-heading">
+          <strong>Session details</strong
+          ><button
+            class="icon-button"
+            data-action="close-context"
+            aria-label="Close context panel"
+          >
+            ×
+          </button>
+        </div>
+        <div class="tabs" role="tablist" aria-label="Session details tabs">
+          <button
+            id="tab-context"
+            role="tab"
+            aria-controls="pane-context"
+            aria-selected="true"
+            data-tab="context"
+          >
+            Context</button
+          ><button
+            id="tab-plan"
+            role="tab"
+            aria-controls="pane-plan"
+            aria-selected="false"
+            tabindex="-1"
+            data-tab="plan"
+          >
+            Test Plan</button
+          ><button
+            id="tab-execution"
+            role="tab"
+            aria-controls="pane-execution"
+            aria-selected="false"
+            tabindex="-1"
+            data-tab="execution"
+          >
+            Execution</button
+          ><button
+            id="tab-evidence"
+            role="tab"
+            aria-controls="pane-evidence"
+            aria-selected="false"
+            tabindex="-1"
+            data-tab="evidence"
+          >
+            Evidence
+          </button>
+        </div>
+        <section
+          id="pane-context"
+          class="panel-body"
+          role="tabpanel"
+          aria-labelledby="tab-context"
+        >
+          <div id="run-context"></div>
+          <div class="section-heading">
+            <h2>Request context</h2>
+            <span class="muted small">For the next request</span>
+          </div>
+          <div class="field">
+            <label for="proj">Project</label
+            ><select id="proj">
+              <option value="">No project selected</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="story">Jira story</label
+            ><select id="story">
+              <option value="">Identify from message</option>
+            </select>
+          </div>
+          <div id="story-preview" class="small muted"></div>
+          <div class="field">
+            <label for="repo"
+              >Repository <span class="muted">· read only</span></label
+            ><select id="repo">
+              <option value="">No repository selected</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="env">Environment</label
+            ><select id="env"></select>
+          </div>
+          <div class="field">
+            <label for="model-choice">Model for new run</label
+            ><select id="model-choice"></select>
+          </div>
+          <div id="context-model" class="context-note"></div>
+        </section>
+        <section
+          id="pane-plan"
+          class="panel-body"
+          role="tabpanel"
+          aria-labelledby="tab-plan"
+          hidden
+        >
+          <div id="plan-content"></div>
+        </section>
+        <section
+          id="pane-execution"
+          class="panel-body"
+          role="tabpanel"
+          aria-labelledby="tab-execution"
+          hidden
+        >
+          <div id="execution-content"></div>
+        </section>
+        <section
+          id="pane-evidence"
+          class="panel-body"
+          role="tabpanel"
+          aria-labelledby="tab-evidence"
+          hidden
+        >
+          <div id="evidence-content"></div>
+        </section>
+      </aside>
+    </div>
+    <button
+      id="sheet-backdrop"
+      class="sheet-backdrop"
+      aria-label="Close open panel"
+      hidden
+    ></button>
+    <dialog
+      id="login-dialog"
+      class="login-dialog"
+      aria-labelledby="login-title"
+    >
+      <form id="login-form">
+        <span class="brand-mark" aria-hidden="true">b.</span>
+        <h1 id="login-title">Welcome to your QA workspace</h1>
+        <p>Sign in with your local access token.</p>
+        <label for="tok">Access token</label
+        ><input id="tok" type="password" autocomplete="off" required />
+        <p id="login-error" class="error-text" role="alert"></p>
+        <button id="login" class="button primary" type="submit">Sign in</button>
+        <p class="small muted">
+          Your token stays in an HttpOnly session cookie. It is never stored in
+          browser local storage.
+        </p>
+      </form>
+    </dialog>
+    <dialog
+      id="review-dialog"
+      class="review-dialog"
+      aria-labelledby="review-title"
+    >
+      <header class="dialog-heading">
+        <div>
+          <span class="eyebrow">Human review required</span>
+          <h1 id="review-title">Review test plan</h1>
+        </div>
+        <button
+          class="icon-button"
+          data-action="close-review"
+          aria-label="Close plan review"
+        >
+          ×
+        </button>
+      </header>
+      <div id="review-content" class="review-content"></div>
+      <form id="review-form" class="review-footer">
+        <div id="review-identity"></div>
+        <label for="review-comment"
+          >Reviewer comment <span class="muted">(optional)</span></label
+        ><textarea id="review-comment" rows="2" maxlength="4000"></textarea>
+        <p id="review-error" class="error-text" role="alert"></p>
+        <div class="review-actions">
+          <p>
+            Approval authorizes execution of the exact plan and hash displayed
+            above.
+          </p>
+          <button id="reject" type="button" class="button danger">
+            Reject plan</button
+          ><button id="approve" type="submit" class="button primary">
+            Approve &amp; execute
+          </button>
+        </div>
+      </form>
+    </dialog>
+    <dialog
+      id="evidence-dialog"
+      class="evidence-dialog"
+      aria-labelledby="evidence-title"
+    >
+      <header class="dialog-heading">
+        <h1 id="evidence-title">Test screenshot</h1>
+        <button
+          class="icon-button"
+          data-action="close-evidence"
+          aria-label="Close screenshot"
+        >
+          ×
+        </button>
+      </header>
+      <img id="evidence-image" alt="" />
+      <p id="evidence-caption" class="small muted"></p>
+    </dialog>
+    <div
+      id="live-status"
+      class="sr-only"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    ></div>
+  </body>
+</html>
