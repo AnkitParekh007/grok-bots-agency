@@ -156,7 +156,7 @@ Demo auth is unauthenticated and intended for one trusted workstation. Use [loca
 
 Follow the [complete Windows local-model tutorial](docs/SETUP_LOCAL.md): install Ollama, size and manually pull a model, verify the local service, configure the exact installed ID and context, select it in Model Settings, generate a real plan, review/approve it, execute against synthetic data, and open the report. It includes GPU/VRAM guidance and model, memory, context and JSON troubleshooting. The application never downloads a model. Local inference has no hosted API requirement, but quality and speed depend on your model and hardware.
 
-[B3 diagnostics and supervised local evaluation](docs/b3/LOCAL_MODEL_EVALUATION.md) records the inspected CPU/Intel environment, authenticated first-plan handoff and benchmark commands. Real-model evaluation is currently **NOT_EVALUABLE** pending Ollama/model installation approval; no quality status is upgraded by offline tests.
+[B3 diagnostics and supervised local evaluation](docs/b3/LOCAL_MODEL_EVALUATION.md) records the inspected CPU/Intel environment, authenticated first-plan handoff and benchmark commands. Real-model evaluation is currently **NOT_EVALUABLE**: installation/download were approved and the official installer verified, but automatic installer launch was blocked; manual installation is the current checkpoint. No quality status is upgraded by offline tests.
 
 ## Free hosted LLM configuration
 

@@ -2,7 +2,7 @@
 
 [README](../../README.md) · [Local setup](../SETUP_LOCAL.md) · [B2 authorization](../b2/ENABLE_LIVE_EVAL.md)
 
-**Real-model verdict: NOT_EVALUABLE.** No Ollama installation/service or installed local model was found. No real plan, human approval, model-driven execution or model-quality benchmark is claimed. B3 supplies diagnostics and an authenticated smoke/benchmark handoff; installation and download need explicit user approval. No hosted inference, corporate integration, deployment or merge is part of this work.
+**Real-model verdict: NOT_EVALUABLE.** No Ollama installation/service or installed local model was found at inspection. No real plan, human approval, model-driven execution or model-quality benchmark is claimed. B3 supplies diagnostics and an authenticated smoke/benchmark handoff. The user subsequently approved Ollama installation and the `qwen3:1.7b` download; the official installer was downloaded and verified, but automatic approval review blocked launching it. **Manual installation is the current checkpoint.** No hosted inference, corporate integration, deployment or merge is part of this work.
 
 ## Baseline and scope
 
@@ -34,7 +34,7 @@ Current official tags were checked on 2026-10-15. Download sizes below are regis
 
 | Candidate | Registry quantization / download | Decision for this machine |
 |---|---|---|
-| [Qwen3 1.7B](https://ollama.com/library/qwen3:1.7b) | Q4_K_M / about 1.4 GB | Selected **first CPU trial**, pending installation/download approval and RAM headroom; task capability not established. |
+| [Qwen3 1.7B](https://ollama.com/library/qwen3:1.7b) | Q4_K_M / about 1.4 GB | Selected **first CPU trial**; installation/download approved, awaiting manual installation and RAM recheck. Task capability not established. |
 | [Qwen3 4B](https://ollama.com/library/qwen3:4b) | Q4_K_M / about 2.5 GB | Possible second trial if the smaller model fails quality and sufficient RAM is available; separate download approval. |
 | [Qwen3 8B](https://ollama.com/library/qwen3:8b) | Q4_K_M / about 5.2 GB | Not the first trial given current free RAM and CPU-only latency risk. |
 | [Qwen3 14B](https://ollama.com/library/qwen3:14b) | Q4_K_M / about 9.3 GB | Deferred on this loaded 16 GB machine. |
@@ -58,10 +58,12 @@ Artifacts are ignored by Git: timestamped `diagnostics-*.json` and `telemetry-*.
 
 ## Exact Windows continuation
 
-Run from the repository root. Existing Python dependencies/Chromium must be available as in the [README](../../README.md#quick-start--windows). Commands below requiring Ollama are **next actions after explicit installation/download approval**, not commands already run in B3. Use the official [Windows installer](https://ollama.com/download/windows), reopen PowerShell and keep cloud features disabled. This CPU trial does not assume Intel GPU acceleration.
+Run from the repository root. Existing Python dependencies/Chromium must be available as in the [README](../../README.md#quick-start--windows). Installation and this exact model download are now authorized. Commands below requiring Ollama are **next actions**, not commands already run in B3. Complete installation manually, reopen PowerShell and keep cloud features disabled. This CPU trial does not assume Intel GPU acceleration.
+
+The verified official [Ollama v0.40.4 release](https://github.com/ollama/ollama/releases/tag/v0.40.4) installer is in ignored `reports/b3-installer/OllamaSetup.exe` (1,581,967,176 bytes). Its SHA-256 matches the release asset: `45fcd47d70dd047ab95736802e71a7497ef1a473a50470471fc2fb0eb90badde`. Windows Authenticode status is **Valid**, publisher **Ollama Inc.** Automatic approval review rejected the attempted installer launch with only “blocked by policy”; no alternative automation was used to bypass it. Run the verified file manually. Local receipts are `verification.json` and `launch-blocked.json` in the same ignored directory. `~/.ollama/server.json` was prepared with `disable_ollama_cloud:true`, preserving any existing settings.
 
 ```powershell
-# After explicit installation/download approval only:
+# After completing the already approved manual installation:
 ollama --version
 ollama pull qwen3:1.7b
 ollama list
@@ -165,8 +167,8 @@ Actual local preflight: service unreachable, no generation performed, exit 3 / N
 | Final B3 contracts | **16 passed**, covering local-only/fixture-only boundaries, metadata-only probes, authenticated requester and distinct-reviewer enforcement, paused planning, contamination rejection, unavailable runtime, audit-bound phase metadata, pinned model versions, missing/tampered evidence and grant handoff. All are offline mocks, not reasoning evidence. |
 | Documentation / syntax | Python compilation and CLI help checked; 57 local Markdown references resolved and all 15 PowerShell blocks in README/B3 guide parsed. Embedded Python configuration example parsed. No shared machine-specific defaults were changed. |
 | Actual local model | **NOT_EVALUABLE**, metadata preflight could not reach Ollama; no generation, token/TPS/latency measurement, approval or actual model-driven execution. |
-| Offline evaluation / CI | The unchanged full GitHub workflow runs unit/integration, complete stub evaluation, comparison and headless replay. Exact-head results and workflow links are reported in the draft PR; they remain harness evidence only. Local browser-heavy attempts were interrupted under memory pressure; no partial local report is called PASS. |
+| Offline evaluation / CI | [Successful complete workflow on implementation commit ef88e75](https://github.com/AnkitParekh007/grok-bots-agency/actions/runs/38768459633): **333 unit + 46 integration tests passed**, complete **30-run stub evaluation PASS**, 18/18 seeded-defect recall, zero defect-off false alarms, comparison and headless replay succeeded. The comparison remains ineligible for model-quality claims. Local browser-heavy attempts were interrupted under memory pressure; no partial local report is called PASS. Exact final-head checks are linked in the draft PR. |
 
 CI remains offline and credential-free; tests use native-protocol mocks and temporary synthetic identities only. No model binaries, raw hardware/configuration files, credentials or machine state are committed.
 
-Outstanding user checkpoints: approve Ollama installation/model download, free enough RAM for a measured CPU trial, supply real requester/approver identities, review the first actual plan and the separate defect-off run, then authorize any larger benchmark/grants. Sealed gold and independent human/QA-lead sign-offs remain outside this implementation's authority.
+Outstanding user checkpoints: finish the approved manual Ollama installation, then download only the approved model and recheck RAM for a measured CPU trial; supply real requester/approver identities, review the first actual plan and the separate defect-off run, then authorize any larger benchmark/grants. Sealed gold and independent human/QA-lead sign-offs remain outside this implementation's authority.
