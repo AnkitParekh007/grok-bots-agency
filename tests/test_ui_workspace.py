@@ -243,9 +243,9 @@ def test_authenticated_full_workflow_and_artifacts(page, workspace):
     assert approval.value.request.post_data_json['comment']=='Synthetic UI regression review'
     expect(page.locator('#status')).to_contain_text('Executing',timeout=30000)
     shot(page,'execution-running')
-    page.locator('#chat .tool-activity summary').focus()
+    page.locator('#chat .tool-activity > summary').focus()
     expect(page.locator('#status')).to_contain_text('Completed',timeout=240000)
-    expect(page.locator('#chat .tool-activity summary')).to_be_focused()
+    expect(page.locator('#chat .tool-activity > summary')).to_be_focused()
     expect(page.locator('#chat')).to_contain_text('3 passed · 5 failed')
     page.locator('#chat [data-action="review"]').click()
     expect(page.locator('#review-dialog .approval-record')).to_contain_text('ui_approver')
