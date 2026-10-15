@@ -2,6 +2,14 @@
 
 Previous provider instructions are preserved in `docs/history/b2/` and are superseded.
 
+Install dependencies using the [Windows quick start](../../README.md#quick-start--windows),
+then configure an administrator-approved [local model](../SETUP_LOCAL.md) or
+[hosted account](../SETUP_HOSTED.md). Commands below assume that environment's
+interpreter is active (or replace `python` with `.\.venv\Scripts\python.exe`).
+Use [local authenticated roles](../ARCHITECTURE_SECURITY.md#local-authentication)
+for review/grants, not demo-mode labels. A normal interactive plan approval is
+separate from the evaluation harness's first-plan review and scoped grant.
+
 1. Record provider/model approval, synthetic-only purpose and scope. For hosted providers, verify the actual free account, permitted use, retention/training policy and zero-billing protection. Organizational authorization is required even for synthetic egress. No real Bluemeteor content is permitted in hosted inference in this milestone.
 2. An administrator sets `enabled`, `approved`, `approval_ref`, exact `model`, version where available, structured capability, context/output limits and quotas. Hosted configurations also require `free_only:true`, `account_tier:"free"` and `account_verified_ref`. Add the exact HTTPS host to the independent model policy. The selector cannot change policy.
 3. Set credentials in the server process only. Loopback Ollama needs no key. Remote local engines need LAN approval, TLS and a policy-approved host. Keep hosted providers disabled in CI.

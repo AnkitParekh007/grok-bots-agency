@@ -1,82 +1,265 @@
-# Bluemeteor QA Agent — offline-first model providers
+# Bluemeteor QA Agent — Open, Local-First AI Testing Assistant
 
-Local server references: [LM Studio structured output](https://lmstudio.ai/docs/developer/openai-compat/structured-output), [vLLM structured output](https://docs.vllm.ai/en/latest/features/structured_outputs/). Hosted quota values intentionally start unknown and must be configured from the approved account.
+A standalone QA workspace that turns a story into a proposed test plan, asks a person to review it, then runs approved browser and API checks and collects evidence. It helps QA engineers trace tests to acceptance criteria, see coverage gaps, and compare actual results with independent expected results.
 
-A local QA workspace: read a story, generate and validate a structured test plan, obtain human approval of its exact hash, execute Playwright/API checks against independent oracles, and export reports and evidence. Milestones A, B1, B2 preparation and C0 remain in place. Hosted inference is disabled by default.
+The current runnable domain is **synthetic supplier imports and attribute mapping**. The wider vision is a QA workspace independent of any single model provider. Local models let teams experiment without a paid API account; optional hosted free tiers offer another route when explicitly authorized. Human approval remains essential because a plausible model-generated plan can still be wrong.
 
-## Local setup
+**Current maturity:** a local prototype with deterministic execution safeguards. Replay demonstrations and mock provider contracts work; real-model quality and real organization integrations have not been certified. Hosted inference is disabled by default. “Open” describes the project vision; see [license and contributions](#license-and-contributions) for the current licensing limits.
 
-Use Python 3.12+ and Chromium. On Windows:
+## Contents
+
+- [Feature overview](#feature-overview)
+- [Screenshots and demonstrations](#screenshots-and-demonstrations)
+- [Architecture](#architecture)
+- [Supported AI providers](#supported-ai-providers)
+- [Quick start — Windows](#quick-start--windows)
+- [Running with Ollama](#running-with-ollama)
+- [Free hosted LLM configuration](#free-hosted-llm-configuration)
+- [Typical QA workflows](#typical-qa-workflows)
+- [Evaluation and benchmarking](#evaluation-and-benchmarking)
+- [Security model](#security-model)
+- [Project structure](#project-structure)
+- [Developer guide](#developer-guide)
+- [Troubleshooting](#troubleshooting)
+- [Roadmap](#roadmap)
+- [License and contributions](#license-and-contributions)
+
+## Feature overview
+
+**Available** means implemented for the documented synthetic/local workflow. **Experimental** means an adapter or model-dependent path exists but still needs real access or evaluation. **Planned** means the capability is not implemented end to end.
+
+| Capability | Status | Actual scope |
+|---|---|---|
+| AI-generated test plans | Experimental | Structured understanding, behaviors, tests and gaps; real-model quality evaluation pending. Replay is recorded output. |
+| Jira story reading | Available / Experimental | Synthetic fixtures available; Cloud/Data Center read-only adapters tested against mocks, disabled for real sites. |
+| Acceptance-criteria extraction | Experimental | Source-quoted ACs validated against story text; extraction quality depends on the selected model. |
+| Playwright browser automation | Available | Registered synthetic upload, error and product-count checks; no arbitrary website agent. |
+| API testing | Available | Registered supplier import and per-product validation actions. |
+| Bitbucket repository context | Experimental | Read-only Cloud/Data Center discovery/files/context adapters; context is recorded, **not yet used in model planning**. |
+| Test reports | Available | HTML, JSON and JSON checksum per run. |
+| Screenshots and traces | Available | Real Chromium evidence with artifact manifests. |
+| Human approvals | Available | Exact plan hash, expiry, rejection/cancellation; authenticated roles in local auth mode. |
+| Model selection | Available | Administrator-approved provider/model for each new run; read-only settings and connection probes. |
+| Local inference | Experimental | Native Ollama and compatible LM Studio/llama.cpp/vLLM; protocol tests passed, installed-model evaluation pending. |
+| Free hosted inference | Experimental | Groq, Gemini and explicit OpenRouter free models; disabled pending account and egress approval. |
+| Credential management | Available / Planned | Process environment secret references and hashed local login tokens available; enterprise vault, SSO and managed rotation planned. |
+| Jira defect reporting | Planned | Evidence reports available locally; no Jira create/comment/transition operations. |
+| Regression execution | Available / Planned | Rerun individual approved synthetic plans today; suite scheduling and orchestration planned. |
+| Release sanity testing | Planned | No automated release gate or release-wide orchestration. |
+
+## Screenshots and demonstrations
+
+These are real UI captures using **recorded replay plans**, not evidence of LLM reasoning. Browser/API execution and its evidence are real. Existing [Milestone B1 plan review](docs/screenshots/01_plan_awaiting_approval.png) remains available as historical UI evidence; current captures below include the model selector.
+
+![QA workspace with the project and synthetic story selected](docs/screenshots/readme_story_selection.png)
+
+Project/story/repository/environment selection is at the bottom. The sidebar chooses a model for a new run. [Plan review](docs/b2-free/screenshots/01_plan_awaiting_approval.png) shows quoted ACs, gaps, actions and the approval hash; [execution](docs/b2-free/screenshots/02_after_approval_execution_started.png) shows the approved run.
+
+<details>
+<summary>Results, evidence, report and model settings</summary>
+
+![Completed synthetic run with evidence links](docs/b2-free/screenshots/03_results_with_evidence.png)
+
+![Generated HTML report](docs/b2-free/screenshots/04_report.png)
+
+![Model Settings showing the configured local default](docs/b2-free/screenshots/05_model_settings_local_default.png)
+
+The local-default capture reports availability as unknown until checked; it does not establish that Ollama was installed or evaluated. The synthetic application deliberately contains defects in these runs.
+
+</details>
+
+## Architecture
+
+```mermaid
+flowchart TD
+  UI[QA Agent UI] --> API[Backend / API]
+  Jira[Jira read-only] --> API
+  Bitbucket[Bitbucket read-only context] --> API
+  API --> Gateway[Model gateway and egress policy]
+  Gateway --> Local[Local LLM]
+  Gateway --> Hosted[Approved hosted LLM - synthetic only]
+  subgraph Untrusted[Untrusted model output]
+    Local --> Proposal[Proposed structured test plan]
+    Hosted --> Proposal
+  end
+  subgraph Runtime[Deterministic runtime boundary]
+    Proposal --> Validation[Schema / catalog / policy validation]
+    Validation --> Human[Human approval of exact plan hash]
+    Human --> Skills[Allowlisted skills and tools]
+    Skills --> Execution[Playwright / API execution]
+    Oracles[Independent expected results] --> Compare[Compare actual vs expected]
+    Execution --> Compare
+    Compare --> Reports[Reports / screenshots / traces / audit]
+  end
+  Reports --> UI
+```
+
+Models propose plans; the runtime controls execution and expected results. Bitbucket context currently stops at run metadata. See [architecture and security](docs/ARCHITECTURE_SECURITY.md) for boundaries, auth and environment authorization.
+
+## Supported AI providers
+
+**Groq is not Grok. The xAI Grok runtime dependency has been removed.** Historical evidence may retain old labels; it is not current setup guidance. No provider/model fallback happens automatically.
+
+| Provider / configuration ID | Location | Implementation / default | Key | Cost nature | Setup and limits |
+|---|---|---|---|---|---|
+| Ollama / `ollama` | Local | Native adapter; enabled on loopback | No | Local hardware/electricity, model license applies | [Local guide](docs/SETUP_LOCAL.md#ollama-on-windows); manual install/pull, completion and context checks. |
+| LM Studio / `lmstudio` | Local | Compatible adapter; disabled | No on loopback | Local hardware, model/tool terms apply | [Local servers](docs/SETUP_LOCAL.md#other-local-servers); exact loaded ID, server context and structured-output support required. |
+| llama.cpp / `llamacpp` | Local | Compatible adapter; disabled | No on loopback | Local hardware, model license applies | [Local servers](docs/SETUP_LOCAL.md#other-local-servers); chat template and schema grammar support required. |
+| vLLM / `vllm` | Local | Compatible adapter; disabled | No on loopback | Local hardware, model license applies | [Local servers](docs/SETUP_LOCAL.md#other-local-servers); structured-output backend required; server installation is separate. |
+| Groq / `groq` | Hosted | Strict schema adapter; disabled | `GROQ_API_KEY` | Account-dependent free tier | [Groq setup](docs/SETUP_HOSTED.md#groq); verify exact model entitlement and account quotas. |
+| Google Gemini / `gemini` | Hosted | Native `generateContent`; disabled | `GEMINI_API_KEY` | Model/account-dependent free tier | [Gemini setup](docs/SETUP_HOSTED.md#google-gemini); account-verified Flash model, no assumed model ID. |
+| OpenRouter / `openrouter` | Hosted | Compatible adapter; disabled | `OPENROUTER_API_KEY` | Explicit free model routes with limits | [OpenRouter setup](docs/SETUP_HOSTED.md#openrouter); exact `:free` ID, structured support, no fallback. |
+| NVIDIA NIM / `nvidia` | Hosted placeholder | **Deferred; no enabled adapter** | None usable; `NVIDIA_API_KEY` reserved | Unverified | [Deferred status](docs/SETUP_HOSTED.md#nvidia-nim-deferred); access, permitted use and free availability unconfirmed. |
+| Replay / `replay`; compatible stub | Offline / loopback | Recordings / HTTP contract simulator; explicit selection | None / fake stub key | No inference charge | [Quick start](#quick-start--windows) / [mocks](docs/DEVELOPMENT.md#local-mock-services); never model-quality evidence. |
+
+All real adapters have offline contract coverage; that does not prove current service availability or reasoning quality. The generic `compatible` priced adapter is retained, disabled, for contract tests and future explicitly approved priced use. Free hosted services have quotas and changing availability, retention/training policies and commercial-use terms. Verify the actual account and terms; “free” is not permanent and local counters do not guarantee zero billing. [Account checks and official references](docs/SETUP_HOSTED.md).
+
+## Quick start — Windows
+
+Prerequisites: Git, Python **3.12+** and PowerShell. CI uses Python 3.12; the documentation walkthrough was also checked on Windows/Python 3.13. This no-account demonstration explicitly selects replay. It runs real browser/API tests against a local synthetic application.
 
 ```powershell
+git clone https://github.com/AnkitParekh007/grok-bots-agency.git
+cd grok-bots-agency
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe -m playwright install chromium
-.\.venv\Scripts\python.exe -m pytest -q
 ```
 
-On Linux/macOS use `.venv/bin/python` and, if needed, `python -m playwright install --with-deps chromium`.
-
-Install and start Ollama yourself. The application **never downloads models**. In `config/agent.json`, set `providers.ollama.model` to the exact ID of an already installed instruction/chat model. The sample is `qwen3:8b`; availability is checked locally. Set `context_window` and `max_completion_tokens` to fit your model and hardware. Ollama receives native JSON schema, `num_ctx`, `num_predict` and `stream:false` requests. Leave Ollama cloud features disabled for local-only operation.
-
-Start the synthetic SUT and workspace in separate terminals:
+Terminal A, from the repository root, starts the synthetic application with planted defects:
 
 ```powershell
+$env:SUT_DEFECTS = 'all'
 .\.venv\Scripts\python.exe -m uvicorn sut.app:app --host 127.0.0.1 --port 8601
+```
+
+Terminal B, also from the repository root:
+
+```powershell
+$env:PYTHONUTF8 = '1'
+$env:QA_MODEL_PROVIDER = 'replay'
+$env:QA_AUTH_MODE = 'demo'
 .\.venv\Scripts\python.exe -m qa_agent.server
 ```
 
-Open `http://127.0.0.1:8600`. Model Settings shows authorization, availability, structured formats, limits, observed quota, performance, memory where reported, and the last evaluation. **Check connection** queries the selected approved endpoint. Discovery does not approve catalog entries. Choose an approved model for a **new** run; existing runs retain their identity. Review every plan before execution.
-
-For a model-free demonstration, set `QA_MODEL_PROVIDER=replay`. `python scripts/demo_and_screenshots.py` explicitly uses replay and real Chromium. Replay/stub plans are labeled recordings and never count as real reasoning evidence.
-
-## Provider compatibility
-
-| Provider | Transport / structured format | Default | Verification |
-|---|---|---|---|
-| Ollama | Native `/api/chat`, JSON schema; tags/show/ps discovery, capabilities and memory | Enabled, loopback | Offline protocol tests; installed model required |
-| LM Studio | Compatible chat, JSON schema or JSON object | Disabled, loopback | Mock contract; configure model and server context |
-| llama.cpp | Compatible chat, `json_object` + schema for its grammar API | Disabled, loopback | Mock contract; chat template/schema support required |
-| vLLM | Compatible chat, JSON schema or JSON object | Disabled, loopback | Mock contract; structured-output backend required |
-| Groq | Official compatible endpoint, strict schema with catalog-derived params | Disabled | Mock HTTP; candidates require account verification |
-| Gemini | Official `generateContent`, `responseJsonSchema`, native usage/finish reasons | Disabled, no default model | Mock HTTP; select a Flash model your free account supports |
-| OpenRouter | Compatible chat, explicit `:free` ID, no fallback, required parameters | Disabled, no default model | Mock HTTP; verify structured-output support |
-| NVIDIA NIM | Configuration placeholder only | Disabled / deferred | Access, permitted use and free availability unconfirmed |
-| Replay / compatible stub | Recordings / transport self-test | Explicit demo/test selection | Never reasoning-quality evidence |
-
-Groq candidates: `openai/gpt-oss-20b`, `openai/gpt-oss-120b`, `qwen/qwen3.8-27b`. Catalog entries are not approval or account entitlement. No Gemini or OpenRouter model has been assumed for your account. Generic priced Chat Completions remains disabled and preserves B1's monetary ledger for deliberately authorized future paid configurations. There is no automatic fallback.
-
-Local engines need sufficient server-side context. The client checks a conservative UTF-8 token ceiling, output limits, and Ollama's reported capabilities/context. Other compatible servers rely on the administrator's capability manifest and enforce their own context allocation. Missing usage fails closed and retains the reservation. Version is persisted when reported (Ollama discovery digest, Gemini modelVersion, compatible version/fingerprint); otherwise it is explicitly unknown. Mutable tags are not immutable version guarantees.
-
-## Optional free hosted inference
-
-Hosted calls require all administrator controls: enabled and approved provider, approval reference, exact model, synthetic data class, credential environment variable, verified free-account reference, `account_tier:"free"`, `free_only:true`, explicit quotas, and the independent host policy. Keys belong only in the server process: `GROQ_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`. The selector cannot change credentials, endpoints, policy, tier or approvals. Real Jira/Bitbucket/customer/production/confidential content is forbidden from hosted inference in this milestone, even if mistakenly added to the provider's data-class list.
-
-Endpoints: `https://api.groq.com/openai/v1`, `https://generativelanguage.googleapis.com/v1beta`, `https://openrouter.ai/api/v1`. Redirects, proxy environment inheritance, automatic provider/model changes, paid upgrades and catalog-based selection are prohibited. Non-loopback local engines additionally require LAN approval, TLS and a separately approved host. Use an authenticated TLS reverse proxy for approved remote engines.
-
-**Local counters cannot guarantee an account will not be billed.** Use an account/project with billing disabled or provider-side zero spend enforcement. Free entitlement, limits, permitted use and data handling vary and can change. Verify them before approval. Do not buy credits or attach billing to complete setup. Free APIs can throttle or remove models. Public claims are never authorization.
-
-Quotas use persistent SQLite atomic reservations: RPM/RPD/TPM/TPD, configurable minute/day windows and reset offset, concurrency leases, observed remaining quota/reset headers, and Retry-After. Every retry reserves separately. Failed/unknown-usage attempts keep conservative token charges; only provably unsent calls are refunded. Account scopes prevent model changes resetting counters. Counters cover this installation, not other applications on the account. Monetary caps remain a separate ledger for billable adapters.
-
-## B2 evaluation
+Open [the workspace](http://127.0.0.1:8600) and optionally [the synthetic application](http://127.0.0.1:8601). In a third PowerShell terminal, this opens the workspace in your default browser:
 
 ```powershell
-# Offline self-test; SIMULATED review, never model-quality evidence
-python scripts/eval_b2.py --provider stub --self-test-simulated-review --out reports/eval/stub
-# After local authorization; pauses for authenticated manual first-plan review
-python scripts/eval_b2.py --provider ollama --confirm-live-approved --out reports/eval/ollama
-# Other approved providers: groq, gemini, openrouter, lmstudio, llamacpp, vllm
-python scripts/compare_models.py reports/eval/*/eval_report.json --out reports/eval/comparison
+Start-Process 'http://127.0.0.1:8600'
 ```
 
-`QA_AGENT_CONFIG` may point to administrator-managed configuration. `--model` accepts only the primary ID or an approved model entry. Use a separate output directory per provider/model. Resume the first-plan handoff with `qa_agent.eval_authorization review` and an authenticated approver token, then a scoped server-side grant. See [approval procedure](docs/b2/ENABLE_LIVE_EVAL.md). Held-out keys remain sealed and hash verified. Defect-on/off execution, independent scoring, false alarms, injection checks, manual review and fail-closed verdicts remain required. Stub PASS is not model PASS. Comparison requires `real_reasoning_evidence:true` for quality claims.
+Keep `synthetic-local` and `replay / replay` selected. Send: **“Read the synthetic supplier import story, generate test cases, execute the approved tests, and give me the results.”** Review the ACs, gaps and tests, then select **Approve & execute**. Open the HTML report and evidence links after completion. With `SUT_DEFECTS=all`, PCC-DEMO-1 should report **3 passed and 5 failed**: those failures detect planted defects. Stop Terminal A, set `$env:SUT_DEFECTS = ''`, restart it and create/approve a new run to compare the defect-free case (8 passed). Stop servers with Ctrl+C.
 
-## Preserved controls and integrations
+Demo auth is unauthenticated and intended for one trusted workstation. Use [local role-based auth](docs/ARCHITECTURE_SECURITY.md#local-authentication) before testing requester/approver separation. No `.env` file is loaded. Virtual-environment activation is optional because these commands use its interpreter directly.
 
-Schema/catalog validation rejects invented skills, commands, endpoints, expected results and approval instructions. Plans bind to exact hashes; grants need authenticated approvers and bounded scopes. Ownership, cancellation, TTL, sequential SUT execution, append-only hash-chained audits, secret redaction, spending reservations, reports, traces and independent oracles remain. Audit chains detect tampering but are not signatures; administrators with DB/filesystem access remain trusted.
+## Running with Ollama
 
-C0 Jira Cloud/Data Center and Bitbucket Cloud/Data Center adapters remain read-only and disabled. Project/story/repository/environment selection remains server validated. Bluemeteor Dev/Playground remain unverified and non-executable until existing safety checks are met. Production stays prohibited. This milestone grants no integration authorization.
+Follow the [complete Windows local-model tutorial](docs/SETUP_LOCAL.md): install Ollama, size and manually pull a model, verify the local service, configure the exact installed ID and context, select it in Model Settings, generate a real plan, review/approve it, execute against synthetic data, and open the report. It includes GPU/VRAM guidance and model, memory, context and JSON troubleshooting. The application never downloads a model. Local inference has no hosted API requirement, but quality and speed depend on your model and hardware.
 
-[Historical documentation](docs/history/README-pre-B2-FREE.md) preserves previous milestone evidence; its provider instructions are superseded. See [delivery evidence](docs/b2-free/DELIVERY.md) for tests, limits and approvals. Mocks establish no model-quality claims.
+## Free hosted LLM configuration
 
-References: [Ollama chat](https://docs.ollama.com/api/chat), [Groq structured output](https://console.groq.com/docs/structured-outputs), [Groq quotas](https://console.groq.com/docs/rate-limits), [Gemini generation](https://ai.google.dev/api/generate-content), [Gemini billing](https://ai.google.dev/gemini-api/docs/billing), [OpenRouter structured output](https://openrouter.ai/docs/guides/features/structured-outputs), [OpenRouter limits](https://openrouter.ai/docs/api/reference/limits), [llama.cpp server](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md). Verify the actual account; documentation is not account approval.
+[The hosted setup guide](docs/SETUP_HOSTED.md) covers each implemented service, process-environment credentials, exact model approval, free-account verification, quotas and the independent HTTPS host allowlist. Hosted services start disabled. The UI cannot grant authorization, install keys or change endpoints. Only synthetic data may enter hosted inference in B2-FREE; a real Jira story is not automatically synthetic. NVIDIA NIM remains deferred.
+
+## Typical QA workflows
+
+| Workflow | Steps and current boundary |
+|---|---|
+| A — Story to test plan | Choose project `PCC` and a synthetic story, or name `PCC-DEMO-1` in the prompt. Generate quoted ACs, testable behaviors, tests and gaps. Review coverage, then approve the exact plan. Replay displays recorded extraction; a real approved model generates it. |
+| B — Browser testing | Start the SUT on port 8601. Approve registered upload/error/count actions; Playwright runs against that environment and saves screenshots/traces. General natural-language website automation is not implemented. |
+| C — API testing | Approve supplier CSV import and product checks. Runtime actions call the synthetic API and compare normalized units, attributes and validation errors with oracle manifests. |
+| D — Defect identification | Inspect failed comparisons and their actual/expected values, screenshot, trace and log evidence. Export the HTML/JSON QA report; Jira defect creation is planned. |
+| E — Regression preparation | Record story IDs, fixture/oracle versions, approved model ID, environment and defect mode. Start and review a fresh run for each story/change, then compare reports. Scheduling, suites and release-wide orchestration are planned. |
+
+## Evaluation and benchmarking
+
+B2 evaluates synthetic PCC stories with planted defects **on and off**, gold expected coverage/results, schema validation and injection attempts. It reports AC precision/recall, coverage/gap metrics, seeded-defect detection, false alarms, repairs, repeatability, latency and token usage. Account quotas constrain real calls; unknown observations stay unknown. Thresholds are proposed, pending QA-lead agreement.
+
+The offline self-test starts its own local services; leave ports available. From the repository root:
+
+```powershell
+$env:PYTHONUTF8 = '1'
+$env:QA_MODEL_PROVIDER = 'replay'
+.\.venv\Scripts\python.exe scripts/eval_b2.py --provider stub --self-test-simulated-review --out reports/eval/readme-stub
+.\.venv\Scripts\python.exe scripts/compare_models.py reports/eval/readme-stub/eval_report.json --out reports/eval/readme-comparison
+```
+
+**Replay/stub results test the harness, not model intelligence.** The simulated-review flag is for offline self-tests only. Real evaluations need authenticated first-plan review and scoped grants; follow [evaluation procedure](docs/b2/ENABLE_LIVE_EVAL.md). PCC-DEMO-7 has no replay answer and uses externally sealed, hash-verified gold. Blinding is partial: public stories/oracles and shared authorship limit independence. Read [contamination limits](docs/b2/CONTAMINATION_AND_INDEPENDENCE.md) and use an [independent reviewer](docs/b2/INDEPENDENT_REVIEW_TEMPLATE.md) before relying on quality claims.
+
+## Security model
+
+Execution requires validation and approval bound to the exact plan hash; plans expire, and cancelled/interrupted runs do not silently resume. Local auth provides requester/approver/viewer roles and ownership checks; demo mode does not authenticate approvers. Integrations expose read-only operations. Tool, endpoint, file and environment allowlists constrain registered skills. Production is prohibited; Dev/Playground remain unverified. Credentials use server-process environment references and redaction; local tokens are hashed. Audit records are hash-chained, not signed or independently immutable.
+
+This is a prototype, without enterprise SSO, managed secrets, encrypted evidence storage or tamper-proof audit infrastructure. Hosted privacy depends on provider/account policy as well as synthetic-only enforcement. See [architecture, controls and limitations](docs/ARCHITECTURE_SECURITY.md).
+
+## Project structure
+
+```text
+config/                 Agent/provider, tool policy, environment and evaluation settings
+qa_agent/
+  server.py             FastAPI endpoints and authentication boundary
+  static/index.html     Single-page QA workspace
+  runtime.py            Plan → validate → approve → execute lifecycle
+  planning.py           Prompt, schema and catalog validation
+  providers/            Replay, compatible/native models, quotas and registry
+  integrations/         Read-only Jira/Bitbucket adapters and bounded HTTP
+  skills/               Registered import and attribute validation actions
+  executor.py           Playwright/API execution through the tool gateway
+  store.py              SQLite runs/approvals/audit and file artifacts
+fixtures/               Synthetic Jira stories, CSVs, oracles, replay, repos, eval gold
+sut/                    Synthetic application with switchable planted defects
+scripts/                Offline demo, evaluation and report comparison
+tests/                  Unit, contract, policy and Chromium integration tests
+docs/                   Setup, architecture, roadmap and milestone evidence
+.github/workflows/      Existing offline CI workflow
+data/                   Generated state/evidence (ignored by Git)
+reports/                Generated evaluation/test reports (ignored by Git)
+```
+
+## Developer guide
+
+[Development and contribution guide](docs/DEVELOPMENT.md) documents existing Python/JSON conventions, local mock services, adding a provider/skill/integration/story, test markers and CI-equivalent commands. There is no frontend build step. The [CI workflow](.github/workflows/qa-agent-ci.yml) uses replay, loopback services and real headless Chromium without hosted inference credentials.
+
+```powershell
+$env:PYTHONUTF8 = '1'
+$env:QA_MODEL_PROVIDER = 'replay'
+.\.venv\Scripts\python.exe -m pytest -q -m 'not integration' --junitxml=reports/unit.xml
+.\.venv\Scripts\python.exe -m pytest -q -m integration --junitxml=reports/integration.xml
+```
+
+## Troubleshooting
+
+| Problem | Check / resolution |
+|---|---|
+| Ollama unreachable | Check the Windows Ollama app, port 11434 and `/api/tags`; start `ollama serve` only if no service is already listening. [Local guide](docs/SETUP_LOCAL.md#troubleshooting-local-inference). |
+| Model not found | Compare the exact configured ID with `ollama list` or the compatible server catalog; manually install/load it. Discovery never pulls or approves models. |
+| Invalid structured output | Verify completion/chat and schema support, chat template and output allowance. Inspect validation/repair events; never bypass the schema or policy. |
+| Hosted HTTP 429 | Respect Retry-After/reset and account limits; reduce concurrency/rate. No automatic provider or paid fallback. |
+| Missing API credentials | Set the configured environment variable in the same process shell before startup; no dotenv loader. [Hosted guide](docs/SETUP_HOSTED.md#process-environment-credentials). |
+| Host not approved | Administrator must authorize the exact HTTPS model host in `config/policy.json`; provider approval alone is insufficient. |
+| Environment unverified | Use `synthetic-local`; real environments need the full safety record, accounts and cleanup verification. [Environment rules](docs/ARCHITECTURE_SECURITY.md#environment-authorization). |
+| Test execution blocked | Review plan/hash/expiry, role/ownership, environment and action policy. Another execution may hold the single-run lock. Start a fresh plan after expiry. |
+| Playwright browser missing | Run `.\.venv\Scripts\python.exe -m playwright install chromium` with the same interpreter/user as the agent. Linux CI also installs browser OS dependencies. |
+| Budget/quota exceeded | Inspect configured/observed RPM/RPD/TPM/TPD, conservative reservations and reset times; paid adapter dollar caps are separate. Wait or correct verified limits; do not reset the ledger to bypass them. |
+
+## Roadmap
+
+| Milestone | Current status |
+|---|---|
+| A — Synthetic execution foundation | Delivered for the synthetic domain |
+| B1 — Secure planning/runtime foundation | Delivered for the local prototype |
+| B2 — Model evaluation preparation | Framework delivered; real evaluation and independent review pending |
+| C0 — Read-only integration foundation | Adapters delivered; real access disabled |
+| B2-FREE — Multi-model/local inference | Provider implementation delivered; real quality evaluation pending |
+| C1 — Approved real Jira/Bitbucket access | Approval-gated, not completed |
+| C2 — Repository-grounded QA | Planned |
+| C3 — Environment testing | Planned; nonlocal environments unverified |
+| C4 — Human-approved Jira write-back | Planned |
+| C5 — Regression and release sanity automation | Planned |
+
+See [the detailed roadmap](docs/ROADMAP.md) for delivered scope and remaining boundaries.
+
+## License and contributions
+
+There is **no `LICENSE` file** in the repository at this revision. It is publicly readable but has no explicit redistribution or modification license. Do not assume an open-source license; no license is added by this documentation change.
+
+Propose focused branches and pull requests, describe behavior and validation, and let the existing push/PR CI run. Keep real credentials, customer material, generated state and sealed gold out of commits. See [contribution details](docs/DEVELOPMENT.md#contributions). Historical milestone documents retain their original evidence and superseded labels. [Documentation validation and before/after summary](docs/DOCUMENTATION_VALIDATION.md).
