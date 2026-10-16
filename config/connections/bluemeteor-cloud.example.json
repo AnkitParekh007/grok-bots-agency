@@ -26,13 +26,24 @@
     "edition": "cloud",
     "workspace": "bluemeteorapps",
     "base_url": "https://api.bitbucket.org",
-    "repositories": [],
+    "repositories": ["bluemeteorapps/supplierportalui"],
     "token": {
       "enabled": false,
       "type": "bearer",
       "token_env": "BLUEMETEOR_BITBUCKET_READ_TOKEN",
       "token_kind": null
     }
+  },
+  "application": {
+    "name": "Supplier Portal / SKU Onboarding Portal",
+    "repository_url": "https://bitbucket.org/bluemeteorapps/supplierportalui/src",
+    "documentation_url": "https://pccdocs.bluemeteor.com/docs/supplier-portal-1",
+    "environments": {
+      "test": "https://supplier.pcctest.bluemeteor.com/",
+      "playground": "https://supplier.pccplayground.bluemeteor.com/#/login"
+    },
+    "domain_capabilities": [],
+    "workflow_review": "docs/enterprise-readiness/SUPPLIER_PORTAL_ONBOARDING.md"
   },
   "mcp": {
     "enabled": false,

@@ -4,7 +4,7 @@
 - any other (non-loopback) environment is refused unless ALL of: status == "verified", a safety_verification record
   (verified_by, verified_at, approval_ref), https base_url whose host is on allowed_hosts, >=1 synthetic test account
   (credential referenced by env var name, never stored), and a cleanup procedure (procedure_ref + steps).
-Dev and Playground ship 'unverified' with no base_url, so they cannot execute."""
+Test and Playground ship 'unverified'; recorded URLs do not make them executable."""
 import fnmatch, ipaddress, os, re
 from urllib.parse import urlparse
 from .interfaces import EnvironmentProvider

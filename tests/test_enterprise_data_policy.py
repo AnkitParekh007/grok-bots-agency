@@ -128,6 +128,9 @@ def test_runtime_persists_grounded_bundle_and_invalidates_tampered_snapshot(setu
     agent.tracker.kind = "jira_cloud"  # Explicitly exercises the non-synthetic classification path.
     agent.tracker.ac_field = "customfield_123"
     monkeypatch.setattr(agent.tracker, "get_issue", lambda key: copy.deepcopy(story))
+    from tests.test_enterprise_domains import approval
+    approval(agent, {"tenant_id": "local", "project": "PCC", "repository": None,
+                     "story_key": "PCC-DEMO-1", "environment": "synthetic-local"}, agent.envs._base("synthetic-local"))
     monkeypatch.setattr(model, "prepare", lambda: None)  # No real engine or metadata probe.
     def handler(request):
         body = json.loads(request.content)

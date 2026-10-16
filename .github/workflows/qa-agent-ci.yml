@@ -109,7 +109,7 @@ jobs:
           .venv-security/bin/python scripts/verify_sbom.py requirements-security.lock reports/security/tooling-sbom.json
       - name: Static security analysis
         if: always()
-        run: .venv-security/bin/python -m bandit -r qa_agent -f json -o reports/security/bandit.json
+        run: .venv-security/bin/python -m bandit -r qa_agent scripts/domain_proposal.py -f json -o reports/security/bandit.json
       - name: Prove offline secret guard rejects a synthetic canary
         if: always()
         run: .venv-security/bin/python scripts/scan_secrets.py --self-test

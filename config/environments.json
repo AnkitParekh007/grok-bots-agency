@@ -11,24 +11,24 @@
       "data_class": "synthetic",
       "allowed_hosts": ["127.0.0.1", "localhost"]
     },
-    "bluemeteor-dev": {
-      "kind": "dev",
-      "base_url": null,
+    "bluemeteor-test": {
+      "kind": "test",
+      "base_url": "https://supplier.pcctest.bluemeteor.com/",
       "status": "unverified",
       "production": false,
       "data_class": "synthetic",
-      "allowed_hosts": [],
+      "allowed_hosts": ["supplier.pcctest.bluemeteor.com"],
       "safety_verification": null,
       "test_accounts": [],
       "cleanup": null
     },
     "bluemeteor-playground": {
       "kind": "playground",
-      "base_url": null,
+      "base_url": "https://supplier.pccplayground.bluemeteor.com/",
       "status": "unverified",
       "production": false,
       "data_class": "synthetic",
-      "allowed_hosts": [],
+      "allowed_hosts": ["supplier.pccplayground.bluemeteor.com"],
       "safety_verification": null,
       "test_accounts": [],
       "cleanup": null

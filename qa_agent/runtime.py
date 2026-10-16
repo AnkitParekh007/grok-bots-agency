@@ -379,8 +379,6 @@ class QAAgent:
             from .analysis import source_review
             source_review(self, run_id, story_key, reason="No independent expected-results manifest is available for this story.")
             return
-        env = self._tool(run_id, "env.resolve", {"name": env_name}, lambda: self.envs.resolve(env_name))
-        ev("environment", f"Environment '{env_name}' resolved -> {env['base_url']} ({env['status']})")
         run0 = self.store.get_run(run_id)
         if run0.get("project"):
             self.select(run0["project"], story_key, run0.get("repository"), env_name)   # selection re-checked server-side
@@ -388,6 +386,17 @@ class QAAgent:
         story = self._tool(run_id, "tracker.get_issue", {"key": story_key}, lambda: tracker.get_issue(story_key))
         self.store.update_run(run_id, story_key=story_key, story_json=story)
         ev("story", f"Read {story_key} via {getattr(tracker, 'kind', 'tracker')}: {story['fields']['summary']}")
+        from .domain import authorize, DomainNotApproved
+        try:
+            domain = authorize(self, self.store.get_run(run_id), self.envs._base(env_name), story)
+        except DomainNotApproved as exc:
+            from .analysis import source_review
+            self.gateway.record(run_id, "domain.authorize", {"story": story_key, "environment": env_name}, "deny", str(exc))
+            source_review(self, run_id, story_key, reason=str(exc), story=story)
+            return
+        self.gateway.record(run_id, "domain.authorize", {"mode": domain["mode"]}, "allow", "domain inputs authorized for planning")
+        env = self._tool(run_id, "env.resolve", {"name": env_name}, lambda: self.envs.resolve(env_name))
+        ev("environment", f"Environment '{env_name}' resolved -> {env['base_url']} ({env['status']})")
         if run0.get("repository"):
             repo = run0["repository"]
             ctx = self._tool(run_id, "git.repo_context", {"repo": repo}, lambda: git.repo_context(repo))
@@ -431,6 +440,9 @@ class QAAgent:
             model.prepare()
             self.store.update_run(run_id, model_version=model.version)
         while True:
+            from .domain import authorize
+            current = self.store.get_run(run_id)
+            authorize(self, current, self.envs._base(current["environment"]), current["story_json"])
             billable = getattr(model, "per_attempt_budget", False)
             if billable:
                 ledger = _BudgetLedger(self, run_id, pname, getattr(model, "model", pname), "plan_story", attempt)

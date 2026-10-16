@@ -47,7 +47,7 @@ A successful adapter test does not authorize real access. Source/model decisions
 
 ## Environment authorization
 
-`config/environments.json` is independent of model configuration. `synthetic-local` is verified-synthetic on loopback; `SYNTHETIC_SUT_URL` can override its base URL subject to policy. `bluemeteor-dev` and `bluemeteor-playground` have no verified URL/accounts and are non-executable.
+`config/environments.json` is independent of model configuration. `synthetic-local` is verified-synthetic on loopback; `SYNTHETIC_SUT_URL` can override its base URL subject to policy. `bluemeteor-test` and `bluemeteor-playground` record the owner-supplied Supplier Portal URLs, remain unverified, and have no approved accounts or cleanup. They are non-executable. Organization domains also require an exact reviewed capability-input approval; see [Supplier Portal onboarding](enterprise-readiness/SUPPLIER_PORTAL_ONBOARDING.md).
 
 A non-loopback environment requires `status:"verified"`, `production:false`, `data_class:"synthetic"`, an HTTPS URL with explicit `allowed_hosts`, a `safety_verification` record (`verified_by`, `verified_at`, `approval_ref`), approved `test_accounts` (each `synthetic:true` with a `credential_env` whose value is present in the server environment), and a `cleanup` record (`procedure_ref`, `steps`). See the actual registry validation in [environments.py](../qa_agent/environments.py). Production names/flags and prohibited host patterns are blocked. An executable environment does not expand skills, approve a model, classify real data as synthetic or grant permission to execute a plan.
 

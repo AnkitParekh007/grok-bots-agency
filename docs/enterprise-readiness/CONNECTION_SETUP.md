@@ -4,6 +4,8 @@ Connections belong to the product, independent of any connectors available insid
 
 The owner supplied Jira Cloud site `https://bluemeteor.atlassian.net` and Bitbucket workspace `bluemeteorapps`. Neither has been connected or used for these tests. The initial [target record](../../config/connections/bluemeteor-cloud.example.json) remains disabled and is not a runnable configuration.
 
+The target record now also identifies repository `bluemeteorapps/supplierportalui` and the owner-supplied Supplier Portal test/playground URLs. Its repository list is an intended selection, not a saved connection-scope grant. [Domain onboarding](SUPPLIER_PORTAL_ONBOARDING.md) records the requested documentation review and exact capability-input approval requirement. Actual Jira project keys and sandbox source/identity credentials are still missing.
+
 Example disabled token connection to merge into an operator-managed configuration:
 
 ```json

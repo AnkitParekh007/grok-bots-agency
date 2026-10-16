@@ -1,0 +1,24 @@
+{
+  "format": "qa-documentation-review/1",
+  "review_date_utc": "2026-10-16",
+  "seed_url": "https://pccdocs.bluemeteor.com/docs/supplier-portal-1",
+  "method": "Anonymous browser navigation and rendered #main-content text reads, after direct HTML extraction returned empty article content",
+  "category_article_count_observed": 9,
+  "category_articles_read": 9,
+  "scope_complete": "Nine direct category articles only",
+  "upstream_content_version_verified": false,
+  "media_or_downloads_reviewed": false,
+  "application_login_performed": false,
+  "sut_or_documented_api_invoked": false,
+  "pages": [
+    {"id": "SOP-01", "title": "Introduction to SKU Onboarding Portal (SOP)", "url": "https://pccdocs.bluemeteor.com/docs/supplier-portal", "visible_date": "Updated on Apr 10, 2026", "rendered_main_text_characters": 1950},
+    {"id": "SOP-02", "title": "4 simple ways to upload product data", "url": "https://pccdocs.bluemeteor.com/docs/3-simple-ways-to-upload-product-data", "visible_date": "Updated on Oct 9, 2026", "rendered_main_text_characters": 15887},
+    {"id": "SOP-03", "title": "Managing Product Data on Supplier end", "url": "https://pccdocs.bluemeteor.com/docs/mapping-packaging-data-in-ai-mapping-finalization-screen-1", "visible_date": "Published on Oct 9, 2026", "rendered_main_text_characters": 10162},
+    {"id": "SOP-04", "title": "Quick Links", "url": "https://pccdocs.bluemeteor.com/docs/quick-links", "visible_date": "Updated on Apr 14, 2025", "rendered_main_text_characters": 312},
+    {"id": "SOP-05", "title": "Key Statistics", "url": "https://pccdocs.bluemeteor.com/docs/key-statistics", "visible_date": "Updated on Apr 8, 2026", "rendered_main_text_characters": 1294},
+    {"id": "SOP-06", "title": "Submissions & it's Complete Workflow", "url": "https://pccdocs.bluemeteor.com/docs/syndication", "visible_date": "Updated on Apr 14, 2026", "rendered_main_text_characters": 4877},
+    {"id": "SOP-07", "title": "Managing Open Submission", "url": "https://pccdocs.bluemeteor.com/docs/syndication-workflow", "visible_date": "Updated on May 11, 2026", "rendered_main_text_characters": 3135},
+    {"id": "SOP-08", "title": "Demystifying SKU Statuses: A Deep Dive into the Lifecycle of SKUs", "url": "https://pccdocs.bluemeteor.com/docs/business-process-flow-for-sku-statuses", "visible_date": "Published on Apr 14, 2025", "rendered_main_text_characters": 7722},
+    {"id": "SOP-09", "title": "Supplier Syndications API", "url": "https://pccdocs.bluemeteor.com/docs/suppliersyndicationsapidoc", "visible_date": "Updated on Jul 22, 2026", "rendered_main_text_characters": 12668}
+  ]
+}

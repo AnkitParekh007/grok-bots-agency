@@ -43,6 +43,8 @@ def digest(run):
 
 
 def inputs(agent, run, env, story=None, repository=None):
+    from .domain import authorize
+    domain = authorize(agent, run, env, story if story is not None else run["story_json"])
     oracle = bounded_read(agent.oracle_path(run["story_key"]))
     fixtures = {}
     root = (ROOT / agent.cfg["fixture_data_dir"]).resolve()
@@ -71,6 +73,7 @@ def inputs(agent, run, env, story=None, repository=None):
                 "acceptance_sha256": sha256(canon(run.get("ac_json"))),
                 "source_bundle_sha256": sha256(canon(run.get("source_bundle_json"))),
                 "environment": env, "policy_sha256": sha256(canon(agent.policy)),
+                "domain_approval": domain,
                 "connection_scopes": agent.connections.revision(run.get("project")),
                 "config_sha256": sha256(canon(agent.cfg)),
                 "catalog_version": planning.catalog_version(agent.skills),
@@ -100,6 +103,8 @@ def capture(agent, run_id, env):
 def verify(agent, run, env, *, check_sources=True):
     if digest(run) != run["plan_hash"]:
         raise PackageChanged("reviewed execution envelope or stored plan changed")
+    from .domain import authorize
+    authorize(agent, run, env, run["story_json"])
     story, repo = run["story_json"], run.get("repo_context_json")
     if check_sources:
         story = agent._tool(run["id"], "tracker.get_issue", {"key": run["story_key"]},

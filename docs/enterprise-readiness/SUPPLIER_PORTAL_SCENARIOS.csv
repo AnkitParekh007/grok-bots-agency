@@ -1,0 +1,36 @@
+id,workflow,case,reviewed_expected_contract,source_ids,additional_owner_input,qualification_result
+SP-01,W01,Supplier enabled and template scope,Only enabled supplier and assigned templates are usable,SOP-01 SOP-02,Independent role and template access matrix,NOT_EXECUTED
+SP-02,W01,Valid distributor template upload,Expected synthetic rows import against the pinned template,SOP-02,Exact headings and independent row oracle,NOT_EXECUTED
+SP-03,W01,Wrong headers or order,File is rejected without loading items,SOP-02,Reviewed invalid fixture and no-mutation observer,NOT_EXECUTED
+SP-04,W01,Incomplete cancelled or failed upload,Submit remains disabled until upload completes successfully,SOP-02,Controlled transfer failure and cancellation,NOT_EXECUTED
+SP-05,W01,Import in progress,Submission edit and upload controls stay unavailable,SOP-02 SOP-06,Controlled import observation window,NOT_EXECUTED
+SP-06,W01,Validation outcome,Imported items have expected valid or invalid state,SOP-02 SOP-08,Template rules and independently reviewed fixtures,NOT_EXECUTED
+SP-07,W01,Failed-row report,Failure report identifies only failed records and reasons,SOP-02,Safe export storage and per-row expected errors,NOT_EXECUTED
+SP-08,W01,Append file,New input affects only intended submission and items,SOP-02 SOP-06,Append duplicate and supported-format contract,NOT_EXECUTED
+SP-09,W02,Custom XLSX upload,Configured party receives mapping review responsibility,SOP-02 SOP-03,Template finalization choice Supplier Distributor or Both,NOT_EXECUTED
+SP-10,W02,Missing identifier mapping,Finalization requires the configured identifier mappings,SOP-03,Exact identifier fields and validation observer,NOT_EXECUTED
+SP-11,W02,Identifier-only finalization,Unmapped optional fields remain excluded from import,SOP-03,Independent imported-field comparison,NOT_EXECUTED
+SP-12,W02,Accepted rejected and unmapped suggestions,Only mapped or accepted fields enter import,SOP-03,Deterministic mapping fixture and golden mapping,NOT_EXECUTED
+SP-13,W02,Manual field and locale mapping,Result uses the selected target field and locale,SOP-03,Approved target fields locales and oracle,NOT_EXECUTED
+SP-14,W02,Bulk confidence acceptance,Only eligible suggestions at the reviewed boundary change,SOP-03 SOP-09,Resolve UI above versus API greater-or-equal semantics,NOT_EXECUTED
+SP-15,W02,Bulk actions on selected fields,Changes are limited to selected mappings,SOP-03,Independent before and after mapping set,NOT_EXECUTED
+SP-16,W02,Package unit and attribute mapping,Imported package values match the approved mapping,SOP-03,Configured package units and attribute oracle,NOT_EXECUTED
+SP-17,W02,Finalize versus onboard,Mapping completion alone cannot certify PIM onboarding,SOP-03 SOP-08,Deployment status map and bounded observer,NOT_EXECUTED
+SP-18,W03,Correct invalid values,Reviewed correction triggers expected revalidation,SOP-07 SOP-08,Independent valid and invalid value pairs,NOT_EXECUTED
+SP-19,W03,Publish eligibility,Only validation-eligible items may publish,SOP-02 SOP-07 SOP-08,Reviewed eligibility and workflow configuration,NOT_EXECUTED
+SP-20,W03,Selected filtered and all-ready publication,Only the explicitly selected publish scope changes,SOP-02,Isolated multi-item fixture and distributor observer,NOT_EXECUTED
+SP-21,W03,Distributor approval required for edits,Pending edit request does not grant mutation,SOP-07,Isolated supplier and distributor roles,NOT_EXECUTED
+SP-22,W03,Approved versus rejected edit request,Edit permission follows the distributor decision,SOP-07,Reviewed decision sequence and expiry contract,NOT_EXECUTED
+SP-23,W03,Post-publication editing disallowed,Published data stays non-editable under that policy,SOP-07,Explicit supplier edit-policy configuration,NOT_EXECUTED
+SP-24,W03,Approved and needs-review items,Read-only item states do not expose edit actions,SOP-07 SOP-08,Resolve configured exceptions with domain owner,NOT_EXECUTED
+SP-25,W03,Rejected item correction,Revalidation determines corrected item eligibility,SOP-07 SOP-08,Controlled rejection and expected correction,NOT_EXECUTED
+SP-26,W03,Preserve unspecified PIM fields,Onboarding updates only supplied fields,SOP-08,Immutable baseline of unrelated fields assets relationships,NOT_EXECUTED
+SP-27,W03,Automation variants,Observe configured stages without requiring transient states,SOP-03 SOP-08,Four automation flags and deployment transition map,NOT_EXECUTED
+SP-28,Supporting,Dashboard aggregate counts,Counts agree with independently enumerated fixture items,SOP-05,Isolated count oracle and bounded eventual consistency,NOT_EXECUTED
+SP-29,Supporting,Submission and time filtering,Displayed counts follow the selected filter scope,SOP-05,Timezone and boundary dataset,NOT_EXECUTED
+SP-30,Supporting,Help navigation,Help links resolve to approved documentation destinations,SOP-04,Destination and popup policy; chat submission excluded,NOT_EXECUTED
+SP-31,Deferred API,Asynchronous processing,Accepted request is tracked through a bounded status observer,SOP-09,Approved non-production API target and request fixture,NOT_EXECUTED
+SP-32,Deferred API,Partial success,Per-item outcomes agree with counts and request identity,SOP-09,Independent mixed-outcome oracle,NOT_EXECUTED
+SP-33,Deferred API,Authentication scope and invalid keys,Invalid or cross-supplier authority cannot read or submit data,SOP-09,Reviewed sandbox identities and no-side-effect probes,NOT_EXECUTED
+SP-34,Deferred API,Types units and duplicate identifiers,Typed validation follows the owner-resolved payload contract,SOP-09,Resolve UOM naming and idempotency semantics,NOT_EXECUTED
+SP-35,All,Isolation and cleanup,Only run-owned synthetic data is reconciled and cleaned up,Owner qualification requirement,Approved namespace cleanup compensation and evidence owner,NOT_EXECUTED

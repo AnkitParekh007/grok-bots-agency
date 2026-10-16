@@ -10,13 +10,14 @@ from .integrations.common import extract_acceptance_criteria, adf_text
 from .util import canon, sha256, now
 
 
-def source_review(agent, run_id, story_key, *, reason):
+def source_review(agent, run_id, story_key, *, reason, story=None):
     run = agent.store.get_run(run_id)
     project = run.get("project")
     if project:
         agent.select(project, story_key, run.get("repository"), run.get("environment"))
     tracker = agent.tracker_for(project)
-    story = agent._tool(run_id, "tracker.get_issue", {"key": story_key}, lambda: tracker.get_issue(story_key))
+    if story is None:
+        story = agent._tool(run_id, "tracker.get_issue", {"key": story_key}, lambda: tracker.get_issue(story_key))
     serialized = canon(story).encode()
     if len(serialized) > 2_000_000:
         raise ValueError("source review exceeds story byte limit")

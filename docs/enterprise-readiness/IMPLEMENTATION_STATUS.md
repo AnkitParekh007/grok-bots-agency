@@ -4,13 +4,15 @@ This ledger follows the complete 25-item assessment. `Verified` requires impleme
 
 Organization targets supplied by the owner: Jira Cloud `https://bluemeteor.atlassian.net` and Bitbucket Cloud workspace `bluemeteorapps`. These identify destinations, not project/repository access, credentials, or permission to send organization data to a model.
 
+The owner subsequently identified `bluemeteorapps/supplierportalui`, Supplier Portal test/playground URLs, and requested a documentation crawl. [Nine-article workflow review](SUPPLIER_PORTAL_ONBOARDING.md) and 35 unexecuted qualification cases now identify the domain. URLs are recorded with environment status unverified; no live access/execution or model-data approval follows from these records.
+
 | Finding | Implementation status | Remaining acceptance work |
 |---|---|---|
 | ER-01 Identity/deployment | OIDC/shared profile passed complete CI at d371fac | Actual IdP setup, identity lifecycle and operational qualification remain |
 | ER-02 Sessions/abuse | Session/CSRF/expiry/revocation/throttle controls passed complete CI; operator guide added | Broader abuse tests and actual IdP/browser qualification remain |
 | ER-03 Project authorization | Scoped API/run/artifact and exact returned-source controls passed focused checks | Per-connection delegated/service scope and real source ACL qualification remain |
 | ER-04 MCP | App-owned pinned read client/broker passed complete CI at 20c9ea5 | Interactive OAuth, native payload mappings and actual Cloud qualification remain |
-| ER-05 Organization capabilities | Non-executable source review passed complete CI at 2fb3f02 | Reviewed organization action/oracle onboarding remains |
+| ER-05 Organization capabilities | Analysis-only fallback extended to missing/mismatched reviewed domain-input approval; nine Supplier Portal articles reviewed and 35 candidate cases recorded; focused checks passed | Actual organization skill implementations, independent expected results and owner-approved domain receipts remain |
 | ER-06 Classification | Explicit source/model-data approval gates passed complete CI at 2fb3f02 | Actual owner decisions, operational region/retention controls and qualification remain |
 | ER-07 Grounding | Typed minimized issue/custom-AC bundle and source-hash quote checks passed focused checks | Repository/comment/attachment grounding, upstream versions and broader qualification remain |
 | ER-08 Execution egress | Application controls passed complete CI at 371feee | Independent worker network isolation and TLS deployment qualification remain |
@@ -24,7 +26,7 @@ Organization targets supplied by the owner: Jira Cloud `https://bluemeteor.atlas
 | ER-16 Durable audit | Atomic ledger/outbox, dispatch intent, signed checkpoints and projection recovery passed complete CI at acd7a9f | External protected sink/key custody and workflow-state atomicity remain |
 | ER-17 Recovery/migrations | Bounded encrypted offline set, restore invalidation and atomic v0-to-v1 migration passed complete CI at 46f0059 and a synthetic drill | Independent crypto review, managed key/media recovery, compatible deployment rollback and actual RPO/RTO drills remain |
 | ER-18 Supply chain | Hashed locks, advisory/SBOM completeness and static/secret gates passed complete CI at 46f0059; default-branch attestation workflow prepared | Trusted-branch attestation verification, immutable native/OS/model inventory and protected release/promotion policy remain |
-| ER-19 SUT auth/cleanup | Pending | Approved credentials/actions, login, isolation and compensation |
+| ER-19 SUT auth/cleanup | Supplier Portal repository and test/playground URLs recorded as unverified; documented workflow branches mapped | Approved credentials/actions, login, isolation and compensation remain unimplemented/unqualified |
 | ER-20 Jira write-back | Pending | Separately reviewed bounded operations, idempotency and workflow mapping |
 | ER-21 Regression automation | Legacy synthetic-eval source restrictions passed complete CI at 1c05c9b | Organization versioned suites/grants/schedules/release semantics remain unimplemented |
 | ER-22 Client accessibility | Pending | Supported browsers, assistive technology and scale/privacy checks |

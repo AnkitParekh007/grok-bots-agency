@@ -469,7 +469,7 @@
       ],
       "environments": [
         "synthetic-local",
-        "bluemeteor-dev",
+        "bluemeteor-test",
         "bluemeteor-playground"
       ],
       "data_class": "synthetic"
