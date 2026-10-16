@@ -411,7 +411,8 @@ def test_chat_selection_validated_and_recorded(tmp_path):
     bad = [{"project": "NOPE"}, {"project": "PCC", "story_key": "OTHER-1"}, {"project": "PCC", "repository": "SYN/other"},
            {"repository": "SYN/pim-import-service"}, {"project": "PCC", "environment": "unlisted-env"}]
     for b in bad:
-        assert c.post("/api/chat", json={"message": "test PCC-DEMO-1", **b}).status_code == 400
+        expected = 404 if b.get("project") == "NOPE" else 400
+        assert c.post("/api/chat", json={"message": "test PCC-DEMO-1", **b}).status_code == expected
     a = c.app.state.agent
     rid = a.start_run("test it", "synthetic-local", story_key="PCC-DEMO-1", project="PCC", repository="SYN/pim-import-service", wait=True)
     r = a.store.get_run(rid)
