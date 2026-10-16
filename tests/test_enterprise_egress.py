@@ -57,6 +57,28 @@ def environment(url):
 
 
 @pytest.mark.integration
+def test_proxy_helper_thread_refuses_connections_after_its_captured_worker_lease_expires(tmp_path):
+    from qa_agent.jobs import DurableJobs
+    with server(lambda p: (200, {}, b"approved synthetic target")) as (source, hits):
+        a = agent(tmp_path)
+        clock = [1000.0]
+        jobs = DurableJobs(a.store, clock=lambda: clock[0])
+        jobs.enqueue("run-proxy", "execution", {}, "a" * 64)
+        claimed = jobs.claim("worker", "a" * 64)
+        with a.store.fenced_job(jobs, claimed):
+            proxy = EgressProxy(a.gateway, "run-proxy", environment(source), "fixture-hash")
+        clock[0] += 61
+        jobs.recover()
+        try:
+            with proxy, httpx.Client(proxy=proxy.url, trust_env=False) as client:
+                response = client.get(source + "/never-send")
+                assert response.status_code == 403
+            assert hits == [] and proxy.denials
+        finally:
+            a.store.db.close()
+
+
+@pytest.mark.integration
 @pytest.mark.parametrize("attack", ["image", "browser_chain", "api_chain"])
 def test_real_executor_blocks_resources_and_every_redirect_hop(tmp_path, attack):
     with server(lambda p: (200, {}, b"forbidden sink")) as (sink, sink_hits):

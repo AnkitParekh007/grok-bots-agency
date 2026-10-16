@@ -109,3 +109,13 @@ def test_rotating_a_scoped_service_key_cannot_broaden_its_identity(tmp_path):
     principal = users.verify(new)
     assert principal.kind == "service" and principal.tenant_id == "tenant-a" and principal.project_roles == {"PCC": "requester"}
     assert users._load()["users"]["service"]["expires_at"] == expires
+
+
+def test_background_reference_checks_do_not_extend_idle_session(sessions):
+    one, clock, _, _ = sessions
+    issued = one.issue(P)
+    reference = draft._hash(issued["token"])
+    clock[0] += 50
+    assert one.verify_reference(reference) == P
+    clock[0] += 11
+    assert one.verify_reference(reference) is None

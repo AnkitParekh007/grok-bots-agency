@@ -104,8 +104,9 @@ def test_cookie_mutations_need_csrf_and_exact_origin(shared):
         body = {"message": "Plan PCC-DEMO-1", "project": "PCC", "story_key": "PCC-DEMO-1"}
         assert c.post("/api/chat", json=body).status_code == 403
         assert c.post("/api/chat", json=body, headers={**csrf(c), "Origin": "https://evil.workspace.invalid"}).status_code == 403
-        assert c.post("/api/chat", json=body, headers=csrf(c)).status_code == 200
-        app.state.agent.threads[-1].join(30)
+        submitted = c.post("/api/chat", json=body, headers=csrf(c))
+        assert submitted.status_code == 200
+        wait_status(lambda: c.get("/api/runs/" + submitted.json()["run_id"]).json(), {"awaiting_approval", "failed", "blocked"}, timeout=30)
         assert c.post("/api/login", json={"token": "any-local-token"}, headers=csrf(c)).status_code == 403
 
 
@@ -116,7 +117,8 @@ def test_foreign_approver_cannot_read_or_cancel_or_approve_run(shared):
         login(owner);login(foreign, "foreign-reviewer", "review-b")
         r = owner.post("/api/chat", json={"message": "Plan PCC-DEMO-1", "project": "PCC", "story_key": "PCC-DEMO-1"}, headers=csrf(owner))
         assert r.status_code == 200
-        rid = r.json()["run_id"];a.threads[-1].join(30)
+        rid = r.json()["run_id"]
+        wait_status(lambda: owner.get(f"/api/runs/{rid}").json(), {"awaiting_approval", "failed", "blocked"}, timeout=30)
         assert owner.get(f"/api/runs/{rid}/artifacts/inputs/config.json").status_code == 404
         for path in (f"/api/runs/{rid}", f"/api/runs/{rid}/usage", f"/api/runs/{rid}/artifacts/inputs/config.json"):
             assert foreign.get(path).status_code == 404
@@ -140,6 +142,29 @@ def test_changed_group_policy_invalidates_cached_session(shared):
         assert c.get("/api/projects").status_code == 200
         cfg["authorization"]["group_grants"].pop("request-a")
         assert c.get("/api/projects").status_code == 401
+
+
+@pytest.mark.parametrize("revoke", ["logout", "policy"])
+def test_queued_oidc_request_does_not_dispatch_after_caller_revocation(shared, revoke):
+    from unittest.mock import patch
+    app, cfg, login, _, _ = shared
+    a = app.state.agent
+    with client_for(app) as c:
+        login(c)
+        with patch.object(a.queue.workers, "wake"):
+            response = c.post("/api/chat", json={"message": "Plan PCC-DEMO-1", "project": "PCC", "story_key": "PCC-DEMO-1"}, headers=csrf(c))
+            assert response.status_code == 200
+        rid = response.json()["run_id"]
+        if revoke == "logout":
+            assert c.post("/api/logout", headers=csrf(c)).status_code == 200
+        else:
+            cfg["authorization"]["group_grants"].pop("request-a")
+        with patch.object(a.tracker, "get_issue") as source, patch.object(a.model, "generate") as model:
+            a.recover_pending()
+            job = a.store.q("SELECT id FROM jobs WHERE run_id=?", (rid,))[0]
+            assert a.queue.workers.wait(job["id"], timeout=15) == "blocked"
+            source.assert_not_called();model.assert_not_called()
+        assert a.store.get_run(rid)["status"] == "blocked"
 
 
 def test_validated_backchannel_event_revokes_only_its_session(shared, key):

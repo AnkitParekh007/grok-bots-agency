@@ -43,6 +43,8 @@ export function icons(root = document) {
 export const labels = {
   awaiting_approval: "Awaiting approval",
   planning: "Planning",
+  queued_planning: "Queued for planning",
+  queued_execution: "Queued for execution",
   executing: "Executing",
   completed: "Completed",
   analysis_only: "Analysis only",

@@ -58,7 +58,7 @@ class QAAgent:
         self.review_only = review_only
         self.policy = load_json(Path(config_dir) / "policy.json")
         self.store = Store(data_dir)
-        self.artifacts = FileArtifactStore(Path(data_dir) / "runs")
+        self.artifacts = FileArtifactStore(Path(data_dir) / "runs", guard=self.store.assert_job_lease)
         self.approvals = SqliteApprovalProvider(self.store)
         self.envs = RegistryEnvironmentProvider(load_json(Path(config_dir) / "environments.json"))
         self.gateway = ToolGateway(self.policy, self.store, self.approvals, self.envs, self.artifacts, Path(data_dir) / "audit.jsonl")
@@ -94,6 +94,22 @@ class QAAgent:
         self._run_models = {}
         from .providers.registry import ModelRegistry
         self.models = ModelRegistry(self)
+        self.queue = None
+        if "enabled" in self.cfg.get("jobs", {}) and not isinstance(self.cfg["jobs"]["enabled"], bool):
+            raise ValueError("jobs.enabled must be a boolean")
+        if self.shared and self.cfg.get("jobs", {}).get("enabled") is False:
+            raise ValueError("shared deployment requires durable job workers")
+        if self.cfg.get("jobs", {}).get("enabled", self.shared) is True:
+            from .queued_runtime import QueuedRuntime
+            self.queue = QueuedRuntime(self)
+            self.threads = self.queue.workers.threads
+
+    def recover_pending(self):
+        if self.queue:
+            self.queue.recover_pending()
+
+    def close(self, timeout=5):
+        return self.queue.close(timeout) if self.queue else True
 
     # ---------- public API ----------
     def tracker_for(self, project=None):
@@ -121,7 +137,7 @@ class QAAgent:
 
     def start_run(self, request: str, environment: str | None = None, story_key: str | None = None, wait=False, requested_by=None,
                   project: str | None = None, repository: str | None = None,
-                  model_provider: str | None = None, model_id: str | None = None, tenant_id="local"):
+                  model_provider: str | None = None, model_id: str | None = None, tenant_id="local", authorization=None):
         if self.review_only:
             raise ConflictError("review-only agent cannot plan or execute")
         model = self.models.resolve(model_provider, model_id) if model_provider else self.model
@@ -139,20 +155,25 @@ class QAAgent:
             m = KEY_RE.search(request or "")
             story_key = m.group(1) if m else ("PCC-DEMO-1" if "synthetic supplier import" in (request or "").lower() else None)
         run_id = "run-" + uuid.uuid4().hex[:10]
-        self._run_models[run_id] = model
-        self.store.create_run(run_id, request, env_name, model.name, model.label)
-        self.store.update_run(run_id, tenant_id=tenant_id)
-        self.store.update_run(run_id, model_id=getattr(model, "model", model.name), model_version=getattr(model, "version", None))
-        self.gateway.record(run_id, "model.selected", {"provider": model.name, "model": getattr(model, "model", model.name), "version": getattr(model, "version", None)}, "allow", "model selected for new run")
-        if requested_by:
-            self.store.update_run(run_id, requested_by=requested_by)
-        if project or repository:
-            self.store.update_run(run_id, project=project, repository=repository)
-        self.store.event(run_id, "start", f"Request received: {request!r}")
+        if not self.queue:
+            self._run_models[run_id] = model
+        def create():
+            self.store.create_run(run_id, request, env_name, model.name, model.label)
+            self.store.update_run(run_id, tenant_id=tenant_id, requested_by=requested_by, project=project, repository=repository,
+                                  model_id=getattr(model, "model", model.name), model_version=getattr(model, "version", None))
+            self.gateway.record(run_id, "model.selected", {"provider": model.name, "model": getattr(model, "model", model.name), "version": getattr(model, "version", None)}, "allow", "model selected for new run")
+            self.store.event(run_id, "start", f"Request received: {request!r}")
+        if self.queue:
+            try:
+                return self.queue.start(run_id, create, story_key, env_name, authorization, wait)
+            except Exception:
+                self._run_models.pop(run_id, None)
+                raise
+        create()
         return self._spawn(run_id, self._plan, run_id, story_key, env_name, wait=wait)
 
     def approve(self, run_id, approver, decision, comment="", wait=False, identity=None, auth_mode="demo",
-                plan_hash=None, approver_label=None):
+                plan_hash=None, approver_label=None, authorization=None):
         if self.review_only:
             raise ConflictError("review-only agent cannot dispatch execution")
         run = self.store.get_run(run_id)
@@ -166,6 +187,8 @@ class QAAgent:
             raise ConflictError("stale plan: the plan changed since it was displayed; reload and review again")
         if decision == "approved":
             self._verify_package(run)
+        if self.queue:
+            return self.queue.approve(run, approver, decision, comment, identity, auth_mode, approver_label, authorization, wait)
         if decision == "approved" and not self.exec_lock.acquire(blocking=False):
             raise ConflictError("another execution is active against the shared synthetic SUT; try again when it finishes")
         try:
@@ -207,7 +230,9 @@ class QAAgent:
             deny("plan expired; re-plan required")
         if decision == "approved":
             self._verify_package(run)
-        self.approvals.record(run_id, run["plan_hash"], principal.name, decision, comment, identity=principal.name, auth_mode="local")
+        if self.queue:
+            return self.queue.record_review(run, principal, decision, plan_hash, comment)
+        self.approvals.record(run_id, run["plan_hash"], principal.name, decision, comment, identity=principal.name, auth_mode=principal.mode)
         self.store.update_run(run_id, status="approved" if decision == "approved" else "rejected")
         self.gateway.record(run_id, "plan.review", {"user": principal.name, "plan_hash": plan_hash, "decision": decision}, "allow",
                             "manual review by authenticated approver (execution deferred)")
@@ -224,6 +249,8 @@ class QAAgent:
                 or not a or not a.get("identity"):
             self.gateway.record(run_id, "plan.execute", {"status": run and run["status"]}, "deny", "no verified approval for this exact plan")
             raise ConflictError("run has no verified approval for its exact plan")
+        if self.queue:
+            return self.queue.execute(run_id, approved=True, wait=wait)
         if not self.exec_lock.acquire(blocking=False):
             raise ConflictError("another execution is active against the shared synthetic SUT")
         self.store.update_run(run_id, status="executing")
@@ -272,6 +299,8 @@ class QAAgent:
         """Direct execution entry (used to prove fail-closed); still gated by approval + gateway."""
         if self.review_only:
             raise ConflictError("review-only agent cannot dispatch execution")
+        if self.queue:
+            return self.queue.execute(run_id, wait=wait)
         if not self.exec_lock.acquire(blocking=False):
             raise ConflictError("another execution is active")
         return self._spawn(run_id, self._execute_locked, run_id, wait=wait)
@@ -282,6 +311,12 @@ class QAAgent:
             raise KeyError(run_id)
         if run["status"] in TERMINAL:
             raise ConflictError(f"run already {run['status']}")
+        if self.queue:
+            from .jobs import JobConflict
+            try:
+                return self.queue.cancel(run_id, by)
+            except JobConflict as exc:
+                raise ConflictError(str(exc)) from exc
         self.store.update_run(run_id, cancel_requested=1)
         self.store.event(run_id, "cancel", f"Cancellation requested by {by}")
         if run["status"] in ("awaiting_approval", "planning"):
@@ -487,6 +522,10 @@ class QAAgent:
     def _execute(self, run_id):
         run = self.store.get_run(run_id)
         ev = lambda s, m: self.store.event(run_id, s, m)
+        if self._plan_expired(run):
+            self.store.update_run(run_id, status="blocked", error="reviewed plan expired before execution; new request and review required")
+            self.gateway.record(run_id, "plan.execute", {"plan_hash": run["plan_hash"]}, "deny", "reviewed plan expired before execution")
+            return
         try:
             valid_hash = EP.digest(run) == run["plan_hash"]
         except EP.PackageChanged:

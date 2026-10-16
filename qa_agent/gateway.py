@@ -24,7 +24,7 @@ class ToolGateway:
         rec = {"ts": now(), "run_id": run_id, "tool": tool, "args_hash": sha256(canon(args)),
                "args_summary": redact(canon(args))[:300], "decision": decision, "reason": redact(reason)[:500],
                "outcome": redact(outcome)[:300], "duration_ms": dur}
-        with self._lock:
+        with self.store.lock, self._lock:
             self.store.append_audit(rec)
             self.audit_delivery.flush()
         return rec
@@ -75,6 +75,7 @@ class ToolGateway:
         return None
 
     def invoke(self, run_id, tool, args, fn, ctx=None):
+        self.store.assert_job_lease(run_id, allow_cancel=tool in ("report.generate", "artifact.write"))
         reason = self.check(run_id, tool, args, ctx)
         if reason:
             self._audit(run_id, tool, args, "deny", reason, "not_executed", 0)
@@ -89,6 +90,7 @@ class ToolGateway:
         t = time.time()
         try:
             out = fn()
+            self.store.assert_job_lease(run_id, allow_cancel=True, authorize=False)
         except Exception as e:
             self._audit(run_id, tool, args, "allow", "policy ok; invocation=" + invocation, f"error: {type(e).__name__}: {e}"[:300], int((time.time()-t)*1000))
             raise

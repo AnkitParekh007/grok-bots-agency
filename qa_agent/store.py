@@ -1,5 +1,6 @@
 """SQLite task history + filesystem artifact store (runs/<run_id>/)."""
 import json, sqlite3, threading, re
+from contextlib import contextmanager
 from pathlib import Path
 from .interfaces import ArtifactStore, ApprovalProvider
 from datetime import datetime, timezone
@@ -27,8 +28,9 @@ CREATE TABLE IF NOT EXISTS audit_outbox(seq INTEGER PRIMARY KEY, payload TEXT NO
   delivered TEXT, attempts INTEGER DEFAULT 0, last_error TEXT);
 CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,run_id TEXT,kind TEXT,state TEXT,payload TEXT,config_hash TEXT,
   tenant_id TEXT,requester TEXT,resources TEXT,created REAL,expires_at REAL,owner TEXT,fence INTEGER DEFAULT 0,
-  lease_until REAL,attempts INTEGER DEFAULT 0,cancel_requested INTEGER DEFAULT 0,finished REAL,error TEXT,UNIQUE(run_id,kind));
+  lease_until REAL,attempts INTEGER DEFAULT 0,cancel_requested INTEGER DEFAULT 0,finished REAL,error TEXT,started REAL,UNIQUE(run_id,kind));
 CREATE TABLE IF NOT EXISTS job_resources(resource TEXT PRIMARY KEY,job_id TEXT,owner TEXT,fence INTEGER,expires REAL);
+CREATE TABLE IF NOT EXISTS job_quarantines(resource TEXT PRIMARY KEY,job_id TEXT,created TEXT,reason TEXT);
 CREATE INDEX IF NOT EXISTS jobs_ready ON jobs(state,config_hash,created);
 CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT,'audit is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit BEGIN SELECT RAISE(ABORT,'audit is append-only'); END;
@@ -41,6 +43,7 @@ class Store:
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
+        self._job_context = threading.local()
         self.db = sqlite3.connect(self.data_dir / "qa_agent.db", check_same_thread=False, isolation_level=None)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
@@ -64,7 +67,8 @@ class Store:
                "approvals": [("identity", "TEXT"), ("auth_mode", "TEXT"), ("approver_label", "TEXT")],
                "audit": [("prev_hash", "TEXT"), ("entry_hash", "TEXT"),
                           ("seq", "INTEGER"), ("payload_hash", "TEXT")],
-               "usage": [("http_attempt", "INTEGER"), ("est_usd", "REAL"), ("budget_scope", "TEXT")]}
+               "usage": [("http_attempt", "INTEGER"), ("est_usd", "REAL"), ("budget_scope", "TEXT")],
+               "jobs": [("started", "REAL")]}
         for t, cs in add.items():
             have = cols(t)
             for c, typ in cs:
@@ -78,6 +82,58 @@ class Store:
     def x(self, sql, args=()):
         with self.lock:
             self.db.execute(sql, args)
+
+    @contextmanager
+    def fenced_job(self, jobs, job, authorize=None):
+        previous = getattr(self._job_context, "value", None)
+        self._job_context.value = (jobs, job, authorize)
+        try:
+            yield
+        finally:
+            self._job_context.value = previous
+
+    def assert_job_lease(self, run_id=None, *, allow_cancel=False, authorize=True):
+        context = getattr(self._job_context, "value", None)
+        if context is None:
+            return  # Trusted operator/nonworker paths retain their existing endpoint gates.
+        jobs, job, validator = context
+        if run_id is not None and run_id != job["run_id"]:
+            from .jobs import LeaseLost
+            raise LeaseLost("worker attempted to mutate another run")
+        jobs.assert_lease(job, allow_cancel=allow_cancel)
+        if authorize and validator is not None:
+            validator(job)
+
+    def capture_job_guard(self):
+        """Carry an immutable lease reference into proxy/helper threads explicitly."""
+        context = getattr(self._job_context, "value", None)
+        if context is None:
+            return lambda **kwargs: None
+        jobs, job, validator = context
+        job = dict(job)
+        def check(*, allow_cancel=False, authorize=True):
+            jobs.assert_lease(job, allow_cancel=allow_cancel)
+            if authorize and validator is not None:
+                validator(job)
+        return check
+
+    @contextmanager
+    def _fenced_state(self, run_id):
+        if getattr(self._job_context, "value", None) is None:
+            yield;return
+        with self.lock:
+            outer = self.db.in_transaction
+            if not outer:
+                self.db.execute("BEGIN IMMEDIATE")
+            try:
+                self.assert_job_lease(run_id, allow_cancel=True, authorize=False)
+                yield
+                if not outer:
+                    self.db.commit()
+            except Exception:
+                if not outer:
+                    self.db.rollback()
+                raise
 
     # runs
     def create_run(self, run_id, request, environment, provider, label):
@@ -93,7 +149,8 @@ class Store:
             if isinstance(v, (dict, list)):
                 kw[k] = json.dumps(v)
         cols = ",".join(f"{k}=?" for k in kw)
-        self.x(f"UPDATE runs SET {cols} WHERE id=?", (*kw.values(), run_id))
+        with self._fenced_state(run_id):
+            self.x(f"UPDATE runs SET {cols} WHERE id=?", (*kw.values(), run_id))
 
     def get_run(self, run_id):
         rows = self.q("SELECT * FROM runs WHERE id=?", (run_id,))
@@ -108,7 +165,8 @@ class Store:
         return self.q("SELECT id,created,status,story_key,environment,model_label,request,requested_by,project,tenant_id FROM runs ORDER BY created DESC")
 
     def event(self, run_id, step, message):
-        self.x("INSERT INTO events(run_id,ts,step,message) VALUES(?,?,?,?)", (run_id, now(), step, redact(message)))
+        with self._fenced_state(run_id):
+            self.x("INSERT INTO events(run_id,ts,step,message) VALUES(?,?,?,?)", (run_id, now(), step, redact(message)))
 
     # ---- audit (append-only, hash-chained) ----
     AUDIT_FIELDS = ("ts", "run_id", "tool", "args_hash", "args_summary", "decision", "reason", "outcome", "duration_ms")
@@ -286,7 +344,8 @@ class Store:
         return self.q("SELECT ts,step,message FROM events WHERE run_id=? ORDER BY id", (run_id,))
 
     def save_result(self, run_id, res):
-        self.x("INSERT OR REPLACE INTO results VALUES(?,?,?,?)", (run_id, res["id"], res["status"], json.dumps(res)))
+        with self._fenced_state(run_id):
+            self.x("INSERT OR REPLACE INTO results VALUES(?,?,?,?)", (run_id, res["id"], res["status"], json.dumps(res)))
 
     def results(self, run_id):
         return [json.loads(r["json"]) for r in self.q("SELECT json FROM results WHERE run_id=? ORDER BY test_id", (run_id,))]
@@ -296,11 +355,14 @@ class Store:
 
 
 class FileArtifactStore(ArtifactStore):
-    def __init__(self, runs_dir: Path):
+    def __init__(self, runs_dir: Path, guard=None):
         self.root = Path(runs_dir).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
+        self.guard = guard
 
     def path_for(self, run_id, rel=""):
+        if self.guard:
+            self.guard(run_id, allow_cancel=True, authorize=False)
         if not isinstance(run_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", run_id):
             raise ValueError("invalid run artifact identity")
         base = (self.root / run_id).resolve()
@@ -322,6 +384,8 @@ class FileArtifactStore(ArtifactStore):
         out = []
         for p in sorted(base.rglob("*")):
             if p.is_file() and p.name != "manifest.json":
+                if not p.resolve().is_relative_to(base):
+                    raise ValueError("artifact manifest contains a file outside run storage")
                 out.append({"path": str(p.relative_to(base)), "bytes": p.stat().st_size, "sha256": sha256(p.read_bytes())})
         return out
 

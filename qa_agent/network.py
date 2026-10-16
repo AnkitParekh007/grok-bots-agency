@@ -25,6 +25,7 @@ class EgressProxy:
     def __init__(self, gateway, run_id, env, plan_hash, *, timeout=60, max_connections=32,
                  max_body_bytes=20_000_000, resolver=socket.getaddrinfo):
         self.gw, self.run_id, self.env = gateway, run_id, env
+        self.worker_guard = gateway.store.capture_job_guard()
         self.ctx = {"env": env, "plan_hash": plan_hash}
         self.timeout, self.max_body_bytes, self.resolver = timeout, max_body_bytes, resolver
         self.slots = threading.BoundedSemaphore(max_connections)
@@ -42,6 +43,7 @@ class EgressProxy:
         raise PolicyDenied(reason)
 
     def destination(self, url, method):
+        self.check_worker()
         u = urlsplit(url)
         if u.username or u.password or u.fragment or u.scheme not in ("http", "https"):
             self.deny(url, "invalid proxy destination")
@@ -69,6 +71,13 @@ class EgressProxy:
                 self.deny(url, "multicast/unspecified/link-local destinations are prohibited")
             addresses.append(info[4])
         return host, port, addresses
+
+    def check_worker(self):
+        from .jobs import JobConflict
+        try:
+            self.worker_guard()
+        except JobConflict:
+            self.deny(self.env["base_url"], "worker lease or caller authorization is no longer valid")
 
     def connect(self, url, method):
         host, port, addresses = self.destination(url, method)
@@ -144,6 +153,7 @@ class EgressProxy:
                     body = self.rfile.read(length) if length else None
                     if length and len(body) != length:
                         raise ValueError("incomplete request body")
+                    proxy.check_worker()
                     conn.request(self.command, target, body=body, headers=headers)
                     response = conn.getresponse()
                     self.send_response(response.status)
@@ -154,6 +164,7 @@ class EgressProxy:
                     self.end_headers()
                     total = 0
                     while True:
+                        proxy.check_worker()
                         chunk = response.read(64 * 1024)
                         if not chunk:
                             break
@@ -179,15 +190,20 @@ class EgressProxy:
                 with selectors.DefaultSelector() as sel:
                     sel.register(self.connection, selectors.EVENT_READ, upstream)
                     sel.register(upstream, selectors.EVENT_READ, self.connection)
+                    last_traffic = time.monotonic()
                     while True:
-                        ready = sel.select(proxy.timeout)
-                        if not ready:
+                        proxy.check_worker()
+                        if time.monotonic() - last_traffic >= proxy.timeout:
                             return
+                        ready = sel.select(min(proxy.timeout, 1))
+                        if not ready:
+                            continue
                         for key, _ in ready:
                             data = key.fileobj.recv(64 * 1024)
                             if not data:
                                 return
                             key.data.sendall(data)
+                            last_traffic = time.monotonic()
 
             do_GET = do_POST = do_PUT = do_DELETE = do_PATCH = do_HEAD = do_OPTIONS = _handle
 

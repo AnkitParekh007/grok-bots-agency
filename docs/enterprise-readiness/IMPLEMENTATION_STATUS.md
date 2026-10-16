@@ -15,7 +15,7 @@ Organization targets supplied by the owner: Jira Cloud `https://bluemeteor.atlas
 | ER-07 Grounding | Typed minimized issue/custom-AC bundle and source-hash quote checks passed focused checks | Repository/comment/attachment grounding, upstream versions and broader qualification remain |
 | ER-08 Execution egress | Application controls passed complete CI at 371feee | Independent worker network isolation and TLS deployment qualification remain |
 | ER-09 Approval envelope | Snapshot/binding/handoff, identity scope and issue-source bundle controls passed complete CI at 2fb3f02 | Deployment/source-version qualification remains |
-| ER-10 Orchestration | Durable queue/admission/lease/fence core passed isolated checks; runtime wiring in progress | Worker integration, lifecycle authorization, fenced tool/state writes, recovery and multi-instance execution tests remain |
+| ER-10 Orchestration | Queue/runtime, bounded pool, caller lifecycle, state/tool/proxy fencing and cross-instance resource checks passed focused tests; shared profile requires queue | Final hardened regression, production kill/soak/supervision and actual SUT reconciliation qualification remain |
 | ER-11 Secrets/evidence | Pending | Broker, rotation, encryption, retention/access and privacy tests |
 | ER-12 Integration transport | Streaming/cooldown controls passed complete CI at 371feee | Live quota/CA/explicit-proxy qualification and broader fault coverage remain |
 | ER-13 Live contracts | Pending | Completeness/field contracts and approved Cloud sandbox qualification |
@@ -30,6 +30,6 @@ Organization targets supplied by the owner: Jira Cloud `https://bluemeteor.atlas
 | ER-22 Client accessibility | Pending | Supported browsers, assistive technology and scale/privacy checks |
 | ER-23 Governance/support | Owner approved MIT on 2026-10-16; LICENSE and current guides updated | Third-party/model/data terms, operating owners/support scope and sign-off remain |
 | ER-24 Adversarial sources | Pending | Source/tool poisoning/exfiltration qualification on implemented paths |
-| ER-25 Resource bounds | HTTP body/deadline/request/session limits implemented with focused tests | Worker/storage quotas, pagination and broader overload tests remain |
+| ER-25 Resource bounds | HTTP/session limits plus bounded worker/queue admission, leases and job lifetime implemented with focused tests | Storage quotas, pagination and broader overload/soak tests remain |
 
 The goal remains active until every point is accounted for with implementation, validation, and any explicitly required external qualification. A revised readiness report will be written from final observed evidence; current status is not an enterprise GO.

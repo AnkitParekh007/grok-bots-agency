@@ -208,7 +208,7 @@ $env:QA_MODEL_PROVIDER = 'replay'
 
 Execution requires validation and approval bound to the full immutable execution envelope; plans expire, and uncertain mutations are not silently replayed. Local/OIDC identities support tenant/project-scoped roles; demo mode uses unauthenticated labels. Integrations remain read-only. Browser/API traffic uses a validated application proxy, with independent worker-network isolation still required. Production is prohibited; Dev/Playground remain unverified. Organization model input needs separate source-classification and exact model-data approvals. Credentials use server-side references. Audit intents and outcomes use a hash-chained ledger with recoverable file delivery and optional operator-signed checkpoints.
 
-This remains a prototype. Real IdP/source/model qualification, managed secrets/evidence encryption, durable worker integration, independent network/audit protection, recovery and governance gates remain open. Defaults authorize synthetic data only; broader data decisions must be explicit. See [architecture and limitations](docs/ARCHITECTURE_SECURITY.md) and the [implementation ledger](docs/enterprise-readiness/IMPLEMENTATION_STATUS.md).
+This remains a prototype. Real IdP/source/model qualification, managed secrets/evidence encryption, worker deployment/soak qualification, independent network/audit protection, recovery and governance gates remain open. Defaults authorize synthetic data only; broader data decisions must be explicit. See [architecture and limitations](docs/ARCHITECTURE_SECURITY.md) and the [implementation ledger](docs/enterprise-readiness/IMPLEMENTATION_STATUS.md).
 
 ## Project structure
 

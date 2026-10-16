@@ -28,24 +28,27 @@ class DurableJobs:
     def __init__(self, store, cfg=None, *, clock=time.time):
         self.store, self.cfg, self.clock = store, cfg or {}, clock
         self.lease_s = float(self.cfg.get("lease_s", 60))
+        self.max_job_s = float(self.cfg.get("max_job_s", 1800))
         self.max_queued = int(self.cfg.get("max_queued", 100))
         self.max_per_tenant = int(self.cfg.get("max_per_tenant", 50))
         self.max_per_requester = int(self.cfg.get("max_per_requester", 20))
         self.running = {"planning": int(self.cfg.get("planning_workers", 2)), "execution": int(self.cfg.get("execution_workers", 1))}
-        if not 10 <= self.lease_s <= 600 or any(not 1 <= v <= 10000 for v in (self.max_queued, self.max_per_tenant, self.max_per_requester)) or any(not 1 <= v <= 16 for v in self.running.values()):
+        if not 10 <= self.lease_s <= 600 or not 60 <= self.max_job_s <= 86400 or any(not 1 <= v <= 10000 for v in (self.max_queued, self.max_per_tenant, self.max_per_requester)) or any(not 1 <= v <= 16 for v in self.running.values()):
             raise ValueError("invalid durable job admission/lease bounds")
 
     @contextmanager
     def transaction(self):
         with self.store.lock:
-            if self.store.db.in_transaction:
-                raise JobConflict("job operation requires an independent transaction")
-            self.store.db.execute("BEGIN IMMEDIATE")
+            outer = self.store.db.in_transaction
+            self.store.db.execute("SAVEPOINT job_operation" if outer else "BEGIN IMMEDIATE")
             try:
                 yield self.store.db
-                self.store.db.commit()
+                self.store.db.execute("RELEASE job_operation" if outer else "COMMIT")
             except Exception:
-                self.store.db.rollback();raise
+                self.store.db.execute("ROLLBACK TO job_operation" if outer else "ROLLBACK")
+                if outer:
+                    self.store.db.execute("RELEASE job_operation")
+                raise
 
     def _audit(self, job, decision, reason):
         args = {key: job.get(key) for key in ("id", "run_id", "kind", "fence", "state")}
@@ -85,15 +88,17 @@ class DurableJobs:
         for row in rows:
             job = dict(row);job["state"] = "interrupted"
             db.execute("UPDATE jobs SET state='interrupted',error='worker lease expired; outcome uncertain; no automatic replay' WHERE id=?", (row["id"],))
+            for resource in db.execute("SELECT resource FROM job_resources WHERE job_id=? AND owner=? AND fence=?", (row["id"], row["owner"], row["fence"])).fetchall():
+                db.execute("INSERT OR IGNORE INTO job_quarantines VALUES(?,?,?,?)", (resource[0], row["id"], now(), "uncertain external effects; stop worker and reconcile target before release"))
             db.execute("DELETE FROM job_resources WHERE job_id=? AND owner=? AND fence=?", (row["id"], row["owner"], row["fence"]))
-            db.execute("UPDATE runs SET status='interrupted',updated=?,error=? WHERE id=? AND status IN ('planning','executing')",
+            db.execute("UPDATE runs SET status='interrupted',updated=?,error=? WHERE id=? AND status IN ('planning','executing','queued_planning','queued_execution')",
                        (now(), "worker lease expired; partial evidence preserved; new request/review required", row["run_id"]))
             self._audit(job, "deny", "expired worker fenced; uncertain work will not be replayed")
         expired = db.execute("SELECT id,run_id,kind,state,owner,fence FROM jobs WHERE state='queued' AND expires_at<=?", (self.clock(),)).fetchall()
         for row in expired:
             job = dict(row);job["state"] = "blocked"
             db.execute("UPDATE jobs SET state='blocked',error='queued authorization expired' WHERE id=?", (row["id"],))
-            db.execute("UPDATE runs SET status='blocked',updated=?,error=? WHERE id=? AND status IN ('planning','executing')",
+            db.execute("UPDATE runs SET status='blocked',updated=?,error=? WHERE id=? AND status IN ('planning','executing','queued_planning','queued_execution')",
                        (now(), "queued request authorization expired; submit a new request", row["run_id"]))
             self._audit(job, "deny", "queued authorization expired before claim")
         return len(rows) + len(expired)
@@ -101,6 +106,17 @@ class DurableJobs:
     def recover(self):
         with self.transaction() as db:
             return self._recover(db)
+
+    def block_incompatible(self, config_hash):
+        """A deployment may only dispatch its reviewed code/configuration revision."""
+        with self.transaction() as db:
+            rows = db.execute("SELECT * FROM jobs WHERE state='queued' AND config_hash!=?", (config_hash,)).fetchall()
+            for row in rows:
+                reason = "queued code/configuration revision changed; new request and review required"
+                db.execute("UPDATE jobs SET state='blocked',error=?,finished=? WHERE id=?", (reason, self.clock(), row["id"]))
+                db.execute("UPDATE runs SET status='blocked',updated=?,error=? WHERE id=? AND status IN ('queued_planning','queued_execution')", (now(), reason, row["run_id"]))
+                self._audit({**dict(row), "state": "blocked"}, "deny", reason)
+            return len(rows)
 
     def claim(self, owner, config_hash, *, kinds=("planning", "execution")):
         if not isinstance(owner, str) or not 1 <= len(owner) <= 128 or not kinds or any(k not in self.running for k in kinds):
@@ -115,18 +131,20 @@ class DurableJobs:
                 if active >= self.running[row["kind"]]:
                     continue
                 resources = json.loads(row["resources"])
+                if any(db.execute("SELECT 1 FROM job_quarantines WHERE resource=?", (resource,)).fetchone() for resource in resources):
+                    continue
                 if any(db.execute("SELECT 1 FROM job_resources WHERE resource=? AND expires>?", (resource, self.clock())).fetchone() for resource in resources):
                     continue
                 row = db.execute("SELECT * FROM jobs WHERE id=?", (row["id"],)).fetchone()
-                fence, expiry = row["fence"] + 1, self.clock() + self.lease_s
-                db.execute("UPDATE jobs SET state='running',owner=?,fence=?,lease_until=?,attempts=attempts+1 WHERE id=? AND state='queued'",
-                           (owner, fence, expiry, row["id"]))
+                fence, expiry = row["fence"] + 1, self.clock() + min(self.lease_s, self.max_job_s)
+                db.execute("UPDATE jobs SET state='running',owner=?,fence=?,lease_until=?,started=?,attempts=attempts+1 WHERE id=? AND state='queued'",
+                           (owner, fence, expiry, self.clock(), row["id"]))
                 for resource in resources:
                     db.execute("INSERT INTO job_resources VALUES(?,?,?,?,?) ON CONFLICT(resource) DO UPDATE SET "
                                "job_id=excluded.job_id,owner=excluded.owner,fence=excluded.fence,expires=excluded.expires",
                                (resource, row["id"], owner, fence, expiry))
                 job = {**dict(row), "state": "running", "owner": owner, "fence": fence, "lease_until": expiry,
-                       "payload": json.loads(row["payload"]), "resources": resources}
+                       "payload": json.loads(row["payload"]), "resources": resources, "started": self.clock()}
                 self._audit(job, "allow", "worker claimed fenced job and resource leases")
                 return job
         return None
@@ -135,6 +153,8 @@ class DurableJobs:
         rows = self.store.q("SELECT * FROM jobs WHERE id=?", (job["id"],))
         if not rows or rows[0]["state"] != "running" or rows[0]["owner"] != job["owner"] or rows[0]["fence"] != job["fence"] or rows[0]["lease_until"] <= self.clock():
             raise LeaseLost("worker no longer owns a live fenced lease")
+        if rows[0].get("started") is not None and self.clock() >= rows[0]["started"] + self.max_job_s:
+            raise LeaseLost("job exceeded its bounded wall-clock lifetime")
         if rows[0]["cancel_requested"] and not allow_cancel:
             raise JobCancelled("job cancellation requested")
         return rows[0]
@@ -142,10 +162,18 @@ class DurableJobs:
     def heartbeat(self, job):
         with self.transaction() as db:
             self.assert_lease(job)
-            expiry = self.clock() + self.lease_s
+            started = job.get("started") if job.get("started") is not None else self.clock()
+            expiry = min(self.clock() + self.lease_s, started + self.max_job_s)
             db.execute("UPDATE jobs SET lease_until=? WHERE id=? AND owner=? AND fence=?", (expiry, job["id"], job["owner"], job["fence"]))
             db.execute("UPDATE job_resources SET expires=? WHERE job_id=? AND owner=? AND fence=?", (expiry, job["id"], job["owner"], job["fence"]))
             return expiry
+
+    def abandon(self, job):
+        """Fence an owned job on shutdown/lost authority without replaying its effects."""
+        with self.transaction() as db:
+            db.execute("UPDATE jobs SET lease_until=? WHERE id=? AND state='running' AND owner=? AND fence=?",
+                       (self.clock(), job["id"], job["owner"], job["fence"]))
+            return self._recover(db)
 
     def finish(self, job, state="completed", error=None):
         if state not in ("completed", "failed", "blocked", "cancelled"):
@@ -161,18 +189,40 @@ class DurableJobs:
                        (state, error, self.clock(), job["id"], job["owner"], job["fence"]))
             db.execute("DELETE FROM job_resources WHERE job_id=? AND owner=? AND fence=?", (job["id"], job["owner"], job["fence"]))
             if state == "cancelled":
-                db.execute("UPDATE runs SET status='cancelled',updated=? WHERE id=? AND status IN ('planning','executing','approved')", (now(), job["run_id"]))
+                db.execute("UPDATE runs SET status='cancelled',updated=? WHERE id=? AND status IN ('planning','executing','approved','queued_planning','queued_execution')", (now(), job["run_id"]))
             self._audit({**job, "state": state}, "allow", "fenced job completed without automatic replay")
 
     def cancel(self, run_id):
         with self.transaction() as db:
+            run = db.execute("SELECT status FROM runs WHERE id=?", (run_id,)).fetchone()
+            if not run or run["status"] in ("completed", "failed", "blocked", "cancelled", "interrupted", "rejected", "analysis_only"):
+                raise JobConflict("run is missing or already terminal")
             rows = db.execute("SELECT * FROM jobs WHERE run_id=? AND state IN ('queued','running')", (run_id,)).fetchall()
             for row in rows:
                 state = "cancelled" if row["state"] == "queued" else "running"
                 db.execute("UPDATE jobs SET state=?,cancel_requested=1 WHERE id=?", (state, row["id"]))
                 self._audit({**dict(row), "state": state}, "allow", "durable job cancellation recorded")
-            if rows:
-                db.execute("UPDATE runs SET cancel_requested=1 WHERE id=?", (run_id,))
-                if not any(row["state"] == "running" for row in rows):
-                    db.execute("UPDATE runs SET status='cancelled',updated=? WHERE id=? AND status IN ('planning','executing','approved')", (now(), run_id))
+            db.execute("UPDATE runs SET cancel_requested=1 WHERE id=?", (run_id,))
+            if not any(row["state"] == "running" for row in rows):
+                db.execute("UPDATE runs SET status='cancelled',updated=? WHERE id=?", (now(), run_id))
             return len(rows)
+
+    def reconcile_resource(self, resource, reviewer, reason, *, confirmed_stopped=False):
+        """Operator-only release after stopping the old worker and reconciling SUT effects.
+
+        This does not retry the interrupted job or certify its partial results.
+        No web endpoint, model tool or automatic recovery calls this operation.
+        """
+        if confirmed_stopped is not True or not isinstance(reviewer, str) or not 1 <= len(reviewer) <= 200 or not isinstance(reason, str) or not 10 <= len(reason) <= 1000:
+            raise JobConflict("explicit operator identity, reconciliation reason and stopped-worker confirmation required")
+        with self.transaction() as db:
+            row = db.execute("SELECT q.*,j.run_id,j.kind,j.fence,j.state FROM job_quarantines q JOIN jobs j ON j.id=q.job_id WHERE q.resource=?", (resource,)).fetchone()
+            if not row:
+                raise JobConflict("resource quarantine not found")
+            if db.execute("SELECT 1 FROM job_resources WHERE resource=? AND expires>?", (resource, self.clock())).fetchone():
+                raise JobConflict("resource still has a live worker lease")
+            args = {"resource": resource, "job_id": row["job_id"], "reviewer": reviewer, "reconciliation": reason}
+            self.store.append_audit({"ts": now(), "run_id": row["run_id"], "tool": "job.resource_reconciled", "args_hash": sha256(canon(args)),
+                                     "args_summary": redact(canon(args)), "decision": "allow", "reason": "operator attested stopped worker and reconciled external effects",
+                                     "outcome": "resource quarantine released; interrupted job not retried", "duration_ms": 0})
+            db.execute("DELETE FROM job_quarantines WHERE resource=?", (resource,))

@@ -38,7 +38,9 @@ class Observability:
             age = max(0, (datetime.now(timezone.utc) - datetime.fromisoformat(audit["oldest"])).total_seconds()) if audit["oldest"] else 0
             checks["audit_backlog"] = self.agent.gateway.audit_delivery.admission_denial(self.agent.policy.get("audit_delivery")) is None
             detail.update(audit_projection_pending=audit["pending"], audit_oldest_pending_s=age,
-                          active_runs=self.agent.store.q("SELECT COUNT(*) AS n FROM runs WHERE status IN ('planning','executing')")[0]["n"])
+                          active_runs=self.agent.store.q("SELECT COUNT(*) AS n FROM runs WHERE status IN ('planning','executing')")[0]["n"],
+                          queued_runs=self.agent.store.q("SELECT COUNT(*) AS n FROM runs WHERE status IN ('queued_planning','queued_execution')")[0]["n"])
+            detail["quarantined_resources"] = self.agent.store.q("SELECT COUNT(*) AS n FROM job_quarantines")[0]["n"]
         except Exception:
             checks["database_readable"] = False
             checks["audit_backlog"] = False

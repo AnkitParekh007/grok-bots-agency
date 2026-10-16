@@ -79,9 +79,19 @@ class SessionManager:
     def verify(self, token):
         if not isinstance(token, str) or len(token) != 43:
             return None
+        return self.verify_reference(_hash(token), touch=True)
+
+    def verify_reference(self, token_hash, *, touch=False):
+        """Internal job authorization check; no raw session token is persisted in jobs.
+
+        This method is never an HTTP authentication endpoint. Background work must
+        not extend a human session's idle lifetime merely by checking its reference.
+        """
+        if not isinstance(token_hash, str) or len(token_hash) != 64 or any(c not in "0123456789abcdef" for c in token_hash):
+            return None
         now = self.clock()
         with self.store.lock:
-            row = self.store.db.execute("SELECT * FROM web_sessions WHERE token_hash=?", (_hash(token),)).fetchone()
+            row = self.store.db.execute("SELECT * FROM web_sessions WHERE token_hash=?", (token_hash,)).fetchone()
             if not row or row["revoked"] is not None or row["expires"] <= now or row["last_seen"] + self.idle_s <= now:
                 return None
             try:
@@ -101,7 +111,7 @@ class SessionManager:
             if principal.get("mode") == "local" and self.revision(principal["name"]) != payload.get("revision"):
                 return None
             changed = self.store.db.execute("UPDATE web_sessions SET last_seen=? WHERE token_hash=? AND revoked IS NULL",
-                                            (now, _hash(token))).rowcount
+                                            (now, token_hash)).rowcount if touch else 1
             return principal if changed == 1 else None
 
     def csrf_ok(self, token, header, cookie):

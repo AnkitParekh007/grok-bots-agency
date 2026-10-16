@@ -851,6 +851,8 @@ dd {
   color: var(--warning);
 }
 .status.executing,
+.status.queued_planning,
+.status.queued_execution,
 .status.planning,
 .status.running {
   background: var(--running-bg);

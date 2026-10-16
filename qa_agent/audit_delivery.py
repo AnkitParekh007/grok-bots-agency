@@ -52,7 +52,10 @@ def _append(path, record, *, global_chain=False):
 
 class AuditDelivery:
     def __init__(self, store, artifacts, global_path):
-        self.store, self.artifacts, self.path = store, artifacts, Path(global_path)
+        from .store import FileArtifactStore
+        # The delivery service may drain another run's ledger receipts. It uses
+        # the same constrained root but is independent of a business worker fence.
+        self.store, self.artifacts, self.path = store, FileArtifactStore(artifacts.root), Path(global_path)
         if not self.path.resolve().is_relative_to(store.data_dir.resolve()):
             raise ValueError("audit projection outside designated storage")
 

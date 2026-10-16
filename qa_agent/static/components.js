@@ -166,6 +166,8 @@ export function conversation(r, canCancel) {
   const p = r.planning_json;
   let answer = "The request is being planned. Execution has not started.";
   if (p) answer = p.understanding.summary;
+  if (r.status === "queued_planning") answer = "Your request is queued for planning. Execution has not started.";
+  if (r.status === "queued_execution") answer = "The approved plan is queued for execution. Tests have not started.";
   if (r.analysis_json) answer = r.analysis_json.reason + " Source requirements were extracted without model inference. Execution is unavailable until the missing capabilities are reviewed and a new plan is generated.";
   if (
     r.status === "failed" ||

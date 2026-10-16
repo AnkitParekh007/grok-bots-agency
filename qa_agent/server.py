@@ -41,6 +41,7 @@ class ChatIn(BaseModel):
 
 
 class ApprovalIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     approver: str = ""
     decision: str
     comment: str = ""
@@ -95,8 +96,10 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
     @asynccontextmanager
     async def lifespan(app):
         try:
+            agent.recover_pending()
             yield
         finally:
+            agent.close()
             if oidc is not None:
                 oidc.close()
             agent.connections.close()
@@ -116,6 +119,10 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
     session_cookie = "__Host-qa_session" if shared else "qa_session"
     csrf_cookie = "__Host-qa_csrf" if shared else "qa_csrf"
     oidc = OidcClient(acfg["oidc"], agent.store, transport=oidc_transport) if mode == "oidc" else None
+    from .job_authorization import JobAuthorization
+    job_authorization = JobAuthorization(agent, sessions, users, mode, forbid_self_approval=acfg.get("forbid_self_approval", True))
+    if agent.queue:
+        agent.queue.authorizer = job_authorization
     if oidc and public_url and acfg["oidc"]["redirect_uri"] != public_url.rstrip("/") + "/api/oidc/callback":
         raise ValueError("OIDC callback must match the configured workspace public URL")
     if mode == "oidc":
@@ -326,7 +333,7 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
                 "environments": [e["name"] for e in agent.envs.list_environments() if e["executable"]], "skills": agent.skills.list(), "budget": agent.budget}
 
     @app.post("/api/chat")
-    def chat(body: ChatIn, p: Principal = Depends(need("requester"))):
+    def chat(body: ChatIn, request: Request, p: Principal = Depends(need("requester"))):
         if not observer.health()["ready"]:
             raise HTTPException(503, "service admission unavailable; operator recovery required")
         if (agent.access.strict or p.project_roles is not None) and not body.project:
@@ -342,7 +349,8 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
         try:
             return {"run_id": agent.start_run(body.message, body.environment, story_key=body.story_key, requested_by=p.name,
                                               project=body.project, repository=body.repository,
-                                              model_provider=body.model_provider, model_id=body.model_id, tenant_id=p.tenant_id)}
+                                              model_provider=body.model_provider, model_id=body.model_id, tenant_id=p.tenant_id,
+                                              authorization=job_authorization.receipt(request, p, session_cookie))}
         except (ValueError, ProviderNotApproved) as e:
             agent.gateway.record(None, "model.select", {"provider": body.model_provider, "model": body.model_id}, "deny", str(e))
             raise HTTPException(403, str(e))
@@ -453,10 +461,11 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
         r["approval"] = agent.approvals.latest(run_id)
         r["audit_count"] = len(agent.store.audit_rows(run_id))
         r["usage"] = agent.store.run_usage(run_id)["totals"]
+        r["jobs"] = agent.store.q("SELECT kind,state,attempts,created,started,finished,error FROM jobs WHERE run_id=? ORDER BY created", (run_id,))
         return r
 
     @app.post("/api/runs/{run_id}/approval")
-    def approval(run_id: str, body: ApprovalIn, p: Principal = Depends(need("approver"))):
+    def approval(run_id: str, body: ApprovalIn, request: Request, p: Principal = Depends(need("approver"))):
         if not observer.health()["ready"]:
             raise HTTPException(503, "service admission unavailable; operator recovery required")
         run = owned_run(run_id, p, "approve")   # approvers may act on any run (but never self-approve, below)
@@ -477,7 +486,8 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
             approver, identity, label = body.approver, None, body.approver
         try:
             agent.approve(run_id, approver, body.decision, body.comment, identity=identity, auth_mode=mode,
-                          plan_hash=body.plan_hash, approver_label=label)
+                          plan_hash=body.plan_hash, approver_label=label,
+                          authorization=job_authorization.receipt(request, p, session_cookie))
         except ValueError as e:   # includes ConflictError (stale/duplicate/busy) and bad decision values
             raise HTTPException(409, str(e))
         return {"ok": True, "authenticated": identity is not None}
@@ -495,7 +505,7 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
             raise HTTPException(403, "only the run owner or an approver can cancel this run")
         try:
             agent.cancel(run_id, by=p.name or "demo-user")
-        except ConflictError as e:
+        except ValueError as e:
             raise HTTPException(409, str(e))
         return {"ok": True}
 
