@@ -128,3 +128,11 @@ Minimal non-cacheable liveness/readiness endpoints perform local database/audit/
 Generated request IDs link minimized structured logs containing route template, method, status and duration only. Raw Uvicorn access logging is disabled by the standard entry point, keeping callback queries/credentials out of that log. Security/origin/body rejections also receive request IDs and security headers. [Operations guidance](OPERATIONS.md) and [example alert rules](../../config/alerts.example.yml) cover diagnosis, preservation and recovery. No monitoring receiver or production alert routing has been deployed.
 
 Focused observability/admission/identity checks passed **24 tests** (18.68 seconds); the expanded operations/audit selection passed **35 tests** (24.31 seconds). Broader regression and actual alert/incident exercises remain required.
+
+Operations checkpoint `358244c` passed [complete CI](https://github.com/AnkitParekh007/grok-bots-agency/actions/runs/38899983516), including both suites, evaluation and demo. Monitoring deployment and real incident exercises remain unqualified.
+
+## Durable orchestration core: ER-10 (runtime integration pending)
+
+A SQLite queue core now supports bounded global/tenant/requester admission, immutable configuration fingerprints, expiring queued authorization, serialized claims/resource leases, worker heartbeats, owner/fence validation, cancellation and atomic job-transition/audit-outbox records. Expired running work becomes interrupted with uncertain outcome and is never automatically replayed. Store startup preserves jobs registered as queued/running; legacy unmanaged in-flight runs retain their previous interruption behavior.
+
+Isolated queue contracts passed **8 tests** (14.70 seconds), then the hardened selection passed **8 tests** (5.93 seconds), including separate connections claiming the same resource with parallel capacity, expiry, stale fencing, cancellation and transaction receipts. These verify the core only. The current runtime still uses its existing threads/execution lock; enqueue/worker dispatch, original-caller authorization, tool/result fencing, bounded worker lifecycle and full multi-instance SUT tests are the next integration work. This is not yet a closed orchestration finding.

@@ -25,6 +25,11 @@ CREATE TABLE IF NOT EXISTS eval_grant_uses(id INTEGER PRIMARY KEY AUTOINCREMENT,
 CREATE TABLE IF NOT EXISTS telemetry(id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, ts TEXT, kind TEXT, provider TEXT, detail TEXT);
 CREATE TABLE IF NOT EXISTS audit_outbox(seq INTEGER PRIMARY KEY, payload TEXT NOT NULL, created TEXT NOT NULL,
   delivered TEXT, attempts INTEGER DEFAULT 0, last_error TEXT);
+CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,run_id TEXT,kind TEXT,state TEXT,payload TEXT,config_hash TEXT,
+  tenant_id TEXT,requester TEXT,resources TEXT,created REAL,expires_at REAL,owner TEXT,fence INTEGER DEFAULT 0,
+  lease_until REAL,attempts INTEGER DEFAULT 0,cancel_requested INTEGER DEFAULT 0,finished REAL,error TEXT,UNIQUE(run_id,kind));
+CREATE TABLE IF NOT EXISTS job_resources(resource TEXT PRIMARY KEY,job_id TEXT,owner TEXT,fence INTEGER,expires REAL);
+CREATE INDEX IF NOT EXISTS jobs_ready ON jobs(state,config_hash,created);
 CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT,'audit is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit BEGIN SELECT RAISE(ABORT,'audit is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS approvals_no_update BEFORE UPDATE ON approvals BEGIN SELECT RAISE(ABORT,'approvals are append-only'); END;
@@ -41,7 +46,8 @@ class Store:
         self.db.executescript(SCHEMA)
         self._migrate()
         # Anything mid-flight when the process died is marked interrupted (no silent resume in Milestone A).
-        stale = [r[0] for r in self.db.execute("SELECT id FROM runs WHERE status IN ('planning','executing')")]
+        stale = [r[0] for r in self.db.execute("SELECT r.id FROM runs r WHERE r.status IN ('planning','executing') "
+                                             "AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.run_id=r.id AND j.state IN ('queued','running'))")]
         for rid in stale:
             self.db.execute("UPDATE runs SET status='interrupted', updated=?, error=? WHERE id=?",
                             (now(), "process stopped while run was in progress; partial results and evidence preserved; re-run required", rid))

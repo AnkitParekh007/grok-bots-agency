@@ -8,7 +8,9 @@ The FastAPI server serves `qa_agent/static/index.html` directly. `QAAgent` owns 
 
 The model proposes understanding, source-quoted acceptance criteria, testable behaviors, tests and coverage gaps. Schema/catalog validation rejects unknown skills, action/parameter values, arbitrary commands, URLs, expected-result injection and model-supplied approvals. Format failures have a bounded repair path; policy violations are not repaired. A syntactically valid plan can still have poor coverage, so a person reviews it.
 
-Approval binds to a canonical plan SHA-256, with a default 60-minute TTL. A changed/stale/expired plan needs fresh review. A single execution lock prevents concurrent SUT mutation in this process. Registered skills use `ToolContext` for policy-mediated HTTP/navigation/upload/screenshots and independent oracle comparisons. Browser and API work collects actual evidence even when the plan came from replay. Cancelling retains partial evidence; server restart marks in-flight planning/execution interrupted rather than silently resuming.
+Approval binds a SHA-256 execution envelope containing the complete plan/understanding, source/repository snapshots, target, policy/configuration, model, fixtures/oracles and implementation. A default 60-minute TTL applies. Drift requires a new plan/review; execution uses verified snapshot bytes. An owned HTTP/CONNECT proxy validates browser/API connections and DNS destinations. Independent OS/container network isolation remains a deployment requirement. A process execution lock remains until durable workers are integrated. Cancelling preserves partial evidence; uncertain work must not be silently replayed.
+
+Stories without independent expected results produce a deterministic `analysis_only` source review with quotes/hashes and capability gaps. This path calls neither a model nor a SUT and cannot be approved for execution. It does not author missing domain actions or expected values.
 
 Reports include model provider/ID and version when reported, plan/results, usage and evidence. Unknown versions stay unknown; mutable tags are not immutable guarantees. The default output root is `data/runs/<run-id>/` with `report.html`, `report.json`, `report.json.sha256`, screenshot/trace/log artifacts and a manifest. Use authenticated workspace report/evidence links when local auth is enabled.
 
@@ -31,15 +33,17 @@ $env:QA_USERS_FILE = (Resolve-Path 'data/users.json').Path
 .\.venv\Scripts\python.exe -m qa_agent.server
 ```
 
-Use separate browser profiles/sessions to log in as requester and approver. Requesters create their own runs; approvers review/approve, cannot self-approve, and have aggregate visibility. Viewers cannot create or approve; run/evidence ownership still applies. HTTP API clients use bearer tokens; browser login uses an HttpOnly, SameSite=Strict cookie. The server binds loopback by default. Exposing it to a network needs a separate deployment design, TLS and security review; these local tokens are not SSO, MFA or a managed identity service.
+Use separate browser profiles/sessions for requester and approver. Browsers exchange a local credential for an opaque revocable session with idle/absolute expiry and CSRF controls. Rotation/disablement invalidates sessions on their next request. Local bearer credentials remain a distinct workstation API mechanism. Viewers cannot create or approve; tenant/project membership and run/evidence ownership apply when configured. Scoped aggregate audit/operations views require system-auditor permission. The server binds loopback by default.
+
+The shared profile requires pinned OIDC/PKCE, HTTPS, encrypted session state, explicit authentication-strength claims and group/project grants. It refuses local/demo credentials. Verified identities with no project grant receive no project access. Service identities cannot review plans. [Identity setup](enterprise-readiness/IDENTITY_SETUP.md) documents the template and actual IdP/lifecycle qualification still required. A shared profile is not an enterprise-readiness certificate.
 
 ## Integrations and data classification
 
 `qa_agent/integrations/` implements Jira Cloud/Data Center and Bitbucket Cloud/Data Center REST adapters. Defaults use `mock_jira` and `synthetic_git`; all real entries are disabled/unapproved. Enabling an adapter requires an actual approval reference, HTTPS base URL, exact origin/host allowlist, server-side credential references, and allowed projects/repositories. Bounded pagination, attachment/file limits, origin checks, no redirects and GET-only integration HTTP constrain reads. No Jira create/comment/transition, Git push, clone or pull-request tools exist.
 
-The UI's project/story/repository selections are server validated. Jira can supply story text, ACs, comments and attachments. Bitbucket can provide repository metadata/files and a bounded context snapshot. **That snapshot is recorded in the run; it is not currently used as model planning input.** Repository-grounded planning is C2 work.
+The app-owned [connection broker](enterprise-readiness/CONNECTION_SETUP.md) supports approved token connections and pinned remote MCP reads. Only explicit same-tenant human administrators may discover/select resources. Project adapters narrow the upstream credential to reviewed project/repository scope. Generic MCP read dispatch binds inner operations too; discovered tools never grant themselves permissions. Interactive MCP OAuth and actual hosted payload/ACL contracts remain unqualified.
 
-A successful read-only adapter test does not authorize a real account or certify an organization's installation. Real tracker stories are `unclassified`, not automatically synthetic, so default model data-class policy blocks their planning. C1 needs both access approval and an approved data-handling path; simply enabling an adapter is insufficient. Hosted inference in this milestone rejects nonsynthetic data even if a provider allowlist is broadened.
+A successful adapter test does not authorize real access. Source/model decisions are separate: unclassified data is denied, and real sources cannot become synthetic by changing a label. An explicit unexpired owner classification, minimized field list and exact model/data-purpose grant are required, together with the provider's allowlist. [Data approval setup](enterprise-readiness/DATA_APPROVAL_SETUP.md) explains declarations and limits. Approved custom issue ACs enter a typed observed bundle and must cite their own source/hash. Repository context is recorded but not yet used for planning; comments/attachments are likewise separate reads, not silently grounded inputs.
 
 ## Environment authorization
 
@@ -49,18 +53,18 @@ A non-loopback environment requires `status:"verified"`, `production:false`, `da
 
 ## Model egress, credentials and audit
 
-Provider enablement, exact model approval and `config/policy.json` model-host approval are separate gates. Loopback local engines are the default exception to external HTTPS host approval. Remote local engines additionally need explicit LAN approval, TLS and an authenticated gateway credential. Hosted models require verified free-account settings, explicit quotas, synthetic-only inputs and account-side billing controls. Redirects and proxy-environment inheritance are disabled. The UI can select an approved new-run model and probe it; it cannot edit administrator settings or approve a discovered model.
+Provider enablement, exact model approval and independent model-host policy remain separate gates. Loopback local engines are the default exception to external HTTPS host approval. Remote local engines need LAN approval, TLS and credentials. Hosted free models need verified account settings, quotas and billing controls. Defaults permit synthetic data only; other inputs require exact source/model-data approvals. Redirects and proxy-environment inheritance are disabled. The UI selects approved new-run models but cannot approve discovered ones.
 
 Credentials are process-environment references read on the server, with registered-value redaction in diagnostics. This is not an encrypted vault. Local configuration, SQLite databases, reports, screenshots and traces are unencrypted files. Environment variables are accessible to trusted processes/administrators; screenshots can capture application data. Protect the workstation and artifact retention, use synthetic accounts/data and inspect exports before sharing.
 
-Audit events use SQLite append-only triggers, a hash chain and a JSONL mirror. Verify the default data directory with:
+Audit events use an append-only hash-chained SQLite ledger, pre-dispatch intents, atomic projection outbox and recoverable fsynced JSONL delivery. Verify the default directory with:
 
 ```powershell
 .\.venv\Scripts\python.exe -m qa_agent.audit_verify --data-dir data
 ```
 
-Keep an independently stored chain head/export for stronger detection. A filesystem/database administrator can rebuild a chain; these records are not signatures, WORM storage or proof against a privileged administrator. Redaction reduces accidental disclosure but does not establish comprehensive data-loss prevention.
+Optional operator-held Ed25519 checkpoints bind the full canonical prefix and ledger identity; see [audit operations](enterprise-readiness/AUDIT_OPERATIONS.md). Independent protected custody/delivery has not been configured. A privileged administrator controlling the database and signing key can replace history. Redaction does not establish comprehensive DLP. [Operations](enterprise-readiness/OPERATIONS.md) covers protected metrics, minimized request logs and process-readiness limits.
 
 ## Prototype and enterprise limits
 
-The controls are implemented safeguards for the documented local prototype: exact approvals, ownership, default-deny tools/egress, synthetic defaults, production blocking, cancellation, bounded I/O, quotas and evidence. They are not a production security certification. There is no enterprise SSO/MFA, managed secret rotation, encrypted evidence storage, independent audit service, distributed execution lock or centrally enforced account-wide spending across other applications. Hosted privacy and permitted use require current provider/account review. Full organization adoption and approved real environment testing remain future work.
+These are implemented prototype safeguards with offline/synthetic verification. OIDC and MCP code does not qualify an actual organization. Managed secret rotation/evidence encryption, durable worker integration, independent audit/network protection, backup/restore, real model/SUT qualification and operating/support sign-off remain open. Spending controls cannot govern other applications using the same account. The [25-item ledger](enterprise-readiness/IMPLEMENTATION_STATUS.md) tracks remaining implementation and external acceptance gates.

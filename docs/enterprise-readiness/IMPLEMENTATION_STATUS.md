@@ -7,20 +7,20 @@ Organization targets supplied by the owner: Jira Cloud `https://bluemeteor.atlas
 | Finding | Implementation status | Remaining acceptance work |
 |---|---|---|
 | ER-01 Identity/deployment | OIDC/shared profile passed complete CI at d371fac | Actual IdP setup, identity lifecycle and operational qualification remain |
-| ER-02 Sessions/abuse | Session/CSRF/expiry/revocation/throttle controls passed focused checks; operator guide added | Broader abuse tests and live qualification remain |
+| ER-02 Sessions/abuse | Session/CSRF/expiry/revocation/throttle controls passed complete CI; operator guide added | Broader abuse tests and actual IdP/browser qualification remain |
 | ER-03 Project authorization | Scoped API/run/artifact and exact returned-source controls passed focused checks | Per-connection delegated/service scope and real source ACL qualification remain |
 | ER-04 MCP | App-owned pinned read client/broker passed complete CI at 20c9ea5 | Interactive OAuth, native payload mappings and actual Cloud qualification remain |
 | ER-05 Organization capabilities | Non-executable source review passed complete CI at 2fb3f02 | Reviewed organization action/oracle onboarding remains |
 | ER-06 Classification | Explicit source/model-data approval gates passed complete CI at 2fb3f02 | Actual owner decisions, operational region/retention controls and qualification remain |
 | ER-07 Grounding | Typed minimized issue/custom-AC bundle and source-hash quote checks passed focused checks | Repository/comment/attachment grounding, upstream versions and broader qualification remain |
 | ER-08 Execution egress | Application controls passed complete CI at 371feee | Independent worker network isolation and TLS deployment qualification remain |
-| ER-09 Approval envelope | Snapshot/binding/handoff controls passed complete CI at 371feee; identity scope hardening in progress | Remaining deployment/source-version qualification tracked |
-| ER-10 Orchestration | Pending | Durable leases/queue/admission/recovery and multi-instance tests |
+| ER-09 Approval envelope | Snapshot/binding/handoff, identity scope and issue-source bundle controls passed complete CI at 2fb3f02 | Deployment/source-version qualification remains |
+| ER-10 Orchestration | Durable queue/admission/lease/fence core passed isolated checks; runtime wiring in progress | Worker integration, lifecycle authorization, fenced tool/state writes, recovery and multi-instance execution tests remain |
 | ER-11 Secrets/evidence | Pending | Broker, rotation, encryption, retention/access and privacy tests |
 | ER-12 Integration transport | Streaming/cooldown controls passed complete CI at 371feee | Live quota/CA/explicit-proxy qualification and broader fault coverage remain |
 | ER-13 Live contracts | Pending | Completeness/field contracts and approved Cloud sandbox qualification |
 | ER-14 Model qualification | Pending | Independent held-out dataset, exact model/domain runs, quality/resource gates |
-| ER-15 Observability | Process health/readiness, minimized correlation logs, protected metrics and example alerts passed focused checks | Full regression, deployment alert routing/on-call ownership and live incident evidence remain |
+| ER-15 Observability | Process health/readiness, minimized logs and protected metrics passed complete CI at 358244c | Deployment alert routing/on-call ownership and live incident evidence remain |
 | ER-16 Durable audit | Atomic ledger/outbox, dispatch intent, signed checkpoints and projection recovery passed complete CI at acd7a9f | External protected sink/key custody and workflow-state atomicity remain |
 | ER-17 Recovery/migrations | Pending | Consistent backup/restore/rollback and measured recovery |
 | ER-18 Supply chain | Pending | Locks, scans, SBOM/provenance, signed artifacts/deployment policy |
