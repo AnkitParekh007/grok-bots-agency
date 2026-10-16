@@ -235,6 +235,7 @@ def test_captured_guard_remains_effective_in_helper_thread_without_thread_local_
 def test_expired_execution_quarantines_target_until_operator_reconciles_effects(setup):
     store, jobs, clock, run = setup
     jobs.enqueue(run("uncertain-target"), "execution", {}, CONFIG, resources=["execution-global"])
+    clock[0] += 1  # Distinct enqueue times; equal times deliberately use UUID order.
     jobs.enqueue(run("waiting-target"), "execution", {}, CONFIG, resources=["execution-global"])
     original = jobs.claim("old-worker", CONFIG)
     clock[0] += 61
