@@ -45,6 +45,8 @@ const state = {
   sheetReturn: null,
   busy: false,
   errors: new Map(),
+  connections: [],
+  discoveries: new Map(),
 };
 const nav = [
   ["sessions", "Sessions", "sessions"],
@@ -122,7 +124,7 @@ function account() {
     "<small>" +
     esc(me.mode === "demo" ? "Unauthenticated identity" : me.role) +
     "</small></span>" +
-    (me.mode === "local"
+    (me.authenticated
       ? '<button data-action="logout" aria-label="Sign out">' +
         icon("logout") +
         "</button>"
@@ -137,6 +139,8 @@ function lock() {
   state.runs = [];
   state.models = [];
   state.projects = [];
+  state.connections = [];
+  state.discoveries.clear();
   state.envs = [];
   state.cfg = null;
   state.section = "session";
@@ -196,13 +200,14 @@ async function boot() {
     lock();
     return;
   }
-  const [cfg, envs, projects, models, runs] = await Promise.all(
+  const [cfg, envs, projects, models, runs, connections] = await Promise.all(
     [
       "/api/config",
       "/api/environments",
       "/api/projects",
       "/api/models",
       "/api/runs",
+      "/api/connections",
     ].map((u) => api(u)),
   );
   if (epoch !== state.epoch) return;
@@ -211,6 +216,8 @@ async function boot() {
   state.projects = projects;
   state.models = models;
   state.runs = runs;
+  state.connections = connections;
+  state.discoveries.clear();
   $("#notice").hidden = true;
   account();
   $("#proj").innerHTML =
@@ -522,13 +529,13 @@ function renderPage() {
         state.me.mode === "demo"
           ? "Demo mode uses unauthenticated reviewer labels. Use local authenticated mode for real evaluation."
           : "Signed in as " +
-              state.me.user +
+              (state.me.display_name || state.me.user) +
               " · " +
               state.me.role +
               ". The backend enforces roles, ownership, expiry, and exact-plan approval.",
       ) +
       "</p>" +
-      (state.me.mode === "local"
+      (state.me.authenticated
         ? '<button class="button" data-action="logout">Sign out</button>'
         : "") +
       '</section><section class="settings-card"><h2>Budget & registered skills</h2><p>Per run: $' +
@@ -538,7 +545,21 @@ function renderPage() {
       "</p><p>" +
       state.cfg.skills.map((s) => esc(s.name)).join(" · ") +
       '</p><p class="small">Provider credentials, policy changes, and integration configuration are managed by the server administrator.</p></section>';
+  if (state.section === "settings")
+    body += connectionSettings();
   update($("#page-view"), heading + body);
+}
+function connectionSettings() {
+  if (!state.connections.length) return '<section class="settings-card"><h2>Organization connections</h2><p>No connections are assigned to you for administration. An administrator configures the Jira or Bitbucket destination and server-side token or MCP credentials, then grants connection access.</p></section>';
+  return state.connections.map((c) => {
+    const d = state.discoveries.get(c.id);
+    const selected = new Set(c.selected_resources);
+    return '<section class="settings-card" data-connection-card="' + esc(c.id) + '"><h2>' + esc(c.label) + '</h2><p>' + esc(c.target) + ' · ' + esc(c.route === 'mcp' ? 'MCP' : 'Token') + '</p><p>Selected resources: ' + esc(c.selected_resources.join(', ') || 'None') + '</p><p class="small">Discovery reads resource names using the configured credential. Saving a selection grants this connection access only to those resources. Project memberships and model-data approvals apply separately.</p><button class="button" data-action="discover-connection" data-connection="' + esc(c.id) + '" ' + (!c.enabled || !c.discovery_approved ? 'disabled' : '') + '>Discover available resources</button>' +
+      (c.revision ? '<button class="button" data-action="revoke-connection-scope" data-connection="' + esc(c.id) + '">Revoke resource access</button>' : '') +
+      (d ? '<fieldset><legend>Choose resources for this connection</legend>' + (!d.complete ? '<p role="alert">Discovery is incomplete. Ask an administrator to adjust the approved discovery limits before saving a selection.</p>' : '') +
+        d.resources.map((r) => '<label class="connection-resource"><input type="checkbox" data-connection-resource="' + esc(c.id) + '" value="' + esc(r.id) + '" ' + (selected.has(r.id) ? 'checked' : '') + '> ' + esc(r.name) + ' (' + esc(r.id) + ')</label>').join('') +
+        '<button class="button" data-action="save-connection-scope" data-connection="' + esc(c.id) + '" ' + (!d.complete || !d.resources.length ? 'disabled' : '') + '>Save selected access</button></fieldset>' : '') + '</section>';
+  }).join('');
 }
 async function refresh() {
   clearTimeout(state.timer);
@@ -949,6 +970,56 @@ async function handleAction(button) {
   if (action === "logout") {
     await api("/api/logout", {});
     lock();
+    return;
+  }
+  if (action === "discover-connection") {
+    const epoch = state.epoch;
+    button.disabled = true;
+    try {
+      const result = await api('/api/connections/' + encodeURIComponent(button.dataset.connection) + '/discover', {});
+      if (epoch !== state.epoch) return;
+      state.discoveries.set(button.dataset.connection, result);
+      renderPage();
+      announce(result.resources.length + ' resources discovered. Review the selection before saving access.');
+    } finally {
+      if (button.isConnected) button.disabled = false;
+    }
+    return;
+  }
+  if (action === "save-connection-scope") {
+    const epoch = state.epoch;
+    const id = button.dataset.connection, discovery = state.discoveries.get(id);
+    const resources = Array.from(document.querySelectorAll('[data-connection-resource]')).filter((el) => el.dataset.connectionResource === id && el.checked).map((el) => el.value);
+    if (!resources.length) { announce('Select at least one resource.'); return; }
+    button.disabled = true;
+    try {
+      await api('/api/connections/' + encodeURIComponent(id) + '/scope', {receipt: discovery.receipt, resources, previous_revision: discovery.scope_revision});
+      const connections = await api('/api/connections');
+      if (epoch !== state.epoch) return;
+      state.connections = connections;
+      state.discoveries.delete(id);
+      renderPage();
+      announce('Connection resource access saved.');
+    } finally {
+      if (button.isConnected) button.disabled = false;
+    }
+    return;
+  }
+  if (action === "revoke-connection-scope") {
+    const epoch = state.epoch, id = button.dataset.connection;
+    const connection = state.connections.find((c) => c.id === id);
+    button.disabled = true;
+    try {
+      await api('/api/connections/' + encodeURIComponent(id) + '/scope', {previous_revision: connection.revision}, 'DELETE');
+      const connections = await api('/api/connections');
+      if (epoch !== state.epoch) return;
+      state.connections = connections;
+      state.discoveries.delete(id);
+      renderPage();
+      announce('Connection resource access revoked.');
+    } finally {
+      if (button.isConnected) button.disabled = false;
+    }
     return;
   }
   if (action === "open-run") {

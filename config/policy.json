@@ -2,6 +2,12 @@
   "_comment": "Default-deny tool policy. Any tool not listed here is denied and audited. requires_approval=true tools only run after a human approved the exact plan hash. Integrations (tracker.*/git.*/integration.http) are read-only: no write tools exist and integration.http allows GET only.",
   "default": "deny",
   "tools": {
+    "connection.discover": {
+      "requires_approval": false
+    },
+    "mcp.read": {
+      "requires_approval": false
+    },
     "tracker.get_issue": {
       "requires_approval": false
     },

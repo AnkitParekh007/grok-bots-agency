@@ -49,6 +49,22 @@ class LoginIn(BaseModel):
     token: str = Field(min_length=1, max_length=512)
 
 
+class ConnectionScopeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    receipt: str = Field(pattern="^[a-f0-9]{64}$")
+    resources: list[str] = Field(min_length=1, max_length=500)
+    previous_revision: str | None = None
+
+
+class ConnectionDiscoverIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ConnectionRevokeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    previous_revision: str = Field(pattern="^[a-f0-9]{64}$")
+
+
 def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users_file: Path | None = None, agent_cfg: dict | None = None, oidc_transport=None) -> FastAPI:
     data_dir = Path(data_dir or os.environ.get("QA_DATA_DIR", ROOT / "data"))
     if agent_cfg is None and os.environ.get("QA_AGENT_CONFIG"):
@@ -67,6 +83,8 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
         raise ValueError("OIDC requires an explicit HTTPS workspace origin")
     if mode == "demo" and (getattr(agent.tracker, "kind", "") != "mock_jira" or getattr(agent.git, "kind", "") != "synthetic_git"):
         raise ValueError("real organization integrations require authenticated workspace mode")
+    if mode == "demo" and any(c.get("enabled") for c in agent.connections.cfg.values()):
+        raise ValueError("organization connections require authenticated workspace mode")
     if shared and (urlsplit(public_url).path not in ("", "/") or urlsplit(public_url).username or urlsplit(public_url).query):
         raise ValueError("workspace public URL must be a plain HTTPS origin")
     if shared and not (acfg.get("oidc", {}).get("required_amr") or acfg.get("oidc", {}).get("acr_values")):
@@ -79,6 +97,7 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
         finally:
             if oidc is not None:
                 oidc.close()
+            agent.connections.close()
 
     app = FastAPI(title="Bluemeteor QA Agent", lifespan=lifespan)
     app.state.agent, app.state.auth_mode = agent, mode
@@ -320,6 +339,30 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
         except (KeyError, ValueError) as e:
             raise HTTPException(404 if isinstance(e, KeyError) else 400, str(e).strip("'\""))
 
+    def connection_action(fn):
+        try:
+            return fn()
+        except IntegrationError as e:
+            raise HTTPException(e.status if e.status in (404, 409, 429) else (403 if isinstance(e, IntegrationNotAuthorized) else 502), str(e))
+
+    from .integrations.http import IntegrationNotAuthorized
+
+    @app.get("/api/connections")
+    def connections(p: Principal = Depends(need("viewer"))):
+        return agent.connections.list(p)
+
+    @app.post("/api/connections/{connection_id}/discover")
+    def discover_connection(connection_id: str, body: ConnectionDiscoverIn, p: Principal = Depends(need("approver"))):
+        return connection_action(lambda: agent.connections.discover(connection_id, p))
+
+    @app.post("/api/connections/{connection_id}/scope")
+    def select_connection_scope(connection_id: str, body: ConnectionScopeIn, p: Principal = Depends(need("approver"))):
+        return connection_action(lambda: agent.connections.select(connection_id, p, body.receipt, body.resources, body.previous_revision))
+
+    @app.delete("/api/connections/{connection_id}/scope")
+    def revoke_connection_scope(connection_id: str, body: ConnectionRevokeIn, p: Principal = Depends(need("approver"))):
+        return connection_action(lambda: agent.connections.revoke(connection_id, p, body.previous_revision))
+
     @app.get("/api/projects")
     def projects(p: Principal = Depends(need("viewer"))):
         return [{"key": k, "name": v.get("name"), "jira_project": v["jira_project"], "repositories": v.get("repositories", []),
@@ -329,30 +372,31 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
     @app.get("/api/projects/{project}/stories")
     def stories(project: str, q: str | None = None, p: Principal = Depends(need("viewer"))):
         jp = _project(project, p)["jira_project"]
-        return _read("tracker.search", {"project": jp, "text": q}, lambda: agent.tracker.search_issues(jp, q, 50))
+        return _read("tracker.search", {"project": jp, "text": q}, lambda: agent.tracker_for(project).search_issues(jp, q, 50))
 
     @app.get("/api/projects/{project}/stories/{key}")
     def story(project: str, key: str, p: Principal = Depends(need("viewer"))):
         jp = _project(project, p)["jira_project"]
         if not key.startswith(jp + "-"):
             raise HTTPException(400, f"story {key} is not in project {jp}")
-        issue = _read("tracker.get_issue", {"key": key}, lambda: agent.tracker.get_issue(key))
+        tracker = connection_action(lambda: agent.tracker_for(project))
+        issue = _read("tracker.get_issue", {"key": key}, lambda: tracker.get_issue(key))
         return {"key": key, "summary": issue["fields"]["summary"], "labels": issue["fields"].get("labels", []),
-                "acceptance_criteria": _read("tracker.acceptance_criteria", {"key": key}, lambda: agent.tracker.acceptance_criteria(key)),
-                "comments": _read("tracker.get_comments", {"key": key}, lambda: agent.tracker.get_comments(key)),
-                "attachments": _read("tracker.list_attachments", {"key": key}, lambda: agent.tracker.list_attachments(key))}
+                "acceptance_criteria": _read("tracker.acceptance_criteria", {"key": key}, lambda: tracker.acceptance_criteria(key)),
+                "comments": _read("tracker.get_comments", {"key": key}, lambda: tracker.get_comments(key)),
+                "attachments": _read("tracker.list_attachments", {"key": key}, lambda: tracker.list_attachments(key))}
 
     @app.get("/api/projects/{project}/repositories")
     def repositories(project: str, p: Principal = Depends(need("viewer"))):
         allowed = set(_project(project, p).get("repositories", []))
-        return [r for r in _read("git.list_repos", {}, agent.git.list_repositories) if r["full_name"] in allowed]
+        return [r for r in _read("git.list_repos", {}, lambda: agent.git_for(project).list_repositories()) if r["full_name"] in allowed]
 
     @app.get("/api/projects/{project}/repositories/{owner}/{slug}/context")
     def repository_context(project: str, owner: str, slug: str, p: Principal = Depends(need("viewer"))):
         repo = f"{owner}/{slug}"
         if repo not in _project(project, p).get("repositories", []):
             raise HTTPException(404, "repository not linked to project")
-        return _read("git.repo_context", {"repo": repo}, lambda: agent.git.repo_context(repo))
+        return _read("git.repo_context", {"repo": repo}, lambda: agent.git_for(project).repo_context(repo))
 
     @app.get("/api/environments")
     def environments(p: Principal = Depends(need("viewer"))):

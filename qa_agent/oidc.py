@@ -69,7 +69,11 @@ class OidcClient:
                 if r.status_code != 200 or r.headers.get("content-encoding", "identity") not in ("identity", ""):
                     raise OidcError("OIDC endpoint rejected request")
                 body = bytearray()
-                for chunk in r.iter_bytes(chunk_size=16384):
+                deadline = time.monotonic() + 15
+                chunks = (r.content,) if r.is_stream_consumed else r.iter_raw()
+                for chunk in chunks:
+                    if time.monotonic() > deadline:
+                        raise OidcError("OIDC response deadline exceeded")
                     if len(body) + len(chunk) > 1_000_000:
                         raise OidcError("OIDC response exceeds size bound")
                     body.extend(chunk)

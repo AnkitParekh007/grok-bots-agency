@@ -46,6 +46,8 @@ def check_authorization(name: str, cfg: dict) -> None:
     host = u.hostname or ""
     if not host:
         raise IntegrationNotAuthorized(f"{name}: base_url not configured")
+    if u.username or u.password or u.query or u.fragment:
+        raise IntegrationNotAuthorized(f"{name}: base_url must not contain credentials/query/fragment")
     if host not in (cfg.get("allowed_hosts") or []):
         raise IntegrationNotAuthorized(f"{name}: host {host} not in allowed_hosts")
     if u.scheme != "https":
@@ -56,7 +58,8 @@ def check_authorization(name: str, cfg: dict) -> None:
     for k in _cred_envs(cfg):
         if not os.environ.get(k):
             raise IntegrationNotAuthorized(f"{name}: credential env var {k} is not set")
-    if not (cfg.get("projects") or cfg.get("repositories") or cfg.get("workspaces")):
+    if not (cfg.get("projects") or cfg.get("repositories") or cfg.get("workspaces") or
+            (cfg.get("discovery_only") is True and cfg.get("discovery_approved") is True)):
         raise IntegrationNotAuthorized(f"{name}: an explicit project/repository allowlist is required")
 
 
@@ -133,12 +136,17 @@ class ReadOnlyHttpClient:
         raise IntegrationNotAuthorized(f"{self.name}: auth.type must be bearer|basic")
 
     def url(self, path: str) -> str:
-        return path if path.startswith(("http://", "https://")) else urljoin(self.base, path.lstrip("/"))
+        url = path if path.startswith(("http://", "https://")) else urljoin(self.base, path.lstrip("/"))
+        return str(httpx.URL(url))  # Normalize dot segments before testing the approved API prefix.
 
     def _check_url(self, url):
         u, b = urlparse(url), urlparse(self.base)
-        if u.hostname not in self.allowed_hosts or u.scheme != b.scheme or u.port != b.port:
+        if u.username or u.password or u.fragment or u.hostname != b.hostname or u.hostname not in self.allowed_hosts or u.scheme != b.scheme or u.port != b.port:
             raise IntegrationNotAuthorized(f"{self.name}: refusing request to non-allowlisted origin {u.scheme}://{u.hostname}")
+
+        base_path = b.path.rstrip("/")
+        if base_path and u.path != base_path and not u.path.startswith(base_path + "/"):
+            raise IntegrationNotAuthorized(f"{self.name}: request escapes approved API base path")
 
     def request(self, method: str, path: str, params=None, accept="application/json"):
         method = (method or "").upper()
@@ -183,7 +191,8 @@ class ReadOnlyHttpClient:
                         if declared < 0 or declared > self.max_bytes:
                             raise IntegrationError(f"{self.name}: response exceeds max_response_bytes")
                         body = bytearray()
-                        for chunk in response.iter_bytes(chunk_size=min(65_536, self.max_bytes + 1)):
+                        chunks = (response.content,) if response.is_stream_consumed else response.iter_raw()
+                        for chunk in chunks:
                             if time.monotonic() > deadline:
                                 raise IntegrationError(f"{self.name}: total streaming deadline exceeded")
                             if len(body) + len(chunk) > self.max_bytes:

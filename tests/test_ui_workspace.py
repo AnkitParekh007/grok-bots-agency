@@ -11,6 +11,7 @@ import pytest
 from playwright.sync_api import sync_playwright, expect
 from qa_agent import ROOT
 from qa_agent.auth import UserStore
+from qa_agent.devtools.integration_mocks import MockServer, EXPECTED_TOKEN
 from qa_agent.util import load_json
 from tests.b1_helpers import free_port
 from tests.conftest import sut
@@ -27,6 +28,14 @@ def workspace(tmp_path_factory):
     cfg = load_json(ROOT / 'config/agent.json')
     cfg['model']['provider'] = 'replay'
     cfg['auth'].update(mode='local', forbid_self_approval=True)
+    connector_mock = MockServer().__enter__()
+    cfg['connections'] = {'synthetic-bb': {
+        'provider': 'bitbucket_cloud', 'route': 'token', 'tenant_id': 'local', 'administrators': ['ui_approver'],
+        'label': 'Synthetic Bitbucket', 'display_target': 'SYN workspace (local fixture)',
+        'enabled': True, 'approved': True, 'approval_ref': 'synthetic-ui-only', 'discovery_approved': True,
+        'discovery': {'owners': ['SYN'], 'max_pages': 10}, 'http': {
+            'base_url': connector_mock.url, 'allowed_hosts': ['127.0.0.1'], 'local_mock': True,
+            'auth': {'type': 'bearer', 'token_env': 'UI_CONNECTION_TEST_KEY'}, 'timeout_s': 5}}}
     (directory / 'agent.json').write_text(json.dumps(cfg))
     port = free_port()
     unavailable_port = free_port()
@@ -39,6 +48,7 @@ def workspace(tmp_path_factory):
         env = dict(os.environ, QA_MODEL_PROVIDER='replay', QA_AUTH_MODE='local', QA_AGENT_PORT=str(port),
                    QA_AGENT_CONFIG=str(directory / 'agent.json'), QA_USERS_FILE=str(users.path),
                    QA_DATA_DIR=str(directory / 'data'), SYNTHETIC_SUT_URL=sut_url)
+        env['UI_CONNECTION_TEST_KEY'] = EXPECTED_TOKEN
         proc = subprocess.Popen([sys.executable, '-m', 'qa_agent.server'], cwd=ROOT, env=env,
                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
@@ -55,6 +65,7 @@ def workspace(tmp_path_factory):
             yield base, tokens
         finally:
             proc.terminate(); proc.wait(15)
+            connector_mock.__exit__(None, None, None)
 
 
 @pytest.fixture(scope='module')
@@ -141,6 +152,24 @@ def contrast(page):
     for a,b in [('text','bg'),('muted','bg'),('accent','accent-soft'),('success','success-bg'),('danger','danger-bg'),('warning','warning-bg')]:
         hi,lo=sorted([lum(colors[a]),lum(colors[b])],reverse=True)
         assert (hi+.05)/(lo+.05) >= 4.5, (a,b)
+
+
+def test_connection_discovery_requires_admin_review_and_survives_sign_in(page, workspace):
+    login(page, workspace, 'approver')
+    page.get_by_role('button', name='Settings', exact=True).click()
+    page.get_by_role('button', name='Discover available resources').click()
+    chosen = page.locator('[data-connection-resource="synthetic-bb"][value="SYN/pim-import-service"]')
+    expect(chosen).to_be_visible()
+    assert not chosen.is_checked()
+    chosen.check()
+    page.get_by_role('button', name='Save selected access').click()
+    expect(page.locator('[data-connection-card="synthetic-bb"]')).to_contain_text('Selected resources: SYN/pim-import-service')
+    shot(page, 'connection-discovery-selected')
+    page.locator('#page-view [data-action="logout"]').click()
+    login(page, workspace, 'requester')
+    page.get_by_role('button', name='Settings', exact=True).click()
+    expect(page.locator('[data-connection-card]')).to_have_count(0)
+    assert 'SYN/pim-import-service' not in page.locator('#page-view').inner_text()
 
 
 def test_layout_themes_keyboard_and_first_run(page, workspace):

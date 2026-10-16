@@ -68,6 +68,8 @@ class QAAgent:
         from .authorization import AccessPolicy
         self.shared = self.cfg.get("deployment", {}).get("profile") == "shared"
         self.access = AccessPolicy(self.projects, self.cfg.get("authorization"), shared=self.shared)
+        from .integrations.broker import ConnectionBroker
+        self.connections = ConnectionBroker(self.cfg.get("connections"), self.store, self.gateway, self.projects)
         self.skills = LocalSkillRegistry()
         self.model = build_model_provider(self.cfg, ROOT, gateway=self.gateway,
                      selected="replay" if review_only else (self.cfg["model"]["provider"] if agent_cfg is not None else None))
@@ -91,6 +93,12 @@ class QAAgent:
         self.models = ModelRegistry(self)
 
     # ---------- public API ----------
+    def tracker_for(self, project=None):
+        return self.connections.adapter(project, "tracker") if self.projects.get(project, {}).get("tracker_connection") else self.tracker
+
+    def git_for(self, project=None):
+        return self.connections.adapter(project, "git") if self.projects.get(project, {}).get("git_connection") else self.git
+
     def select(self, project=None, story_key=None, repository=None, environment=None):
         """Validate a workspace selection (project -> story / repository / environment). Raises ValueError."""
         if not project:
@@ -330,19 +338,20 @@ class QAAgent:
         run0 = self.store.get_run(run_id)
         if run0.get("project"):
             self.select(run0["project"], story_key, run0.get("repository"), env_name)   # selection re-checked server-side
-        story = self._tool(run_id, "tracker.get_issue", {"key": story_key}, lambda: self.tracker.get_issue(story_key))
+        tracker, git = self.tracker_for(run0.get("project")), self.git_for(run0.get("project"))
+        story = self._tool(run_id, "tracker.get_issue", {"key": story_key}, lambda: tracker.get_issue(story_key))
         self.store.update_run(run_id, story_key=story_key, story_json=story)
-        ev("story", f"Read {story_key} via {getattr(self.tracker, 'kind', 'tracker')}: {story['fields']['summary']}")
+        ev("story", f"Read {story_key} via {getattr(tracker, 'kind', 'tracker')}: {story['fields']['summary']}")
         if run0.get("repository"):
             repo = run0["repository"]
-            ctx = self._tool(run_id, "git.repo_context", {"repo": repo}, lambda: self.git.repo_context(repo))
+            ctx = self._tool(run_id, "git.repo_context", {"repo": repo}, lambda: git.repo_context(repo))
             self.store.update_run(run_id, repo_context_json=ctx)
-            ev("repository", f"Read-only repository context {repo}@{ctx['ref']} via {getattr(self.git, 'kind', 'git')}: "
+            ev("repository", f"Read-only repository context {repo}@{ctx['ref']} via {getattr(git, 'kind', 'git')}: "
                              f"{len(ctx['top_level'])} top-level entries (context only; not sent to the model in C0)")
         desc = story["fields"]["description"]
         labels = story["fields"].get("labels") or []
         data_class = "synthetic" if ("synthetic" in labels and env.get("data_class") == "synthetic"
-                                     and getattr(self.tracker, "kind", "") == "mock_jira") else "unclassified"
+                                     and getattr(tracker, "kind", "") == "mock_jira") else "unclassified"
         # Stories from a real tracker are never auto-classified synthetic by label: model input stays gated (fail closed).
         ev("data_class", f"Data classification for model input: {data_class}")
         oracles = self._oracles(story_key)

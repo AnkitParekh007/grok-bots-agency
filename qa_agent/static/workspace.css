@@ -1590,3 +1590,10 @@ dialog::backdrop {
     margin-top: var(--space-4);
   }
 }
+.connection-resource {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+  overflow-wrap: anywhere;
+}

@@ -69,6 +69,7 @@ def inputs(agent, run, env, story=None, repository=None):
                 "repository_sha256": sha256(canon(repository if repository is not None else run.get("repo_context_json"))),
                 "acceptance_sha256": sha256(canon(run.get("ac_json"))),
                 "environment": env, "policy_sha256": sha256(canon(agent.policy)),
+                "connection_scopes": agent.connections.revision(run.get("project")),
                 "config_sha256": sha256(canon(agent.cfg)),
                 "catalog_version": planning.catalog_version(agent.skills),
                 "schema_sha256": sha256(canon(planning.PLAN_STORY_SCHEMA)),
@@ -98,10 +99,10 @@ def verify(agent, run, env, *, check_sources=True):
     story, repo = run["story_json"], run.get("repo_context_json")
     if check_sources:
         story = agent._tool(run["id"], "tracker.get_issue", {"key": run["story_key"]},
-                            lambda: agent.tracker.get_issue(run["story_key"]))
+                            lambda: agent.tracker_for(run.get("project")).get_issue(run["story_key"]))
         if run.get("repository"):
             repo = agent._tool(run["id"], "git.repo_context", {"repo": run["repository"]},
-                              lambda: agent.git.repo_context(run["repository"]))
+                              lambda: agent.git_for(run.get("project")).repo_context(run["repository"]))
     current, _, _ = inputs(agent, run, env, story=story, repository=repo)
     manifest = run["execution_envelope_json"]
     if current != manifest:
