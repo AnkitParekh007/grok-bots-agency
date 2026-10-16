@@ -1,4 +1,4 @@
-# Bluemeteor QA Agent — Open, Local-First AI Testing Assistant
+# QA Agent — Open, Local-First AI Testing Assistant
 
 A standalone QA workspace that turns a story into a proposed test plan, asks a person to review it, then runs approved browser and API checks and collects evidence. It helps QA engineers trace tests to acceptance criteria, see coverage gaps, and compare actual results with independent expected results.
 
