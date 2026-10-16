@@ -91,7 +91,7 @@ class DurableJobs:
             for resource in db.execute("SELECT resource FROM job_resources WHERE job_id=? AND owner=? AND fence=?", (row["id"], row["owner"], row["fence"])).fetchall():
                 db.execute("INSERT OR IGNORE INTO job_quarantines VALUES(?,?,?,?)", (resource[0], row["id"], now(), "uncertain external effects; stop worker and reconcile target before release"))
             db.execute("DELETE FROM job_resources WHERE job_id=? AND owner=? AND fence=?", (row["id"], row["owner"], row["fence"]))
-            db.execute("UPDATE runs SET status='interrupted',updated=?,error=? WHERE id=? AND status IN ('planning','executing','queued_planning','queued_execution')",
+            db.execute("UPDATE runs SET status='interrupted',updated=?,error=? WHERE id=? AND status IN ('planning','executing','queued_planning','queued_execution','awaiting_approval','approved','completed')",
                        (now(), "worker lease expired; partial evidence preserved; new request/review required", row["run_id"]))
             self._audit(job, "deny", "expired worker fenced; uncertain work will not be replayed")
         expired = db.execute("SELECT id,run_id,kind,state,owner,fence FROM jobs WHERE state='queued' AND expires_at<=?", (self.clock(),)).fetchall()

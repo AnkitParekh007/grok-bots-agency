@@ -264,3 +264,30 @@ def test_queued_execution_rechecks_the_authenticated_human_approver(tmp_path):
             assert "reference" not in json.dumps(response.json().get("jobs"))
     finally:
         a.close();a.store.db.close()
+
+
+def test_plan_cannot_be_approved_until_the_planning_job_has_finalized(tmp_path):
+    from qa_agent.runtime import ConflictError
+    from qa_agent.auth import Principal
+    a = QAAgent(tmp_path / "state", agent_cfg=agent_cfg("replay", jobs={"enabled": True}))
+    ready, release = threading.Event(), threading.Event()
+    original = a._plan
+    def pause_finalization(*args):
+        original(*args);ready.set()
+        assert release.wait(10)
+    try:
+        with patch.object(a, "_plan", pause_finalization):
+            rid = a.start_run("Plan", story_key="PCC-DEMO-1", requested_by="owner")
+            assert ready.wait(10)
+            run = a.store.get_run(rid)
+            assert run["status"] == "awaiting_approval"
+            with pytest.raises(ConflictError, match="finalization"):
+                a.approve(rid, "reviewer", "approved", identity="reviewer", auth_mode="local", plan_hash=run["plan_hash"])
+            assert a.approvals.latest(rid) is None
+            assert not a.store.q("SELECT * FROM jobs WHERE run_id=? AND kind='execution'", (rid,))
+            release.set()
+            assert a.queue.workers.wait(job_for(a, rid)["id"], timeout=15) == "completed"
+        a.review_plan(rid, Principal("reviewer", "approver", "local"), "approved", run["plan_hash"])
+        assert a.store.get_run(rid)["status"] == "approved"
+    finally:
+        release.set();a.close();a.store.db.close()

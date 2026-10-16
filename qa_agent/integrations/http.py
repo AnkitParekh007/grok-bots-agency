@@ -5,12 +5,13 @@ non-loopback host, credentials only from env vars and never in logs/errors/audit
 bounded retries (GET only; 429/502/503/504 and connection errors; Retry-After honoured and capped; never on
 401/403/404/other 4xx), every request audited through the ToolGateway hash-chained audit log."""
 from __future__ import annotations
-import base64, os, time, math, threading, ssl
+import base64, os, time, math, threading, ssl, uuid
 from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse, urljoin
 import httpx
 from ..environments import _is_loopback
 from ..util import redact, register_secret_env, register_secret_value
+from ..jobs import JobConflict
 
 RETRY_STATUS = {429, 502, 503, 504}
 READ_METHODS = {"GET"}
@@ -148,7 +149,7 @@ class ReadOnlyHttpClient:
         if base_path and u.path != base_path and not u.path.startswith(base_path + "/"):
             raise IntegrationNotAuthorized(f"{self.name}: request escapes approved API base path")
 
-    def request(self, method: str, path: str, params=None, accept="application/json"):
+    def request(self, method: str, path: str, params=None, accept="application/json", *, deadline=None):
         method = (method or "").upper()
         if method not in READ_METHODS:
             self._audit(method, path, "deny", "read-only integration: method not allowed")
@@ -165,15 +166,28 @@ class ReadOnlyHttpClient:
             self._audit(method, path, "deny", str(e))
             raise
         attempt = 0
-        deadline = time.monotonic() + self.timeout * (self.max_retries + 1) + self.max_backoff * self.max_retries
+        ceiling = time.monotonic() + self.timeout * (self.max_retries + 1) + self.max_backoff * self.max_retries
+        if deadline is not None and (not isinstance(deadline, (int, float)) or isinstance(deadline, bool) or not math.isfinite(deadline)):
+            raise IntegrationError("invalid source request deadline")
+        deadline = min(ceiling, deadline) if deadline is not None else ceiling
         while True:
+            if self.gateway:
+                self.gateway.store.assert_job_lease(self.run_id)
+                denial = self.gateway.audit_delivery.admission_denial(self.gateway.policy.get("audit_delivery"))
+                if denial:
+                    raise IntegrationError(denial)
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise IntegrationError(f"{self.name}: total request deadline exceeded")
             if self._cooldown_until() > self.clock():
                 raise IntegrationError(f"{self.name}: upstream cooldown active; retry later", 429)
             t = time.time()
+            request_id = uuid.uuid4().hex
+            self._audit(method, path, "allow", "durable source request intent", "pending", t, attempt,
+                        tool="integration.http.intent", request_id=request_id)
             try:
+                if self.gateway:
+                    self.gateway.store.assert_job_lease(self.run_id)
                 with self._client.stream(method, url, params=params, timeout=min(self.timeout, remaining),
                                          headers={**self._auth_headers(), "Accept": accept, "Accept-Encoding": "identity"}) as response:
                     retry_after = response.headers.get("retry-after")
@@ -193,6 +207,8 @@ class ReadOnlyHttpClient:
                         body = bytearray()
                         chunks = (response.content,) if response.is_stream_consumed else response.iter_raw()
                         for chunk in chunks:
+                            if self.gateway:
+                                self.gateway.store.assert_job_lease(self.run_id)
                             if time.monotonic() > deadline:
                                 raise IntegrationError(f"{self.name}: total streaming deadline exceeded")
                             if len(body) + len(chunk) > self.max_bytes:
@@ -200,18 +216,21 @@ class ReadOnlyHttpClient:
                             body.extend(chunk)
                         r = httpx.Response(response.status_code, headers=response.headers, content=bytes(body), request=response.request)
             except (httpx.TimeoutException, httpx.TransportError) as e:
-                self._audit(method, path, "allow", "policy ok", f"error: {type(e).__name__}", t, attempt)
+                self._audit(method, path, "allow", "policy ok", f"error: {type(e).__name__}", t, attempt, request_id=request_id)
                 if attempt < self.max_retries:
-                    attempt += 1; self.sleep(self._delay(attempt, None)); continue
+                    attempt += 1; self._pause_retry(self._delay(attempt, None), deadline); continue
                 raise IntegrationError(f"{self.name}: {type(e).__name__} after {attempt + 1} attempt(s)") from None
-            self._audit(method, path, "allow", "policy ok", f"http {r.status_code}", t, attempt)
+            except (JobConflict, IntegrationError) as exc:
+                self._audit(method, path, "allow", "source request stopped by fence/response limits", f"error: {type(exc).__name__}", t, attempt, request_id=request_id)
+                raise
+            self._audit(method, path, "allow", "policy ok", f"http {r.status_code}", t, attempt, request_id=request_id)
             cooldown = self._retry_after(retry_after) if r.status_code in RETRY_STATUS else None
             if cooldown is not None:
                 self._remember_cooldown(cooldown)
                 if cooldown > self.max_backoff:
                     raise IntegrationError(f"{self.name}: upstream cooldown exceeds inline wait; retry later", r.status_code)
             if r.status_code in RETRY_STATUS and attempt < self.max_retries:
-                attempt += 1; self.sleep(self._delay(attempt, retry_after)); continue
+                attempt += 1; self._pause_retry(self._delay(attempt, retry_after), deadline); continue
             if r.status_code in (401, 403):
                 raise IntegrationNotAuthorized(f"{self.name}: upstream returned {r.status_code} (not retried)", r.status_code)
             if r.status_code == 404:
@@ -220,11 +239,14 @@ class ReadOnlyHttpClient:
                 raise IntegrationError(f"{self.name}: upstream returned {r.status_code}", r.status_code)
             if len(r.content) > self.max_bytes:
                 raise IntegrationError(f"{self.name}: response exceeds max_response_bytes")
+            if self.gateway:
+                self.gateway.store.assert_job_lease(self.run_id)
             return r
 
-    def get_json(self, path, params=None):
+    def get_json(self, path, params=None, *, deadline=None):
+        response = self.request("GET", path, params, deadline=deadline)
         try:
-            return self.request("GET", path, params).json()
+            return response.json()
         except (ValueError, UnicodeError):
             raise IntegrationError(f"{self.name}: invalid JSON response") from None
 
@@ -237,12 +259,19 @@ class ReadOnlyHttpClient:
             return min(seconds, self.max_backoff)
         return min(self.backoff * (2 ** (attempt - 1)), self.max_backoff)
 
-    def _audit(self, method, path, decision, reason, outcome="not_executed", t=None, attempt=0):
+    def _pause_retry(self, seconds, deadline):
+        if seconds >= deadline - time.monotonic():
+            raise IntegrationError(f"{self.name}: total request retry deadline exceeded; retry later")
+        self.sleep(seconds)
+
+    def _audit(self, method, path, decision, reason, outcome="not_executed", t=None, attempt=0, *, tool="integration.http", request_id=None):
         if not self.gateway:
             return
         clean = urlparse(self.url(path))
         args = {"integration": self.name, "method": method, "host": clean.hostname, "path": clean.path, "attempt": attempt}
-        self.gateway.record(self.run_id, "integration.http", args, decision, reason, outcome)
+        if request_id:
+            args["request_id"] = request_id
+        self.gateway.record(self.run_id or self.gateway.store.job_run_id(), tool, args, decision, reason, outcome)
 
     # forbid mutation helpers outright
     def post(self, *a, **k): raise ReadOnlyViolation(f"{self.name}: POST is not permitted (read-only integration)")

@@ -58,6 +58,9 @@ class QueuedRuntime:
         run = self.agent.store.get_run(run_id)
         if not run or run["status"] != expected_status or run["plan_hash"] != plan_hash or run.get("cancel_requested"):
             raise ConflictError("run state or reviewed plan changed before submission")
+        phase = self.agent.store.q("SELECT state FROM jobs WHERE run_id=? AND kind='planning'", (run_id,))
+        if not phase or phase[0]["state"] != "completed":
+            raise ConflictError("planning finalization is not complete; reload before reviewing")
         if self.agent._plan_expired(run):
             raise ConflictError("reviewed plan expired before submission")
         return run

@@ -89,6 +89,9 @@ class ToolGateway:
                     "allow", "policy ok; durable intent before dispatch", "pending", 0)
         t = time.time()
         try:
+            # Intent delivery may block on storage; recheck authority immediately
+            # before dispatch as well as before recording the intent.
+            self.store.assert_job_lease(run_id, allow_cancel=tool in ("report.generate", "artifact.write"))
             out = fn()
             self.store.assert_job_lease(run_id, allow_cancel=True, authorize=False)
         except Exception as e:

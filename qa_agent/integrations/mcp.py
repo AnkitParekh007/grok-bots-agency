@@ -7,6 +7,7 @@ import json
 import re
 import threading
 import time
+import uuid
 from urllib.parse import urlsplit
 
 import httpx
@@ -14,6 +15,7 @@ from jsonschema import Draft202012Validator
 
 from .http import IntegrationError, IntegrationNotAuthorized, ReadOnlyHttpClient
 from ..util import canon, sha256
+from ..jobs import JobConflict
 
 READ_NAME = re.compile(r"(?:get|list|search|fetch|read)[A-Z_].*|executeRead")
 PROTOCOLS = {"2025-03-26", "2025-06-18", "2025-11-25"}
@@ -85,7 +87,7 @@ class RemoteMcpClient:
             if self.session:
                 try:
                     self._exchange("DELETE", None, notification=True)
-                except IntegrationError:
+                except (IntegrationError, JobConflict):
                     pass
             self.session, self.catalog = None, {}
             self.http.close()
@@ -102,6 +104,36 @@ class RemoteMcpClient:
                 **({"MCP-Session-Id": self.session} if self.session else {})}
 
     def _exchange(self, method, message, *, notification=False):
+        self._worker_guard()
+        args = {"method": method, "rpc": message.get("method") if message else "session.close",
+                "endpoint_sha256": sha256(self.endpoint), "request_id": uuid.uuid4().hex}
+        run_id = self.gateway.store.job_run_id() if self.gateway else None
+        if self.gateway:
+            reason = self.gateway.check(run_id, "mcp.read", {"operation": "protocol"}, None)
+            if reason:
+                self.gateway.record(run_id, "mcp.transport", args, "deny", "MCP protocol denied by application policy")
+                raise IntegrationNotAuthorized("MCP protocol denied by application policy")
+            denial = self.gateway.audit_delivery.admission_denial(self.gateway.policy.get("audit_delivery"))
+            if denial:
+                raise IntegrationError(denial)
+            self.gateway.record(run_id, "mcp.transport.intent", args, "allow", "approved endpoint; durable protocol request intent", "pending")
+        try:
+            self._worker_guard()
+            result = self._exchange_raw(method, message, notification=notification)
+            self._worker_guard()
+        except Exception as exc:
+            if self.gateway:
+                self.gateway.record(run_id, "mcp.transport", args, "allow", "protocol request stopped or rejected", type(exc).__name__)
+            raise
+        if self.gateway:
+            self.gateway.record(run_id, "mcp.transport", args, "allow", "bounded protocol response", "ok")
+        return result
+
+    def _worker_guard(self):
+        if self.gateway:
+            self.gateway.store.assert_job_lease()
+
+    def _exchange_raw(self, method, message, *, notification=False):
         headers = self._headers()
         if self.transport._cooldown_until() > self.transport.clock():
             raise IntegrationError("MCP upstream cooldown active; retry later", 429)
@@ -137,6 +169,7 @@ class RemoteMcpClient:
                 sse_pending, complete_events, event_count = bytearray(), [], 0
                 chunks = (response.content,) if response.is_stream_consumed else response.iter_raw()
                 for chunk in chunks:
+                    self._worker_guard()
                     if time.monotonic() - started > self.transport.timeout:
                         raise McpContractError("MCP response deadline exceeded")
                     if len(body) + len(chunk) > self.transport.max_bytes:
@@ -196,6 +229,8 @@ class RemoteMcpClient:
                 if len(answers) != 1:
                     raise McpContractError("MCP requires exactly one matching response")
                 return answers[0]
+        except JobConflict:
+            raise
         except (httpx.HTTPError, ValueError, UnicodeError, KeyError, TypeError):
             raise McpContractError("MCP transport or response validation failed") from None
 
@@ -304,6 +339,8 @@ class RemoteMcpClient:
                 if self.gateway:
                     self.gateway.record(None, "mcp.read", audit, "allow", "pinned read contract", "ok")
                 return payload
+            except JobConflict:
+                raise
             except (IntegrationError, ValueError, KeyError, TypeError) as error:
                 if self.gateway:
                     self.gateway.record(None, "mcp.read", audit, "deny", "read failed or response contract rejected")

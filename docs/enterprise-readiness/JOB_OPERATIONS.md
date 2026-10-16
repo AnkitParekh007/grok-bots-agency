@@ -19,6 +19,8 @@ Limits apply to queued plus running admissions. Per-kind running counts and exec
 
 Run creation and planning admission commit together. Human approval, the state change and execution admission also commit together; a full queue leaves the plan awaiting approval without recording an accepted approval. Queued phases appear as `queued_planning` / `queued_execution` in the API and workspace. The run API exposes job state, attempts, timestamps and errors, excluding caller receipts and payloads.
 
+A plan cannot be reviewed or approved until its planning job has durably finalized. A brief ready-state/finalization overlap returns a conflict and requires reloading; it cannot enqueue execution. Lease recovery also marks an unfinished job's ready/completed run interrupted, preserving the evidence without presenting a finished phase that was never finalized. Gateway/source dispatch rechecks authority after persisting its intent, so time spent delivering audit records cannot silently extend a worker's authority.
+
 Web requests carry server-created identity receipts. Sessions are referenced by their hash; raw cookies and bearer secrets are never queued. Workers recheck session revocation, idle/absolute expiry, credential rotation/disablement, tenant/project role and approval identity before dispatch and each gateway call. Background checks do not extend session idle lifetime. OIDC authorization-policy and connection-scope changes invalidate pending work. Execution also checks plan expiry at dispatch. A session expiring while awaiting execution requires a new request/review. Trusted in-process/CLI calls use the operator boundary; it is unavailable through request JSON.
 
 ## Restart and interruption

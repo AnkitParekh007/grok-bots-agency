@@ -130,6 +130,10 @@ class Store:
                 validator(job)
         return check
 
+    def job_run_id(self):
+        context = getattr(self._job_context, "value", None)
+        return context[1]["run_id"] if context is not None else None
+
     @contextmanager
     def _fenced_state(self, run_id):
         if getattr(self._job_context, "value", None) is None:

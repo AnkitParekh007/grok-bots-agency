@@ -249,3 +249,38 @@ def test_expired_execution_quarantines_target_until_operator_reconciles_effects(
     assert next_job and next_job["run_id"] == "waiting-target"
     assert store.q("SELECT state FROM jobs WHERE id=?", (original["id"],))[0]["state"] == "interrupted"
     assert store.q("SELECT * FROM audit WHERE tool='job.resource_reconciled'")
+
+
+@pytest.mark.parametrize("kind,status", [("planning", "awaiting_approval"), ("execution", "completed")])
+def test_unfinished_job_cannot_leave_a_ready_or_completed_run_after_lease_loss(setup, kind, status):
+    store, jobs, clock, run = setup
+    rid = run("unfinished-finalization")
+    jobs.enqueue(rid, kind, {}, CONFIG)
+    jobs.claim("old-worker", CONFIG)
+    store.update_run(rid, status=status)
+    clock[0] += 61
+    jobs.recover()
+    assert store.get_run(rid)["status"] == "interrupted"
+
+
+def test_gateway_rechecks_lease_after_durable_intent_before_calling_effect(setup):
+    from qa_agent.gateway import ToolGateway
+    from qa_agent.store import FileArtifactStore
+    store, jobs, clock, run = setup
+    rid = run("intent-fence")
+    jobs.enqueue(rid, "planning", {}, CONFIG)
+    job = jobs.claim("worker", CONFIG)
+    gw = ToolGateway({"default": "deny", "tools": {"tracker.get_issue": {}}}, store, None, None,
+                     FileArtifactStore(store.data_dir / "runs"), store.data_dir / "audit.jsonl")
+    original = gw._audit
+    def delayed_intent(*args, **kwargs):
+        result = original(*args, **kwargs)
+        if args[1] == "tool.intent": clock[0] += 61
+        return result
+    gw._audit = delayed_intent
+    called = []
+    with store.fenced_job(jobs, job):
+        with pytest.raises(LeaseLost):
+            gw.invoke(rid, "tracker.get_issue", {"key": "PCC-1"}, lambda: called.append(True))
+    assert not called
+    assert any(r["tool"] == "tracker.get_issue" and "LeaseLost" in r["outcome"] for r in store.audit_rows(rid))

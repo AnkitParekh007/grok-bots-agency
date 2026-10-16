@@ -108,6 +108,11 @@ def check(g: dict, run: dict, env: dict) -> None:
         raise AuthorizationError(f"environment {run.get('environment')} not in grant scope")
     if env.get("production") is not False or env.get("data_class") != "synthetic":
         raise AuthorizationError("environment is not a non-production synthetic environment")
+    story = run.get("story_json") or {}
+    bundle = run.get("source_bundle_json") or {}
+    if (story.get("_source") not in (None, "mock_jira") or bundle.get("classification") not in (None, "synthetic")
+            or "synthetic" not in (story.get("fields", {}).get("labels") or [])):
+        raise AuthorizationError("legacy eval grants require exclusively synthetic fixture sources")
     mc = model_class(run.get("model_label"))
     if mc not in g["model_classes"]:
         raise AuthorizationError(f"model class {mc!r} not in grant scope")

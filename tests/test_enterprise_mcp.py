@@ -74,6 +74,52 @@ def credential(monkeypatch):
     monkeypatch.setenv("TEST_MCP_TOKEN", "synthetic-mcp-key")
 
 
+def test_protocol_metadata_also_requires_application_read_policy(tmp_path):
+    from qa_agent.runtime import QAAgent
+    from tests.b1_helpers import agent_cfg
+    a = QAAgent(tmp_path, agent_cfg=agent_cfg("replay"))
+    a.policy["tools"].pop("mcp.read")
+    server = Server()
+    client = RemoteMcpClient(config(server), gateway=a.gateway, transport=httpx.MockTransport(server))
+    try:
+        with pytest.raises(IntegrationNotAuthorized, match="application policy"):
+            client.discover()
+        assert not server.requests
+    finally:
+        client.close();a.store.db.close()
+
+
+@pytest.mark.parametrize("revoke_at", ["initialize", "tools/call"])
+def test_worker_authority_loss_stops_protocol_chain_and_preserves_native_fence(tmp_path, revoke_at):
+    from qa_agent.runtime import QAAgent
+    from qa_agent.jobs import DurableJobs
+    from qa_agent.workers import JobAccessDenied
+    from tests.b1_helpers import agent_cfg
+    a = QAAgent(tmp_path, agent_cfg=agent_cfg("replay"))
+    jobs = DurableJobs(a.store)
+    a.store.create_run("mcp-worker", "Synthetic MCP source fence", "synthetic-local", "replay", "REPLAYED")
+    jobs.enqueue("mcp-worker", "planning", {}, "a" * 64)
+    job = jobs.claim("worker", "a" * 64)
+    allowed, server = [True], Server()
+    def validate(current):
+        if not allowed[0]: raise JobAccessDenied("synthetic caller revocation")
+    def handler(request):
+        response = server(request)
+        if json.loads(request.content or b"{}").get("method") == revoke_at:
+            allowed[0] = False
+        return response
+    client = RemoteMcpClient(config(server), gateway=a.gateway, transport=httpx.MockTransport(handler))
+    try:
+        with a.store.fenced_job(jobs, job, validate):
+            with pytest.raises(JobAccessDenied): client.read("issue.read", {"key": "PCC-1"})
+        assert len(server.requests) == (1 if revoke_at == "initialize" else 4)
+        rows = a.store.audit_rows("mcp-worker")
+        assert len([r for r in rows if r["tool"] == "mcp.transport.intent"]) == len(server.requests)
+        assert len([r for r in rows if r["tool"] == "mcp.transport"]) == len(server.requests)
+    finally:
+        client.close();a.store.db.close()
+
+
 @pytest.mark.parametrize("sse,dispatcher", [(False, False), (True, False), (True, True)])
 def test_pinned_read_contract_session_and_transport(sse, dispatcher):
     server = Server(sse=sse, dispatcher=dispatcher)
