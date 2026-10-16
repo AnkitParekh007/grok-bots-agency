@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from .util import canon, load_json, sha256, redact, now
 
 KEY_RE = re.compile(r"\b([A-Z][A-Z0-9]+-[A-Z0-9]+(?:-[0-9]+)?)\b")
-TERMINAL = {"completed", "failed", "rejected", "blocked", "interrupted", "cancelled"}
+TERMINAL = {"completed", "failed", "rejected", "blocked", "interrupted", "cancelled", "analysis_only"}
 
 
 class PlanInvalid(Exception):
@@ -333,6 +333,10 @@ class QAAgent:
         ev = lambda s, m: self.store.event(run_id, s, m)
         if not story_key:
             raise ValueError("no story key found in request")
+        if not self.oracle_path(story_key).is_file():
+            from .analysis import source_review
+            source_review(self, run_id, story_key, reason="No independent expected-results manifest is available for this story.")
+            return
         env = self._tool(run_id, "env.resolve", {"name": env_name}, lambda: self.envs.resolve(env_name))
         ev("environment", f"Environment '{env_name}' resolved -> {env['base_url']} ({env['status']})")
         run0 = self.store.get_run(run_id)

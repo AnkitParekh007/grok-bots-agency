@@ -45,6 +45,7 @@ export const labels = {
   planning: "Planning",
   executing: "Executing",
   completed: "Completed",
+  analysis_only: "Analysis only",
   failed: "Failed",
   blocked: "Blocked",
   cancelled: "Cancelled",

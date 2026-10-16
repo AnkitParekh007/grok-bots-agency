@@ -63,6 +63,7 @@ const terminal = new Set([
   "blocked",
   "interrupted",
   "cancelled",
+  "analysis_only",
 ]);
 const selected = () =>
   $("#model-choice").value === ""

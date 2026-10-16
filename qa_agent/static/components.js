@@ -166,6 +166,7 @@ export function conversation(r, canCancel) {
   const p = r.planning_json;
   let answer = "The request is being planned. Execution has not started.";
   if (p) answer = p.understanding.summary;
+  if (r.analysis_json) answer = r.analysis_json.reason + " Source requirements were extracted without model inference. Execution is unavailable until the missing capabilities are reviewed and a new plan is generated.";
   if (
     r.status === "failed" ||
     r.status === "blocked" ||
@@ -231,8 +232,8 @@ export function conversation(r, canCancel) {
           r.status === "awaiting_approval" ? "primary" : "",
         )
       : "") +
-    (r.results.length || r.summary_json
-      ? button("View results & evidence", "evidence")
+    (r.results.length || r.summary_json || r.analysis_json
+      ? button(r.analysis_json ? "View source review" : "View results & evidence", "evidence")
       : "") +
     (canCancel ? button("Cancel run", "cancel") : "") +
     (r.status === "failed" ||
@@ -310,7 +311,7 @@ export function cases(r, full = false) {
     .join("");
 }
 export function gaps(r) {
-  const g = r.planning_json?.coverage_gaps || [];
+  const g = r.planning_json?.coverage_gaps || r.analysis_json?.coverage_gaps || [];
   return g.length
     ? '<ul class="gap-list">' +
         g
@@ -426,6 +427,10 @@ export function executionPanel(r) {
   );
 }
 export function evidencePanel(r) {
+  if (r?.analysis_json) {
+    const base = '/api/runs/' + encodeURIComponent(r.id);
+    return '<h2>Source review · analysis only</h2><p>' + esc(r.analysis_json.reason) + '</p><p>Zero tests executed. No model inference. Human source review and execution-capability onboarding are required.</p><div id="links" class="actions"><a class="button" href="' + base + '/report.html" target="_blank" rel="noopener">HTML source review</a><a class="button" href="' + base + '/report.json">JSON source review</a></div>' + gaps(r);
+  }
   if (!r?.results.length)
     return empty(
       "Evidence will appear here",

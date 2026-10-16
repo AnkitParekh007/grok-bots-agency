@@ -9,8 +9,8 @@ Organization targets supplied by the owner: Jira Cloud `https://bluemeteor.atlas
 | ER-01 Identity/deployment | OIDC/shared profile passed complete CI at d371fac | Actual IdP setup, identity lifecycle and operational qualification remain |
 | ER-02 Sessions/abuse | Session/CSRF/expiry/revocation/throttle controls passed focused checks; operator guide added | Broader abuse tests and live qualification remain |
 | ER-03 Project authorization | Scoped API/run/artifact and exact returned-source controls passed focused checks | Per-connection delegated/service scope and real source ACL qualification remain |
-| ER-04 MCP | App-owned pinned read client/broker implemented; focused offline contracts passed; broader regression pending | Interactive OAuth, native payload mappings and actual Cloud qualification remain |
-| ER-05 Organization capabilities | Pending | Analysis-only unsupported stories, approved action/oracle onboarding |
+| ER-04 MCP | App-owned pinned read client/broker passed complete CI at 20c9ea5 | Interactive OAuth, native payload mappings and actual Cloud qualification remain |
+| ER-05 Organization capabilities | Non-executable source review passed focused and real Chromium checks | Reviewed organization action/oracle onboarding and full regression remain |
 | ER-06 Classification | Pending | Source/data-owner decisions and explicit model authorization |
 | ER-07 Grounding | Pending | Versioned custom AC/context sources and validator citations |
 | ER-08 Execution egress | Application controls passed complete CI at 371feee | Independent worker network isolation and TLS deployment qualification remain |

@@ -82,3 +82,13 @@ Remote MCP supports approved Streamable HTTP JSON/SSE reads, exact server/protoc
 The first focused broker/transport/source selection passed **112 tests** (97.73 seconds), including the 16 initial MCP contracts. Later deadline/revocation/UI changes require their own verification. See [connection setup](CONNECTION_SETUP.md) for the concrete configuration and current boundaries. No organization connection or corporate data access has occurred.
 
 The hardened broker/package/identity selection then passed **68 tests** (91.27 seconds). The final connection/browser selection passed **40 tests** (54.72 seconds), including real Chromium discovery and explicit resource selection, persistence, sign-out followed by another user seeing no connection details, revocation denials, and a live-style SSE stream that stays open after its matching response. The client closes that stream without waiting for EOF. Counts overlap; complete CI for this checkpoint is still required.
+
+Broker checkpoint `20c9ea5` subsequently passed [complete CI](https://github.com/AnkitParekh007/grok-bots-agency/actions/runs/38895675876), including both suites, the offline evaluation and headless demo. This qualifies its offline/synthetic contract behavior only.
+
+## Unsupported stories: ER-05 (partial)
+
+Stories lacking an independent expected-results manifest now produce a separately labeled non-executable source review. Deterministic extraction records source field IDs, hashes, verbatim quotes and observed line references, plus explicit per-criterion capability gaps. No model is called and no execution target is resolved; the report records zero executed tests and no quality eligibility. Unrecognized requirement structure requests human source review. HTML/JSON reports use the existing run/artifact access boundary.
+
+The run ends as `analysis_only`, with no plan hash, execution envelope, approval or test results. Approval/dispatch reject it. The workspace exposes source-review reports and gaps without offering execution approval. This does not author new domain actions or independent expected results; organization onboarding remains required before a newly generated executable plan can be reviewed.
+
+Focused analysis/planning checks passed **43 tests** (31.93 seconds). A real Chromium check passed (32.80 seconds) for the unsupported-story state, absence of review controls, and source-review links. Full checkpoint CI remains pending. A mistyped initial test filename collected no tests and is not counted as verification.

@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import sys
 import time
 import httpx
@@ -28,6 +29,12 @@ def workspace(tmp_path_factory):
     cfg = load_json(ROOT / 'config/agent.json')
     cfg['model']['provider'] = 'replay'
     cfg['auth'].update(mode='local', forbid_self_approval=True)
+    jira = directory / 'jira'
+    shutil.copytree(ROOT / 'fixtures/jira', jira)
+    (jira / 'PCC-100.json').write_text(json.dumps({'key': 'PCC-100', 'fields': {
+        'summary': 'Unsupported synthetic workflow', 'description': 'Acceptance criteria\n1. A new organization workflow requires domain onboarding.',
+        'labels': ['synthetic'], 'project': {'key': 'PCC'}}}))
+    cfg['issue_tracker']['fixtures_dir'] = str(jira)
     connector_mock = MockServer().__enter__()
     cfg['connections'] = {'synthetic-bb': {
         'provider': 'bitbucket_cloud', 'route': 'token', 'tenant_id': 'local', 'administrators': ['ui_approver'],
@@ -170,6 +177,19 @@ def test_connection_discovery_requires_admin_review_and_survives_sign_in(page, w
     page.get_by_role('button', name='Settings', exact=True).click()
     expect(page.locator('[data-connection-card]')).to_have_count(0)
     assert 'SYN/pim-import-service' not in page.locator('#page-view').inner_text()
+
+
+def test_unsupported_story_shows_non_executable_source_review(page, workspace):
+    login(page, workspace)
+    page.locator('#msg').fill('Analyze PCC-100')
+    page.locator('#send').click()
+    expect(page.locator('#status')).to_contain_text('Analysis only', timeout=30000)
+    expect(page.locator('#chat [data-action="review"]')).to_have_count(0)
+    expect(page.locator('#chat')).to_contain_text('without model inference')
+    page.get_by_role('button', name='View source review', exact=True).click()
+    expect(page.locator('#evidence-content')).to_contain_text('Zero tests executed')
+    expect(page.locator('#evidence-content a').filter(has_text='JSON source review')).to_be_visible()
+    shot(page, 'unsupported-source-review')
 
 
 def test_layout_themes_keyboard_and_first_run(page, workspace):
