@@ -102,6 +102,17 @@
       "methods": [
         "GET"
       ]
+    },
+    "execution.network": {
+      "requires_approval": true,
+      "network": "environment",
+      "methods": [
+        "GET",
+        "POST",
+        "HEAD",
+        "OPTIONS",
+        "CONNECT"
+      ]
     }
   }
 }

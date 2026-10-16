@@ -94,8 +94,12 @@ class RegistryEnvironmentProvider(EnvironmentProvider):
 
     def is_url_allowed(self, env, url):
         u, base = urlparse(url), urlparse(env["base_url"])
+        if u.username or u.password or u.fragment or u.scheme not in ("http", "https"):
+            return False
         host = u.hostname or ""
-        if host not in env.get("allowed_hosts", []) or u.port != base.port:
+        port = u.port or (443 if u.scheme == "https" else 80)
+        base_port = base.port or (443 if base.scheme == "https" else 80)
+        if host not in env.get("allowed_hosts", []) or port != base_port or u.scheme != base.scheme:
             return False
         if any(fnmatch.fnmatch(host, pat) for pat in self.prohibited):
             return False

@@ -14,6 +14,7 @@ def write_report(agent, run_id):
         "oracle_source": agent._oracles(run["story_key"]).get("source"),
         "oracle_review": agent._oracles(run["story_key"]).get("review"),
         "plan_hash": run["plan_hash"], "catalog_version": run.get("catalog_version"),
+        "approval_format": "qa-execution-envelope/1", "execution_envelope": run.get("execution_envelope_json"),
         "approval": agent.approvals.latest(run_id),
         "acceptance_criteria": run["ac_json"]["acceptance_criteria"],
         "summary": run["summary_json"], "results": results,
@@ -48,7 +49,7 @@ tr.failed td,tr.error td{{background:#fde8e8}} tr.passed td{{background:#e8f8ec}
 </style></head><body><h1>QA execution report — {e(run['story_key'])}</h1>
 <p class=lbl>Model: {e(run['model_label'])}. {e(rep['model']['note'])}</p>
 <p>Run <code>{run_id}</code> · env <b>{e(run['environment'])}</b> (synthetic) · generated {rep['generated_at']} UTC</p>
-<p>Plan sha256 <code>{run['plan_hash']}</code> approved by <b>{e(str((rep['approval'] or {}).get('approver')))}</b> at {e(str((rep['approval'] or {}).get('ts')))} UTC</p>
+<p>Execution envelope sha256 <code>{run['plan_hash']}</code> approved by <b>{e(str((rep['approval'] or {}).get('approver')))}</b> at {e(str((rep['approval'] or {}).get('ts')))} UTC</p>
 <p>Oracle: {e(str(rep['oracle_source']))} — review status <b>{e(str((rep['oracle_review'] or {}).get('status')))}</b></p>
 <h2>Summary: {s['passed']} passed / {s['failed']} failed / {s['error']} error / {s['blocked']} blocked of {s['total']}</h2>
 <h3>Acceptance criteria traceability</h3><table><tr><th>AC</th><th>Interpretation</th><th>Story quote</th><th>Verdict</th></tr>{acs}</table>

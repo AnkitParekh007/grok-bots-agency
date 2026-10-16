@@ -5,7 +5,8 @@ non-loopback host, credentials only from env vars and never in logs/errors/audit
 bounded retries (GET only; 429/502/503/504 and connection errors; Retry-After honoured and capped; never on
 401/403/404/other 4xx), every request audited through the ToolGateway hash-chained audit log."""
 from __future__ import annotations
-import base64, os, time
+import base64, os, time, math, threading, ssl
+from email.utils import parsedate_to_datetime
 from urllib.parse import urlparse, urljoin
 import httpx
 from ..environments import _is_loopback
@@ -65,9 +66,13 @@ def _cred_envs(cfg):
 
 
 class ReadOnlyHttpClient:
-    def __init__(self, name: str, cfg: dict, gateway=None, run_id=None, transport=None, sleep=time.sleep):
+    _cooldowns = {}
+    _cooldown_lock = threading.Lock()
+
+    def __init__(self, name: str, cfg: dict, gateway=None, run_id=None, transport=None, sleep=time.sleep, clock=time.time):
         check_authorization(name, cfg)
         self.name, self.cfg, self.gateway, self.run_id, self.sleep = name, cfg, gateway, run_id, sleep
+        self.clock = clock
         self.base = cfg["base_url"].rstrip("/") + "/"
         self.allowed_hosts = list(cfg["allowed_hosts"])
         self.timeout = float(cfg.get("timeout_s", 15))
@@ -75,9 +80,45 @@ class ReadOnlyHttpClient:
         self.backoff = float(cfg.get("backoff_base_s", 0.5))
         self.max_backoff = float(cfg.get("max_backoff_s", 10))
         self.max_bytes = int(cfg.get("max_response_bytes", 2_000_000))
+        if not 0 < self.max_bytes <= 20_000_000 or not 0 < self.timeout <= 600:
+            raise IntegrationNotAuthorized(f"{name}: invalid response/timeout bounds")
+        self.cooldown_scope = cfg.get("rate_limit_scope") or (name + ":" + self.base)
         for k in _cred_envs(cfg):
             register_secret_env(k)
-        self._client = httpx.Client(timeout=self.timeout, follow_redirects=False, transport=transport)
+        verify = ssl.create_default_context(cafile=cfg["tls_ca_file"]) if cfg.get("tls_ca_file") else True
+        self._client = httpx.Client(timeout=self.timeout, follow_redirects=False, transport=transport,
+                                    trust_env=False, verify=verify)
+        if self.gateway:
+            self.gateway.store.x("CREATE TABLE IF NOT EXISTS integration_cooldowns(scope TEXT PRIMARY KEY, blocked_until REAL)")
+
+    def _cooldown_until(self):
+        if self.gateway:
+            rows = self.gateway.store.q("SELECT blocked_until FROM integration_cooldowns WHERE scope=?", (self.cooldown_scope,))
+            return rows[0]["blocked_until"] if rows else 0
+        with self._cooldown_lock:
+            return self._cooldowns.get(self.cooldown_scope, 0)
+
+    def _remember_cooldown(self, seconds):
+        if seconds <= 0:
+            return
+        until = self.clock() + seconds
+        if self.gateway:
+            self.gateway.store.x("INSERT INTO integration_cooldowns(scope,blocked_until) VALUES(?,?) "
+                                 "ON CONFLICT(scope) DO UPDATE SET blocked_until=MAX(blocked_until,excluded.blocked_until)",
+                                 (self.cooldown_scope, until))
+        else:
+            with self._cooldown_lock:
+                self._cooldowns[self.cooldown_scope] = max(until, self._cooldowns.get(self.cooldown_scope, 0))
+
+    def _retry_after(self, value):
+        try:
+            seconds = float(value)
+        except (ValueError, TypeError):
+            try:
+                seconds = parsedate_to_datetime(value).timestamp() - self.clock()
+            except (ValueError, TypeError, OverflowError):
+                return None
+        return max(0, seconds) if math.isfinite(seconds) else None
 
     def _auth_headers(self):
         a = self.cfg.get("auth") or {}
@@ -116,18 +157,52 @@ class ReadOnlyHttpClient:
             self._audit(method, path, "deny", str(e))
             raise
         attempt = 0
+        deadline = time.monotonic() + self.timeout * (self.max_retries + 1) + self.max_backoff * self.max_retries
         while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise IntegrationError(f"{self.name}: total request deadline exceeded")
+            if self._cooldown_until() > self.clock():
+                raise IntegrationError(f"{self.name}: upstream cooldown active; retry later", 429)
             t = time.time()
             try:
-                r = self._client.request(method, url, params=params, headers={**self._auth_headers(), "Accept": accept})
+                with self._client.stream(method, url, params=params, timeout=min(self.timeout, remaining),
+                                         headers={**self._auth_headers(), "Accept": accept, "Accept-Encoding": "identity"}) as response:
+                    retry_after = response.headers.get("retry-after")
+                    if response.status_code >= 300:
+                        # Error/redirect bodies are never required or buffered.
+                        r = httpx.Response(response.status_code, headers=response.headers, request=response.request)
+                    else:
+                        encoding = response.headers.get("content-encoding", "identity").lower()
+                        if encoding not in ("", "identity"):
+                            raise IntegrationError(f"{self.name}: compressed integration responses are not permitted")
+                        try:
+                            declared = int(response.headers.get("content-length", "0"))
+                        except ValueError:
+                            raise IntegrationError(f"{self.name}: invalid content length") from None
+                        if declared < 0 or declared > self.max_bytes:
+                            raise IntegrationError(f"{self.name}: response exceeds max_response_bytes")
+                        body = bytearray()
+                        for chunk in response.iter_bytes(chunk_size=min(65_536, self.max_bytes + 1)):
+                            if time.monotonic() > deadline:
+                                raise IntegrationError(f"{self.name}: total streaming deadline exceeded")
+                            if len(body) + len(chunk) > self.max_bytes:
+                                raise IntegrationError(f"{self.name}: response exceeds max_response_bytes")
+                            body.extend(chunk)
+                        r = httpx.Response(response.status_code, headers=response.headers, content=bytes(body), request=response.request)
             except (httpx.TimeoutException, httpx.TransportError) as e:
                 self._audit(method, path, "allow", "policy ok", f"error: {type(e).__name__}", t, attempt)
                 if attempt < self.max_retries:
                     attempt += 1; self.sleep(self._delay(attempt, None)); continue
                 raise IntegrationError(f"{self.name}: {type(e).__name__} after {attempt + 1} attempt(s)") from None
             self._audit(method, path, "allow", "policy ok", f"http {r.status_code}", t, attempt)
+            cooldown = self._retry_after(retry_after) if r.status_code in RETRY_STATUS else None
+            if cooldown is not None:
+                self._remember_cooldown(cooldown)
+                if cooldown > self.max_backoff:
+                    raise IntegrationError(f"{self.name}: upstream cooldown exceeds inline wait; retry later", r.status_code)
             if r.status_code in RETRY_STATUS and attempt < self.max_retries:
-                attempt += 1; self.sleep(self._delay(attempt, r.headers.get("retry-after"))); continue
+                attempt += 1; self.sleep(self._delay(attempt, retry_after)); continue
             if r.status_code in (401, 403):
                 raise IntegrationNotAuthorized(f"{self.name}: upstream returned {r.status_code} (not retried)", r.status_code)
             if r.status_code == 404:
@@ -139,17 +214,18 @@ class ReadOnlyHttpClient:
             return r
 
     def get_json(self, path, params=None):
-        return self.request("GET", path, params).json()
+        try:
+            return self.request("GET", path, params).json()
+        except (ValueError, UnicodeError):
+            raise IntegrationError(f"{self.name}: invalid JSON response") from None
 
     def get_text(self, path, params=None):
         return self.request("GET", path, params, accept="*/*").text
 
     def _delay(self, attempt, retry_after):
-        try:
-            if retry_after is not None:
-                return min(float(retry_after), self.max_backoff)
-        except ValueError:
-            pass
+        seconds = self._retry_after(retry_after)
+        if seconds is not None:
+            return min(seconds, self.max_backoff)
         return min(self.backoff * (2 ** (attempt - 1)), self.max_backoff)
 
     def _audit(self, method, path, decision, reason, outcome="not_executed", t=None, attempt=0):

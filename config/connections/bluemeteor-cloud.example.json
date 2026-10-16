@@ -1,0 +1,55 @@
+{
+  "format": "qa-connection-onboarding/1",
+  "purpose": "Reviewable Cloud sandbox targets supplied by the owner; not an executable agent configuration or an access grant.",
+  "organization": "bluemeteor",
+  "enabled": false,
+  "approval_ref": null,
+  "preferred_route": null,
+  "identity_provider": null,
+  "jira": {
+    "edition": "cloud",
+    "site_url": "https://bluemeteor.atlassian.net",
+    "cloud_id": null,
+    "projects": [],
+    "acceptance_criteria_field": null,
+    "token": {
+      "enabled": false,
+      "type": "basic",
+      "user_env": "BLUEMETEOR_JIRA_ACCOUNT_EMAIL",
+      "token_env": "BLUEMETEOR_JIRA_READ_TOKEN",
+      "token_kind": null,
+      "base_url": null,
+      "note": "Select the route for the approved token kind. Scoped tokens require the approved cloudId API-gateway base; do not assume the tenant-host route."
+    }
+  },
+  "bitbucket": {
+    "edition": "cloud",
+    "workspace": "bluemeteorapps",
+    "base_url": "https://api.bitbucket.org",
+    "repositories": [],
+    "token": {
+      "enabled": false,
+      "type": "bearer",
+      "token_env": "BLUEMETEOR_BITBUCKET_READ_TOKEN",
+      "token_kind": null
+    }
+  },
+  "mcp": {
+    "enabled": false,
+    "server_url": null,
+    "auth_type": null,
+    "secret_ref": null,
+    "protocol_version": null,
+    "allowed_tools": [],
+    "tool_schema_sha256": {},
+    "allowed_cloud_ids": [],
+    "note": "Requires the product MCP broker and administrator-reviewed server/tool/auth contracts. Generic discovery and write/destructive dispatch are not grants."
+  },
+  "caller_project_memberships": {},
+  "data_classification_approval": null,
+  "model_data_egress_approval": null,
+  "allowed_operations": ["issue.search", "issue.read", "repository.list", "repository.read"],
+  "writes_enabled": false,
+  "sut_execution_enabled": false,
+  "qualification_receipt": null
+}

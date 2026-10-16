@@ -1,0 +1,161 @@
+{
+  "schema": "enterprise-readiness-evidence/1",
+  "assessed_at_utc": "2026-10-16T09:55:26.318993+00:00",
+  "baseline_commit": "285f9c42f8f6e6f45ed8526f895ad29a5bab6da9",
+  "origin_main_revalidated": "285f9c42f8f6e6f45ed8526f895ad29a5bab6da9",
+  "assessment_branch": "codex/enterprise-readiness",
+  "working_changes": "README navigation and new assessment documents/probe script only; no runtime/policy/config/test changes",
+  "merge": {
+    "pr": 7,
+    "state": "MERGED",
+    "merged_at_utc": "2026-10-16T09:27:55Z",
+    "url": "https://github.com/AnkitParekh007/grok-bots-agency/pull/7"
+  },
+  "verdict": "NO_GO_ENTERPRISE",
+  "scope": "Supervised synthetic local prototype; proposed gated organization adoption; no new live organization/model evaluation",
+  "validation": {
+    "merged_ci": {
+      "url": "https://github.com/AnkitParekh007/grok-bots-agency/actions/runs/38880635554",
+      "commit": "285f9c42f8f6e6f45ed8526f895ad29a5bab6da9",
+      "conclusion": "success",
+      "unit_passed": 333,
+      "integration_passed": 50,
+      "unit_elapsed_s": 39.53,
+      "integration_elapsed_s": 88.91,
+      "stub_eval_runs": 30,
+      "seeded_defect_detected": 18,
+      "seeded_defect_total": 18,
+      "false_alarms": 0,
+      "model_quality_eligible": false,
+      "logs_sha256": "08a055d77d76a8653f8ab1641c0a35f7dafe4da42740fb80b3638acdec3dc605"
+    },
+    "fresh_local_unit": {
+      "command": ".venv/Scripts/python.exe -m pytest -q -m \"not integration\" --junitxml=reports/enterprise-readiness/unit.xml",
+      "result": "PASS",
+      "tests": 333,
+      "failures": 0,
+      "errors": 0,
+      "deselected": 50,
+      "warnings": 1,
+      "warning": "Upstream Starlette TestClient/httpx deprecation",
+      "elapsed_s": 249.49,
+      "python": "3.13.14",
+      "log_sha256": "7d9d99fc95a0bb755a73d01cc078c9169d7a982f6df159326eff5ee69b6fc244",
+      "junit_sha256": "72b569055de73e11ec0d38256fe900e72652ce02e320686c943ad3ba2de040ff"
+    },
+    "fresh_probes": {
+      "command": ".venv/Scripts/python.exe docs/enterprise-readiness/reproduce_probes.py",
+      "process_exit_code": 0,
+      "observations": 7,
+      "interpretation": "Observations collected, including gaps; not a security PASS. P03 substitutes an executor capture; P06 uses actual Chromium and owned loopback services; P07 is MockTransport.",
+      "receipt": "PROBE_RESULTS.json"
+    },
+    "package_checks": {
+      "unique_scenarios": 178,
+      "scenario_families": {
+        "IAM": 12,
+        "CON": 10,
+        "JIR": 12,
+        "BIT": 10,
+        "MCP": 12,
+        "MOD": 12,
+        "PLN": 10,
+        "APR": 10,
+        "EXE": 10,
+        "SEC": 12,
+        "DAT": 9,
+        "OPS": 9,
+        "QLT": 10,
+        "ORG": 12,
+        "UI": 10,
+        "WRT": 6,
+        "REG": 6,
+        "GOV": 6
+      },
+      "baseline_coverage_counts": {
+        "EXISTING_OFFLINE": 49,
+        "IMPLEMENTATION_REQUIRED": 72,
+        "OBSERVED_GAP": 10,
+        "PLANNED": 24,
+        "LIVE_REQUIRED": 23
+      },
+      "findings": 25,
+      "all_findings_have_scenarios": true,
+      "all_explicit_scenario_references_valid": true,
+      "local_report_links_checked": 67,
+      "python_ast_valid": true,
+      "runtime_source_hashes_match_probes": true,
+      "git_diff_whitespace_clean": true
+    }
+  },
+  "requirements_audit": [
+    {
+      "requirement": "Verify merged PR and current authoritative state",
+      "evidence": "PR metadata, exact main revision and successful main CI inspected; origin/main re-fetched and matched"
+    },
+    {
+      "requirement": "Plan tests across models",
+      "evidence": "TEST_PLAN.md provider matrix, expanded model/domain qualification, thresholds and MOD/QLT scenario families"
+    },
+    {
+      "requirement": "Plan actual organization scenarios",
+      "evidence": "T2-T5 environments, G1-G4 rollout gates, ORG/IAM/EXE/OPS/DAT scenario families and explicit live-access limits"
+    },
+    {
+      "requirement": "Jira and Bitbucket through MCP or tokens",
+      "evidence": "Connection architecture for REST and MCP, Cloud/DC distinction, CON/JIR/BIT/MCP scenarios; current MCP absence recorded"
+    },
+    {
+      "requirement": "Check enterprise readiness and report missing pieces",
+      "evidence": "ASSESSMENT.md NO-GO, 25 prioritized findings with source evidence, impact, owner and closure criteria; seven probes and verified CI"
+    }
+  ],
+  "not_performed": [
+    "Actual organization connection or writes",
+    "Real Jira/Bitbucket tenant certification",
+    "New LLM inference or hosted calls",
+    "Software installation/model download",
+    "Production deployment or production SUT test",
+    "Independent penetration or accessibility certification",
+    "Implementation of remediation items"
+  ],
+  "known_context": {
+    "connection_preference": "Jira and Bitbucket via MCP or tokens",
+    "edition_version_host_identity_SUT_load_target": "Not supplied; plan includes alternatives and pilot decisions, not invented account details"
+  },
+  "sources_checked_on": "2026-10-16",
+  "external_references": [
+    "https://support.atlassian.com/atlassian-ai-gateway/docs/supported-tools/",
+    "https://modelcontextprotocol.io/docs/2025-11-25/tutorials/security/security_best_practices",
+    "https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/",
+    "https://developer.atlassian.com/cloud/jira/platform/rate-limiting/",
+    "https://support.atlassian.com/atlassian-cloud/kb/401-unauthorized-error-when-service-account-accesses-jira-or-confluence-api/",
+    "https://developer.atlassian.com/cloud/bitbucket/changelog/",
+    "https://support.atlassian.com/bitbucket-cloud/docs/access-tokens/",
+    "https://owasp.org/projects/asvs",
+    "https://genai.owasp.org/llm-top-10/",
+    "https://www.nist.gov/publications/artificial-intelligence-risk-management-framework-generative-artificial-intelligence"
+  ],
+  "artifacts": {
+    "ASSESSMENT.md": {
+      "sha256": "8eb4ea405232e9be073cf048c8c2c18a65321df25c3aa40363dc95e91641d8c0",
+      "bytes": 31146
+    },
+    "TEST_PLAN.md": {
+      "sha256": "775eb42d7b56a8b86b8497b32145c9edbf99c00211e45c6652e4f48c624e7aef",
+      "bytes": 26687
+    },
+    "SCENARIOS.csv": {
+      "sha256": "2ed6cab62e100056fc82ac35cccd374af0adf2b322d065ee3096b89778aa4a1f",
+      "bytes": 113774
+    },
+    "PROBE_RESULTS.json": {
+      "sha256": "3c05144ea94ba4ee9a617563735a4e07cc60427cb92d2f51b701b1c11105217d",
+      "bytes": 3019
+    },
+    "reproduce_probes.py": {
+      "sha256": "5adaf7965c92733b4d0de2db045beb8e8b847adf4f1dd92a29fccd98ae74b7e8",
+      "bytes": 8725
+    }
+  }
+}

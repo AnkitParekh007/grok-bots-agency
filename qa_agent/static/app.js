@@ -25,6 +25,7 @@ import {
   evidencePanel,
   modelCard,
   approvalRecord,
+  executionEnvelope,
 } from "./components.js";
 const state = {
   me: null,
@@ -750,11 +751,12 @@ async function showReview() {
     gaps(r) +
     "<h2>Proposed test cases</h2>" +
     cases(r, true) +
+    executionEnvelope(r) +
     '<p class="small muted">' +
     esc(r.id) +
     " · Created " +
     date(r.plan_created_at) +
-    ". The server checks expiry and catalog validity at approval.</p>";
+    ". The server checks expiry and every bound execution input at approval and dispatch.</p>";
   $("#review-identity").innerHTML =
     state.me.mode === "demo"
       ? '<div class="callout">Demo review · reviewer identity is NOT authenticated.</div><label for="who">Reviewer label</label><input id="who" required placeholder="Your reviewer label">'
@@ -765,7 +767,7 @@ async function showReview() {
         "</p>";
   $("#review-identity").insertAdjacentHTML(
     "beforeend",
-    '<span class="small muted">Exact plan · SHA-256</span><code id="review-hash" class="hash" aria-label="Exact plan hash">' +
+    '<span class="small muted">Execution envelope · SHA-256</span><code id="review-hash" class="hash" aria-label="Execution envelope hash">' +
       esc(r.plan_hash) +
       "</code>",
   );

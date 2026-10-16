@@ -8,6 +8,16 @@ import {
   markdown,
   empty,
 } from "./ui.js";
+export function executionEnvelope(r) {
+  const envelope = r.execution_envelope_json;
+  if (!envelope) return '<div class="callout">This legacy plan requires a new reviewable execution package.</div>';
+  return '<h3>Execution inputs bound to this review</h3><p class="small muted">Target: ' +
+    esc(envelope.environment?.base_url || "") + " · " + esc(r.model_id || r.model_provider) +
+    " · " + Object.keys(envelope.fixtures || {}).length +
+    ' fixture(s). Source, expected results, fixture bytes, implementation, model, policy and configuration are fingerprinted.</p>' +
+    '<details><summary>Inspect execution manifest</summary><pre class="small">' +
+    esc(JSON.stringify(envelope, null, 2)) + "</pre></details>";
+}
 export const providerName = (p) =>
   ({
     ollama: "Ollama",
@@ -362,11 +372,12 @@ export function planPanel(r) {
         gaps(r) +
         '<h3 style="margin-top:24px">Proposed tests</h3>' +
         cases(r) +
-        '<h3 style="margin-top:20px">Exact plan hash</h3><code class="hash">' +
+        executionEnvelope(r) +
+        '<h3 style="margin-top:20px">Execution envelope hash</h3><code class="hash">' +
         esc(r.plan_hash) +
         '</code><p class="small muted">Created ' +
         date(r.plan_created_at) +
-        ". Expiry and the current catalog are checked by the server.</p></div>";
+        ". Expiry and all bound execution inputs are checked by the server.</p></div>";
 }
 export function executionPanel(r) {
   if (!r)

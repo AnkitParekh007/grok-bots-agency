@@ -6,6 +6,8 @@ The current runnable domain is **synthetic supplier imports and attribute mappin
 
 **Current maturity:** a local prototype with deterministic execution safeguards. Replay demonstrations and mock provider contracts work; real-model quality and real organization integrations have not been certified. Hosted inference is disabled by default. “Open” describes the project vision; see [license and contributions](#license-and-contributions) for the current licensing limits.
 
+The [enterprise readiness assessment](docs/enterprise-readiness/ASSESSMENT.md) records the remaining security, integration, model-quality and operational gaps against the merged UI-1 code. The [qualification plan](docs/enterprise-readiness/TEST_PLAN.md) covers token and MCP connections to Jira/Bitbucket, organization sandbox testing and staged adoption; its [scenario inventory](docs/enterprise-readiness/SCENARIOS.csv) distinguishes existing offline coverage from work still requiring implementation or live qualification.
+
 ## Contents
 
 - [Feature overview](#feature-overview)

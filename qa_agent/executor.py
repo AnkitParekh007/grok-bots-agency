@@ -8,14 +8,17 @@ from .comparator import compare
 from .gateway import PolicyDenied
 from .interfaces import TestExecutor
 from .util import redact
+from .network import EgressProxy
+from urllib.parse import urljoin
 
 
 class ToolContext:
-    def __init__(self, run_id, tc_id, page, env, plan_hash, gateway, artifacts, data_dir):
+    def __init__(self, run_id, tc_id, page, env, plan_hash, gateway, artifacts, data_dir, fixture_bytes=None):
         self.run_id, self.tc_id, self.page, self.env = run_id, tc_id, page, env
         self.gw, self.art, self.data_dir = gateway, artifacts, Path(data_dir)
         self.ctx = {"env": env, "plan_hash": plan_hash}
         self.lines = []
+        self.fixture_bytes = fixture_bytes
 
     def log(self, msg, obj=None):
         self.lines.append(f"[{time.strftime('%H:%M:%S')}] {msg}" + (f": {json.dumps(obj, default=str)}" if obj is not None else ""))
@@ -26,6 +29,10 @@ class ToolContext:
     def _file(self, name):
         return str((self.data_dir / name).resolve())
 
+    def _payload(self, name):
+        body = self.fixture_bytes[name] if self.fixture_bytes is not None else Path(self._file(name)).read_bytes()
+        return {"name": name, "mimeType": "text/csv", "buffer": body}
+
     def http(self, method, path, file=None):
         url = self._url(path)
         args = {"method": method, "url": url}
@@ -35,12 +42,33 @@ class ToolContext:
         def do():
             kw = {}
             if file:
-                kw["multipart"] = {"file": {"name": file, "mimeType": "text/csv", "buffer": Path(args["file"]).read_bytes()}}
-            r = self.page.request.fetch(url, method=method, timeout=getattr(self, "api_timeout", 15000), **kw)
-            self.log(f"{method} {path} -> {r.status}")
-            if r.status >= 400:
-                raise RuntimeError(f"HTTP {r.status} for {method} {path}")
-            return r.json()
+                kw["multipart"] = {"file": self._payload(file)}
+            current, verb = url, method.upper()
+            deadline = time.monotonic() + getattr(self, "api_timeout", 15000) / 1000
+            for hop in range(6):
+                remaining = max(1, int((deadline - time.monotonic()) * 1000))
+                if remaining <= 1:
+                    raise TimeoutError("API redirect deadline exceeded")
+                r = self.gw.invoke(self.run_id, "execution.network", {"url": current, "method": verb},
+                                   lambda: self.page.request.fetch(current, method=verb, timeout=remaining,
+                                                                  max_redirects=0, **kw), self.ctx)
+                self.log(f"{verb} {path} -> {r.status}")
+                if r.status in (301, 302, 303, 307, 308):
+                    location = r.headers.get("location")
+                    status = r.status
+                    r.dispose()
+                    if not location or hop == 5:
+                        raise RuntimeError("API redirect missing location or exceeds hop limit")
+                    current = urljoin(current, location)
+                    if status == 303 or (status in (301, 302) and verb == "POST"):
+                        verb, kw = "GET", {}
+                    continue
+                try:
+                    if r.status >= 400:
+                        raise RuntimeError(f"HTTP {r.status} for {method} {path}")
+                    return r.json()
+                finally:
+                    r.dispose()
         return self.gw.invoke(self.run_id, "http.request", args, do, self.ctx)
 
     def goto(self, path):
@@ -51,7 +79,7 @@ class ToolContext:
     def upload(self, selector, name):
         f = self._file(name)
         self.gw.invoke(self.run_id, "browser.upload_file", {"url": self.page.url, "file": f, "selector": selector},
-                       lambda: self.page.set_input_files(selector, f), self.ctx)
+                       lambda: self.page.set_input_files(selector, self._payload(name)), self.ctx)
         self.log(f"upload {name}")
 
     def screenshot(self):
@@ -62,18 +90,20 @@ class ToolContext:
 
 
 class PlaywrightExecutor(TestExecutor):
-    def __init__(self, gateway, artifacts, skills, oracles: dict, data_dir, store, timeouts=None, is_cancelled=None):
+    def __init__(self, gateway, artifacts, skills, oracles: dict, data_dir, store, timeouts=None, is_cancelled=None, fixture_bytes=None):
         self.gw, self.art, self.skills, self.oracles, self.data_dir, self.store = gateway, artifacts, skills, oracles, data_dir, store
         t = timeouts or {}
         self.action_timeout = int(t.get("action_timeout_ms", 15000))
         self.nav_timeout = int(t.get("navigation_timeout_ms", 15000))
         self.api_timeout = int(t.get("api_timeout_ms", 15000))
         self.is_cancelled = is_cancelled or (lambda rid: False)
+        self.fixture_bytes = fixture_bytes
 
     def run(self, run_id, plan, env, on_event, plan_hash=None):
         results = []
         with sync_playwright() as pw:
-            browser = pw.chromium.launch(headless=True)
+            browser = pw.chromium.launch(headless=True, args=["--disable-quic", "--dns-prefetch-disable",
+                                          "--force-webrtc-ip-handling-policy=disable_non_proxied_udp"])
             try:
                 for tc in plan["test_cases"]:
                     if self.is_cancelled(run_id):
@@ -96,13 +126,36 @@ class PlaywrightExecutor(TestExecutor):
         return results
 
     def _run_one(self, browser, run_id, tc, env, plan_hash):
+        with EgressProxy(self.gw, run_id, env, plan_hash) as proxy:
+            return self._run_isolated(browser, run_id, tc, env, plan_hash, proxy)
+
+    def _run_isolated(self, browser, run_id, tc, env, plan_hash, proxy):
         ev = f"evidence/{tc['id']}"
-        context = browser.new_context(viewport={"width": 1100, "height": 700})
+        context = browser.new_context(viewport={"width": 1100, "height": 700}, service_workers="block",
+                                      accept_downloads=False, proxy={"server": proxy.url, "bypass": "<-loopback>"})
+        def guard(route):
+            request = route.request
+            reason = self.gw.check(run_id, "execution.network", {"url": request.url, "method": request.method},
+                                   {"env": env, "plan_hash": plan_hash})
+            if reason:
+                try:
+                    proxy.deny(request.url, reason)
+                except PolicyDenied:
+                    route.abort("blockedbyclient")
+            else:
+                route.continue_()
+        context.route("**/*", guard)
+        def deny_socket(route):
+            try:
+                proxy.deny(route.url, "WebSocket execution is not an approved capability")
+            except PolicyDenied:
+                route.close(code=1008, reason="execution policy")
+        context.route_web_socket("**/*", deny_socket)
         context.tracing.start(screenshots=True, snapshots=True)
         context.set_default_timeout(self.action_timeout)
         context.set_default_navigation_timeout(self.nav_timeout)
         page = context.new_page()
-        t = ToolContext(run_id, tc["id"], page, env, plan_hash, self.gw, self.art, self.data_dir)
+        t = ToolContext(run_id, tc["id"], page, env, plan_hash, self.gw, self.art, self.data_dir, self.fixture_bytes)
         t.api_timeout = self.api_timeout
         oracle = self.oracles[tc["oracle_ref"]]
         res = {"id": tc["id"], "title": tc["title"], "type": tc["type"], "skill": tc["skill"], "ac_refs": tc["ac_refs"],
@@ -137,6 +190,9 @@ class PlaywrightExecutor(TestExecutor):
                 context.close()
             except Exception:
                 pass
+            if proxy.denials:
+                res["status"], res["error"] = "blocked", "execution network policy denied traffic"
+                t.log("network policy", {"denials": len(proxy.denials)})
             t.log("result", {k: res.get(k) for k in ("status", "actual", "diffs", "error")})
             self.art.write_bytes(run_id, f"{ev}/log.txt", redact("\n".join(t.lines)).encode())
             res["log"] = f"{ev}/log.txt"

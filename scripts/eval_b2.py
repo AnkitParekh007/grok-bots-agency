@@ -286,8 +286,11 @@ def first_plan_stage(agent, a, out, stories, simulate):
 
 
 def _sha_plan(run):
-    import hashlib as _h
-    return _h.sha256(canon(run["plan_json"] or {}).encode()).hexdigest()
+    from qa_agent.execution_package import digest, PackageChanged
+    try:
+        return digest(run)
+    except PackageChanged:
+        return None
 
 
 def pinned_identity_matches(runs, provider, model, version):

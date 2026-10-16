@@ -5,6 +5,7 @@ import json, math, re, threading, uuid
 from pathlib import Path
 from . import ROOT
 from . import planning as P
+from . import execution_package as EP
 from .environments import RegistryEnvironmentProvider
 from .executor import PlaywrightExecutor
 from .gateway import ToolGateway, PolicyDenied
@@ -142,6 +143,8 @@ class QAAgent:
         if plan_hash is not None and plan_hash != run["plan_hash"]:
             self.gateway.record(run_id, "plan.approve", {"plan_hash": plan_hash}, "deny", "stale plan hash: approval refers to a different plan")
             raise ConflictError("stale plan: the plan changed since it was displayed; reload and review again")
+        if decision == "approved":
+            self._verify_package(run)
         if decision == "approved" and not self.exec_lock.acquire(blocking=False):
             raise ConflictError("another execution is active against the shared synthetic SUT; try again when it finishes")
         try:
@@ -179,6 +182,8 @@ class QAAgent:
             deny("stale or missing plan hash: the plan reviewed is not the plan stored")
         if self._plan_expired(run):
             deny("plan expired; re-plan required")
+        if decision == "approved":
+            self._verify_package(run)
         self.approvals.record(run_id, run["plan_hash"], principal.name, decision, comment, identity=principal.name, auth_mode="local")
         self.store.update_run(run_id, status="approved" if decision == "approved" else "rejected")
         self.gateway.record(run_id, "plan.review", {"user": principal.name, "plan_hash": plan_hash, "decision": decision}, "allow",
@@ -282,8 +287,15 @@ class QAAgent:
     def _tool(self, run_id, tool, args, fn, ctx=None):
         return self.gateway.invoke(run_id, tool, args, fn, ctx)
 
+    def oracle_path(self, story_key):
+        root = (ROOT / self.cfg["oracles_dir"]).resolve()
+        p = (root / f"{story_key}.expected.json").resolve()
+        if not p.is_relative_to(root) or p.parent != root:
+            raise PlanInvalid("oracle path outside configured directory")
+        return p
+
     def _oracles(self, story_key):
-        p = ROOT / self.cfg["oracles_dir"] / f"{story_key}.expected.json"
+        p = self.oracle_path(story_key)
         if not p.exists():
             raise PlanInvalid(f"no expected-results manifest for {story_key}; cannot test without an oracle")
         return load_json(p)
@@ -308,8 +320,7 @@ class QAAgent:
         if run0.get("repository"):
             repo = run0["repository"]
             ctx = self._tool(run_id, "git.repo_context", {"repo": repo}, lambda: self.git.repo_context(repo))
-            self.store.update_run(run_id, repo_context_json={"repository": ctx["repository"], "ref": ctx["ref"],
-                                                             "top_level": [e["path"] for e in ctx["top_level"]]})
+            self.store.update_run(run_id, repo_context_json=ctx)
             ev("repository", f"Read-only repository context {repo}@{ctx['ref']} via {getattr(self.git, 'kind', 'git')}: "
                              f"{len(ctx['top_level'])} top-level entries (context only; not sent to the model in C0)")
         desc = story["fields"]["description"]
@@ -328,7 +339,9 @@ class QAAgent:
         plan = {"test_cases": planning["test_cases"]}
         plan_hash = sha256(canon(plan))
         self.store.update_run(run_id, ac_json=ac, planning_json=planning, plan_json=plan, plan_hash=plan_hash,
-                              catalog_version=catalog["catalog_version"], plan_created_at=now(), status="awaiting_approval")
+                              catalog_version=catalog["catalog_version"], plan_created_at=now())
+        plan_hash = EP.capture(self, run_id, env)
+        self.store.update_run(run_id, status="awaiting_approval")
         cats = {c: sum(t["category"] == c for t in plan["test_cases"]) for c in P.CATEGORIES}
         ev("ac", f"[{model.label}] {len(ac['acceptance_criteria'])} acceptance criteria, each traced to verbatim story text")
         ev("plan", f"[{model.label}] Test plan: {len(plan['test_cases'])} cases {cats}, {len(gaps)} coverage gap(s) (sha256 {plan_hash[:12]})")
@@ -413,10 +426,22 @@ class QAAgent:
             if self.exec_lock.locked():
                 self.exec_lock.release()
 
+    def _verify_package(self, run, env=None):
+        try:
+            return EP.verify(self, run, env or self.envs.resolve(run["environment"]))
+        except (EP.PackageChanged, OSError, ValueError) as exc:
+            self.gateway.record(run["id"], "execution.package", {"approval_hash": run.get("plan_hash")},
+                                "deny", str(exc))
+            raise ConflictError(str(exc)) from exc
+
     def _execute(self, run_id):
         run = self.store.get_run(run_id)
         ev = lambda s, m: self.store.event(run_id, s, m)
-        if not self.approvals.is_approved(run_id, run["plan_hash"]) or run["plan_hash"] != sha256(canon(run["plan_json"] or {})):
+        try:
+            valid_hash = EP.digest(run) == run["plan_hash"]
+        except EP.PackageChanged:
+            valid_hash = False
+        if not self.approvals.is_approved(run_id, run["plan_hash"]) or not valid_hash:
             self.store.update_run(run_id, status="blocked", error="execution refused: no approval for this exact plan")
             self.gateway.record(run_id, "plan.execute", {"plan_hash": run["plan_hash"]}, "deny", "no approval for this exact plan (or plan modified after approval)")
             ev("blocked", "Execution refused: no human approval recorded for this exact plan (fail-closed)")
@@ -429,9 +454,14 @@ class QAAgent:
             return
         self.store.update_run(run_id, status="executing")
         env = self._tool(run_id, "env.resolve", {"name": run["environment"]}, lambda: self.envs.resolve(run["environment"]))
-        oracles = self._oracles(run["story_key"])["oracles"]
-        ex = PlaywrightExecutor(self.gateway, self.artifacts, self.skills, oracles, ROOT / self.cfg["fixture_data_dir"], self.store,
-                                timeouts=self.exec_cfg, is_cancelled=self.is_cancelled)
+        try:
+            oracle_manifest, fixture_bytes = self._verify_package(run, env)
+        except ConflictError as exc:
+            self.store.update_run(run_id, status="blocked", error=str(exc))
+            ev("blocked", str(exc))
+            return
+        ex = PlaywrightExecutor(self.gateway, self.artifacts, self.skills, oracle_manifest["oracles"], ROOT / self.cfg["fixture_data_dir"], self.store,
+                                timeouts=self.exec_cfg, is_cancelled=self.is_cancelled, fixture_bytes=fixture_bytes)
         ev("execute", f"Launching headless Chromium against {env['base_url']}")
         results = ex.run(run_id, run["plan_json"], env, ev, plan_hash=run["plan_hash"])
         counts = {s: sum(r["status"] == s for r in results) for s in ("passed", "failed", "error", "blocked")}
