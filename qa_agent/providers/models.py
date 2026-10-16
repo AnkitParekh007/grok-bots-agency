@@ -331,10 +331,22 @@ class OpenAICompatibleProvider(ModelProvider):
         raise NotImplementedError("use generate(); callers must validate output against a schema")
 
     def generate(self, task, context, schema=None, repair_feedback=None, run_id=None, budget=None):
-        if context.get("data_class") not in self.allowed_data_classes or (self.classification == "hosted" and context.get("data_class") != "synthetic"):
+        if context.get("data_class") not in self.allowed_data_classes or context.get("data_class") == "unclassified":
             raise DataClassDenied(f"data class {context.get('data_class')!r} not approved for provider {self.name}")
         if self.gateway is None:
             raise ProviderNotApproved("provider has no tool gateway bound; refusing unaudited egress")
+        def data_gate():
+            policy = getattr(self.gateway, "data_policy", None)
+            try:
+                if context.get("data_class") != "synthetic" and policy is None:
+                    raise DataClassDenied("non-synthetic input requires explicit source and model-data approval")
+                if policy:
+                    policy.verify(run_id, task, context, self)
+            except DataClassDenied:
+                self.gateway.record(run_id, "model.data_class_gate", {"provider": self.name, "task": task},
+                                    "deny", "model-data permit validation failed")
+                raise
+        data_gate()
         if self.name != "compatible" and self.model != self._configured_model:
             raise ProviderNotApproved("selected model changed after administrator configuration")
         if self.name != "compatible" and self.base_url != self._configured_url:
@@ -350,6 +362,7 @@ class OpenAICompatibleProvider(ModelProvider):
         ctx = {"provider_approved": self.provider_approved}
         cids, started = [], time.monotonic()
         for attempt in range(self.max_retries + 1):
+            data_gate()
             cid = f"{run_id or 'norun'}-{uuid.uuid4().hex[:12]}"
             cids.append(cid)
             args = {"url": url, "provider": self.name, "model": self.model, "version": self.version,

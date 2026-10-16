@@ -11,8 +11,8 @@ Organization targets supplied by the owner: Jira Cloud `https://bluemeteor.atlas
 | ER-03 Project authorization | Scoped API/run/artifact and exact returned-source controls passed focused checks | Per-connection delegated/service scope and real source ACL qualification remain |
 | ER-04 MCP | App-owned pinned read client/broker passed complete CI at 20c9ea5 | Interactive OAuth, native payload mappings and actual Cloud qualification remain |
 | ER-05 Organization capabilities | Non-executable source review passed focused and real Chromium checks | Reviewed organization action/oracle onboarding and full regression remain |
-| ER-06 Classification | Pending | Source/data-owner decisions and explicit model authorization |
-| ER-07 Grounding | Pending | Versioned custom AC/context sources and validator citations |
+| ER-06 Classification | Explicit source/model-data approval gates passed focused offline checks; full CI pending | Actual owner decisions, operational region/retention controls and qualification remain |
+| ER-07 Grounding | Typed minimized issue/custom-AC bundle and source-hash quote checks passed focused checks | Repository/comment/attachment grounding, upstream versions and broader qualification remain |
 | ER-08 Execution egress | Application controls passed complete CI at 371feee | Independent worker network isolation and TLS deployment qualification remain |
 | ER-09 Approval envelope | Snapshot/binding/handoff controls passed complete CI at 371feee; identity scope hardening in progress | Remaining deployment/source-version qualification tracked |
 | ER-10 Orchestration | Pending | Durable leases/queue/admission/recovery and multi-instance tests |
@@ -28,7 +28,7 @@ Organization targets supplied by the owner: Jira Cloud `https://bluemeteor.atlas
 | ER-20 Jira write-back | Pending | Separately reviewed bounded operations, idempotency and workflow mapping |
 | ER-21 Regression automation | Pending | Versioned suites/grants/schedules/release semantics |
 | ER-22 Client accessibility | Pending | Supported browsers, assistive technology and scale/privacy checks |
-| ER-23 Governance/support | Pending | Owner decisions, licensing/data terms, operating scope and sign-off |
+| ER-23 Governance/support | Owner approved MIT on 2026-10-16; LICENSE and current guides updated | Third-party/model/data terms, operating owners/support scope and sign-off remain |
 | ER-24 Adversarial sources | Pending | Source/tool poisoning/exfiltration qualification on implemented paths |
 | ER-25 Resource bounds | HTTP body/deadline/request/session limits implemented with focused tests | Worker/storage quotas, pagination and broader overload tests remain |
 

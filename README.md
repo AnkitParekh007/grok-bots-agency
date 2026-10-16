@@ -4,7 +4,7 @@ A standalone QA workspace that turns a story into a proposed test plan, asks a p
 
 The current runnable domain is **synthetic supplier imports and attribute mapping**. The wider vision is a QA workspace independent of any single model provider. Local models let teams experiment without a paid API account; optional hosted free tiers offer another route when explicitly authorized. Human approval remains essential because a plausible model-generated plan can still be wrong.
 
-**Current maturity:** a local prototype with deterministic execution safeguards. Replay demonstrations and mock provider contracts work; real-model quality and real organization integrations have not been certified. Hosted inference is disabled by default. “Open” describes the project vision; see [license and contributions](#license-and-contributions) for the current licensing limits.
+**Current maturity:** a local prototype with deterministic execution safeguards. Replay demonstrations and mock provider contracts work; real-model quality and real organization integrations have not been certified. Hosted inference is disabled by default. The project is [MIT licensed](LICENSE).
 
 The [enterprise readiness assessment](docs/enterprise-readiness/ASSESSMENT.md) records the remaining security, integration, model-quality and operational gaps against the merged UI-1 code. The [qualification plan](docs/enterprise-readiness/TEST_PLAN.md) covers token and MCP connections to Jira/Bitbucket, organization sandbox testing and staged adoption; its [scenario inventory](docs/enterprise-readiness/SCENARIOS.csv) distinguishes existing offline coverage from work still requiring implementation or live qualification.
 
@@ -273,6 +273,6 @@ See [the detailed roadmap](docs/ROADMAP.md) for delivered scope and remaining bo
 
 ## License and contributions
 
-There is **no `LICENSE` file** in the repository at this revision. It is publicly readable but has no explicit redistribution or modification license. Do not assume an open-source license; no license is added by this documentation change.
+The project is available under the [MIT License](LICENSE), approved by the repository owner on 2026-10-16. Dependencies, model weights and external services retain their own licenses and terms.
 
 Propose focused branches and pull requests, describe behavior and validation, and let the existing push/PR CI run. Keep real credentials, customer material, generated state and sealed gold out of commits. See [contribution details](docs/DEVELOPMENT.md#contributions). Historical milestone documents retain their original evidence and superseded labels. [Documentation validation and before/after summary](docs/DOCUMENTATION_VALIDATION.md).

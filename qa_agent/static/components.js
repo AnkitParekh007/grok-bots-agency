@@ -272,7 +272,8 @@ export function criteria(r) {
         esc(a.text) +
         "</p><blockquote>" +
         esc(a.source_quote) +
-        "</blockquote></div>",
+        "</blockquote>" +
+        (a.source_id ? '<p class="small muted">Source: ' + esc(a.source_id) + '</p>' : '') + "</div>",
     )
     .join("");
 }

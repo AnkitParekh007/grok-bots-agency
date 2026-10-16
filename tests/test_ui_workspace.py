@@ -33,7 +33,7 @@ def workspace(tmp_path_factory):
     shutil.copytree(ROOT / 'fixtures/jira', jira)
     (jira / 'PCC-100.json').write_text(json.dumps({'key': 'PCC-100', 'fields': {
         'summary': 'Unsupported synthetic workflow', 'description': 'Acceptance criteria\n1. A new organization workflow requires domain onboarding.',
-        'labels': ['synthetic'], 'project': {'key': 'PCC'}}}))
+        'labels': ['synthetic'], 'project': {'key': 'PCC'}, 'status': {'name': 'Open'}}}))
     cfg['issue_tracker']['fixtures_dir'] = str(jira)
     connector_mock = MockServer().__enter__()
     cfg['connections'] = {'synthetic-bb': {

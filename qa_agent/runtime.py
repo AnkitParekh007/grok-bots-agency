@@ -70,6 +70,9 @@ class QAAgent:
         self.access = AccessPolicy(self.projects, self.cfg.get("authorization"), shared=self.shared)
         from .integrations.broker import ConnectionBroker
         self.connections = ConnectionBroker(self.cfg.get("connections"), self.store, self.gateway, self.projects)
+        from .data_policy import DataPolicy
+        self.data_policy = DataPolicy(self.projects, self.cfg.get("model_data_grants"), self.gateway)
+        self.gateway.data_policy = self.data_policy
         self.skills = LocalSkillRegistry()
         self.model = build_model_provider(self.cfg, ROOT, gateway=self.gateway,
                      selected="replay" if review_only else (self.cfg["model"]["provider"] if agent_cfg is not None else None))
@@ -361,6 +364,10 @@ class QAAgent:
         oracles = self._oracles(story_key)
         catalog = P.build_catalog(self.skills, oracles, self.fixture_files())
         mctx = {"story_key": story_key, "story": story, "data_class": data_class, "catalog": catalog}
+        mctx = self.data_policy.prepare(self.store.get_run(run_id), mctx, model, ac_field=getattr(tracker, "ac_field", None))
+        if mctx.get("source_bundle"):
+            self.store.update_run(run_id, source_bundle_json=mctx["source_bundle"])
+            self.artifacts.write_bytes(run_id, "inputs/source-bundle.json", canon(mctx["source_bundle"]).encode())
         planning = self._model_plan(run_id, mctx, desc, oracles)
 
         gaps = planning["coverage_gaps"]
@@ -380,6 +387,7 @@ class QAAgent:
         feedback, attempt = None, 0
         model = self._run_models.get(run_id, self.model)
         pname = model.name
+        self.data_policy.verify(run_id, "plan_story", mctx, model)
         if pname in ("ollama", "lmstudio", "llamacpp", "vllm"):
             model.prepare()
             self.store.update_run(run_id, model_version=model.version)
@@ -419,7 +427,7 @@ class QAAgent:
             self.store.telemetry(run_id, "model_call_ok", pname, f"attempts={resp.attempts} tokens={resp.usage.get('total_tokens', 0)} cost={resp.cost_usd}")
             try:
                 obj = P.parse_output(resp.text, resp.finish_reason)
-                return P.validate_plan(obj, desc, self.skills, oracles, self.fixture_files())
+                return P.validate_plan(obj, desc, self.skills, oracles, self.fixture_files(), source_bundle=mctx.get("source_bundle"))
             except P.PolicyViolation as e:
                 self.store.telemetry(run_id, "policy_violation", pname, str(e))
                 self.gateway.record(run_id, "model.output_validation", {"attempt": attempt, "output_sha256": sha256(resp.text or "")},

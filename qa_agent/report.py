@@ -27,6 +27,7 @@ def write_report(agent, run_id):
         "run_status_at_report": "cancelled" if agent.is_cancelled(run_id) else run["status"],
         "coverage_gaps": (run.get("planning_json") or {}).get("coverage_gaps", []),
         "understanding": (run.get("planning_json") or {}).get("understanding"),
+        "source_bundle": run.get("source_bundle_json"),
         "usage": agent.store.run_usage(run_id)["totals"],
         "approval_identity_note": ("authenticated " + str((agent.approvals.latest(run_id) or {}).get("auth_mode")) + " identity") if (agent.approvals.latest(run_id) or {}).get("identity")
                                   else "UNAUTHENTICATED demo approver label (local demo mode)",

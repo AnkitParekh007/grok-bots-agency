@@ -36,6 +36,7 @@ def digest(run):
     envelope["story_sha256"] = sha256(canon(run.get("story_json") or {}))
     envelope["repository_sha256"] = sha256(canon(run.get("repo_context_json")))
     envelope["acceptance_sha256"] = sha256(canon(run.get("ac_json")))
+    envelope["source_bundle_sha256"] = sha256(canon(run.get("source_bundle_json")))
     envelope["model"] = {k: run.get(k) for k in ("model_provider", "model_id", "model_version")}
     envelope["scope"] = {k: run.get(k) for k in ("tenant_id", "project", "requested_by")}
     return sha256(canon(envelope))
@@ -68,6 +69,7 @@ def inputs(agent, run, env, story=None, repository=None):
                 "story_sha256": sha256(canon(story if story is not None else run["story_json"])),
                 "repository_sha256": sha256(canon(repository if repository is not None else run.get("repo_context_json"))),
                 "acceptance_sha256": sha256(canon(run.get("ac_json"))),
+                "source_bundle_sha256": sha256(canon(run.get("source_bundle_json"))),
                 "environment": env, "policy_sha256": sha256(canon(agent.policy)),
                 "connection_scopes": agent.connections.revision(run.get("project")),
                 "config_sha256": sha256(canon(agent.cfg)),
@@ -111,6 +113,10 @@ def verify(agent, run, env, *, check_sources=True):
     snapshot = agent.artifacts.path_for(run["id"], "inputs/envelope.json")
     if json.loads(bounded_read(snapshot)) != manifest:
         raise PackageChanged("execution envelope snapshot changed")
+    if run.get("source_bundle_json") is not None:
+        source = bounded_read(agent.artifacts.path_for(run["id"], "inputs/source-bundle.json"))
+        if sha256(canon(json.loads(source))) != manifest["source_bundle_sha256"]:
+            raise PackageChanged("source bundle snapshot changed")
     oracle = bounded_read(agent.artifacts.path_for(run["id"], "inputs/oracles.json"))
     if sha256(oracle) != manifest["oracle_sha256"]:
         raise PackageChanged("oracle snapshot changed")
@@ -137,7 +143,7 @@ def review_configuration(data_dir, run_id, approval_hash):
     if not row:
         raise PackageChanged("review run not found")
     run = dict(row)
-    for key in ("execution_envelope_json", "plan_json", "planning_json", "story_json", "repo_context_json", "ac_json"):
+    for key in ("execution_envelope_json", "plan_json", "planning_json", "story_json", "repo_context_json", "ac_json", "source_bundle_json"):
         run[key] = json.loads(run[key]) if run.get(key) else None
     if not approval_hash or run["plan_hash"] != approval_hash or digest(run) != approval_hash:
         raise PackageChanged("stale or altered execution package")

@@ -19,7 +19,9 @@ STR = {"type": "string", "minLength": 1, "maxLength": 2000}
 AcceptanceCriterion = {
     "type": "object", "additionalProperties": False, "required": ["id", "text", "source_quote"],
     "properties": {"id": {"type": "string", "pattern": "^AC[0-9]+$"}, "text": STR,
-                   "source_quote": {"type": "string", "minLength": 3, "maxLength": 2000}}}
+                   "source_quote": {"type": "string", "minLength": 3, "maxLength": 2000},
+                   "source_id": {"type": "string", "minLength": 1, "maxLength": 500},
+                   "source_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}}}
 
 Requirement = {
     "type": "object", "additionalProperties": False, "required": ["id", "ac_refs", "description", "testable"],

@@ -100,7 +100,7 @@ Usage and latency come from runtime/provider observations, with unknown/missing 
 
 ## Contributions
 
-Inspect licensing before reusing or redistributing code: no `LICENSE` is present at this revision. A public GitHub repository is not itself an explicit redistribution/modification license. Do not add a license without owner approval.
+The repository uses the [MIT License](../LICENSE), approved by the owner on 2026-10-16. Preserve its copyright and permission notice when redistributing the software. Dependencies, model weights and external services retain their own licenses and terms. Changes to the project's license require owner approval.
 
 For changes proposed to the owner, use a focused branch and PR with the problem, resulting behavior and relevant checks. Follow the existing push/pull-request workflow, review CI artifacts and keep tests offline by default. Never commit actual keys/tokens, customer stories, generated `data/`/`reports/` or sealed gold. Historical evidence under `docs/history/` is preserved as superseded provenance; update current guides rather than rewriting historical results. No merge, release or deployment is part of a documentation contribution.
 

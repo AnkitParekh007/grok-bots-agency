@@ -92,3 +92,21 @@ Stories lacking an independent expected-results manifest now produce a separatel
 The run ends as `analysis_only`, with no plan hash, execution envelope, approval or test results. Approval/dispatch reject it. The workspace exposes source-review reports and gaps without offering execution approval. This does not author new domain actions or independent expected results; organization onboarding remains required before a newly generated executable plan can be reviewed.
 
 Focused analysis/planning checks passed **43 tests** (31.93 seconds). A real Chromium check passed (32.80 seconds) for the unsupported-story state, absence of review controls, and source-review links. Full checkpoint CI remains pending. A mistyped initial test filename collected no tests and is not counted as verification.
+
+Analysis checkpoint `ea61066` [CI](https://github.com/AnkitParekh007/grok-bots-agency/actions/runs/38896681293) passed its unit stage and 56 of 57 integration cases, but the existing full-workflow UI case failed at project story selection. The new synthetic unsupported-story fixture omitted the status field required by the mock search contract, breaking the project list. The fixture now includes that field; the correction needs full-suite verification.
+
+The corrected fixture and current source-policy changes then passed all **six real Chromium workspace tests** (110.26 seconds), including authenticated execution, accessibility/responsive checks, connection selection and analysis-only presentation.
+
+## Source classification and custom AC grounding: ER-06/07 (partial)
+
+Real source input requires an explicit, unexpired tenant/project data-owner classification with a minimized field list and a separate exact provider/model/endpoint/purpose/declared-region grant. Provider allowlists remain independently required. Default configurations still authorize synthetic data only. Retention/training-use decisions are recorded declarations, not proof of external enforcement. No real organization approval or inference has occurred.
+
+The runtime classifies/minimizes input before native model preparation and creates a typed source bundle. Short-lived internal permits bind actual prompt inputs and source/grant hashes to the run and selected model; providers verify them before every request attempt. Unclassified data, changed scope/content/grants, synthetic relabeling, missing/ambiguous approvals and unsupported sources are denied. Permit values never enter prompts. Source bundles are persisted, fingerprinted in the execution envelope and rechecked before approval/dispatch.
+
+Configured custom acceptance criteria enter both the prompt and validator. Criteria must quote their own authoritative requirement and cite its exact field source ID/hash; description text cannot silently substitute. Observed line locations/content versions are explicit. Upstream Jira version and non-issue sources remain unqualified. [Data approval setup](DATA_APPROVAL_SETUP.md) documents deliberately non-authorizing operator templates.
+
+The focused source/provider/planning/package selection passed **118 tests** (158.51 seconds). A hardened data/package selection passed **33 tests** (35.43 seconds), including the full runtime planning path through a mock native protocol with a fixture answer, custom-source grounding and snapshot-tamper rejection. That test is explicitly stub evidence, not genuine model reasoning. Full CI remains required.
+
+## Governance: ER-23 (partial)
+
+The repository owner explicitly selected **MIT** in this chat on 2026-10-16. Added the standard MIT license under the verified Git author name Ankit Parekh and updated current README/development guidance. Historical baseline assessments retain their accurate observation that no license existed then. Dependency/model/service licensing, data decisions, operating/support owners and final sign-off remain separate acceptance work.
