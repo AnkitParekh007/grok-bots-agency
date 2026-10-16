@@ -35,7 +35,7 @@ def review(a, rid):
     a.review_plan(rid, Principal("reviewer", "approver", "local"), "approved", r["plan_hash"])
 
 
-@pytest.mark.parametrize("change", ["oracle", "fixture", "policy", "configuration", "environment", "source", "plan", "snapshot"])
+@pytest.mark.parametrize("change", ["oracle", "fixture", "policy", "configuration", "environment", "source", "plan", "snapshot", "scope", "stored_repository", "acceptance", "model_identity"])
 def test_changed_inputs_cannot_execute_under_old_approval(package, change, monkeypatch):
     a, rid, oracle_dir, fixture_dir = package
     review(a, rid)
@@ -60,6 +60,14 @@ def test_changed_inputs_cannot_execute_under_old_approval(package, change, monke
         a.store.update_run(rid, plan_json=r["plan_json"])
     elif change == "snapshot":
         a.artifacts.path_for(rid, "inputs/oracles.json").write_bytes(b"{}")
+    elif change == "scope":
+        a.store.update_run(rid, tenant_id="different-tenant")
+    elif change == "stored_repository":
+        a.store.update_run(rid, repo_context_json={"readme": "changed context"})
+    elif change == "acceptance":
+        a.store.update_run(rid, ac_json=[{"id": "changed", "text": "changed requirement"}])
+    elif change == "model_identity":
+        a.store.update_run(rid, model_id="unreviewed-model")
     with patch("qa_agent.runtime.PlaywrightExecutor.run") as execute:
         a.execute_approved(rid, wait=True)
         execute.assert_not_called()

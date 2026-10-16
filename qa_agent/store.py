@@ -52,7 +52,7 @@ class Store:
         add = {"runs": [("model_id", "TEXT"), ("model_version", "TEXT"), ("planning_json", "TEXT"), ("requested_by", "TEXT"), ("cancel_requested", "INTEGER DEFAULT 0"),
                         ("catalog_version", "TEXT"), ("plan_created_at", "TEXT"),
                         ("project", "TEXT"), ("repository", "TEXT"), ("repo_context_json", "TEXT"),
-                        ("execution_envelope_json", "TEXT")],
+                        ("execution_envelope_json", "TEXT"), ("tenant_id", "TEXT DEFAULT 'local'")],
                "approvals": [("identity", "TEXT"), ("auth_mode", "TEXT"), ("approver_label", "TEXT")],
                "audit": [("prev_hash", "TEXT"), ("entry_hash", "TEXT"),
                           ("seq", "INTEGER"), ("payload_hash", "TEXT")],
@@ -97,7 +97,7 @@ class Store:
         return r
 
     def list_runs(self):
-        return self.q("SELECT id,created,status,story_key,environment,model_label,request,requested_by FROM runs ORDER BY created DESC")
+        return self.q("SELECT id,created,status,story_key,environment,model_label,request,requested_by,project,tenant_id FROM runs ORDER BY created DESC")
 
     def event(self, run_id, step, message):
         self.x("INSERT INTO events(run_id,ts,step,message) VALUES(?,?,?,?)", (run_id, now(), step, redact(message)))

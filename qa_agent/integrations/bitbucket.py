@@ -97,7 +97,10 @@ class BitbucketCloudProvider(_BitbucketBase):
 
     def get_repository(self, repo):
         ws, slug = check_repo(repo, self.repos)
-        return self._repo(self.http.get_json(f"2.0/repositories/{ws}/{slug}"))
+        info = self._repo(self.http.get_json(f"2.0/repositories/{ws}/{slug}"))
+        if info["full_name"] != repo:
+            raise RepoNotAllowed("returned repository does not match the requested resource")
+        return info
 
     def read_file(self, repo, path, ref="main"):
         ws, slug = check_repo(repo, self.repos)
@@ -159,6 +162,8 @@ class BitbucketDataCenterProvider(_BitbucketBase):
     def get_repository(self, repo):
         proj, slug = check_repo(repo, self.repos)
         info = self._repo(self.http.get_json(f"rest/api/1.0/projects/{proj}/repos/{slug}"))
+        if info["full_name"] != repo:
+            raise RepoNotAllowed("returned repository does not match the requested resource")
         try:
             info["default_branch"] = self.http.get_json(f"rest/api/1.0/projects/{proj}/repos/{slug}/default-branch").get("displayId")
         except IntegrationError:

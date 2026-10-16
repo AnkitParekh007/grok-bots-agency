@@ -65,6 +65,9 @@ class QAAgent:
         self.tracker = build_tracker(self.cfg, gateway=self.gateway)   # mock_jira by default; real adapters fail closed
         self.git = build_git(self.cfg, gateway=self.gateway)           # synthetic_git by default
         self.projects = {k: v for k, v in (self.cfg.get("projects") or {}).items() if not k.startswith("_")}
+        from .authorization import AccessPolicy
+        self.shared = self.cfg.get("deployment", {}).get("profile") == "shared"
+        self.access = AccessPolicy(self.projects, self.cfg.get("authorization"), shared=self.shared)
         self.skills = LocalSkillRegistry()
         self.model = build_model_provider(self.cfg, ROOT, gateway=self.gateway,
                      selected="replay" if review_only else (self.cfg["model"]["provider"] if agent_cfg is not None else None))
@@ -107,7 +110,7 @@ class QAAgent:
 
     def start_run(self, request: str, environment: str | None = None, story_key: str | None = None, wait=False, requested_by=None,
                   project: str | None = None, repository: str | None = None,
-                  model_provider: str | None = None, model_id: str | None = None):
+                  model_provider: str | None = None, model_id: str | None = None, tenant_id="local"):
         if self.review_only:
             raise ConflictError("review-only agent cannot plan or execute")
         model = self.models.resolve(model_provider, model_id) if model_provider else self.model
@@ -127,6 +130,7 @@ class QAAgent:
         run_id = "run-" + uuid.uuid4().hex[:10]
         self._run_models[run_id] = model
         self.store.create_run(run_id, request, env_name, model.name, model.label)
+        self.store.update_run(run_id, tenant_id=tenant_id)
         self.store.update_run(run_id, model_id=getattr(model, "model", model.name), model_version=getattr(model, "version", None))
         self.gateway.record(run_id, "model.selected", {"provider": model.name, "model": getattr(model, "model", model.name), "version": getattr(model, "version", None)}, "allow", "model selected for new run")
         if requested_by:
@@ -175,13 +179,15 @@ class QAAgent:
         def deny(reason):
             self.gateway.record(run_id, "plan.review", {"user": getattr(principal, "name", None), "plan_hash": plan_hash}, "deny", reason)
             raise ConflictError(reason)
-        if principal is None or not principal.authenticated or principal.mode != "local":
-            deny("authenticated local approver required")
+        if principal is None or not principal.authenticated or principal.kind != "human":
+            deny("authenticated human approver required")
         from .auth import has_role
         if not has_role(principal, "approver"):
             deny(f"role {principal.role} cannot approve")
         if not run or run["status"] != "awaiting_approval":
             deny(f"run not awaiting approval (status={run and run['status']})")
+        if self.access.strict and (run.get("tenant_id") != principal.tenant_id or not self.access.allows(principal, run.get("project"), "approver")):
+            deny("approver is outside the run's organization/project scope")
         if run.get("requested_by") and run["requested_by"] == principal.name:
             deny("requester cannot approve their own run")
         if not plan_hash or plan_hash != run["plan_hash"]:

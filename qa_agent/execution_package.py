@@ -34,6 +34,10 @@ def digest(run):
     envelope["test_plan_sha256"] = sha256(canon(run.get("plan_json") or {}))
     envelope["planning_sha256"] = sha256(canon(run.get("planning_json") or {}))
     envelope["story_sha256"] = sha256(canon(run.get("story_json") or {}))
+    envelope["repository_sha256"] = sha256(canon(run.get("repo_context_json")))
+    envelope["acceptance_sha256"] = sha256(canon(run.get("ac_json")))
+    envelope["model"] = {k: run.get(k) for k in ("model_provider", "model_id", "model_version")}
+    envelope["scope"] = {k: run.get(k) for k in ("tenant_id", "project", "requested_by")}
     return sha256(canon(envelope))
 
 
@@ -58,10 +62,12 @@ def inputs(agent, run, env, story=None, repository=None):
                 raise PackageChanged("registered action has no verifiable source artifact")
             code[f"skill:{skill.name}:{action}"] = sha256(bounded_read(source))
     manifest = {"format": FORMAT,
+                "scope": {k: run.get(k) for k in ("tenant_id", "project", "requested_by")},
                 "test_plan_sha256": sha256(canon(run["plan_json"])),
                 "planning_sha256": sha256(canon(run["planning_json"])),
                 "story_sha256": sha256(canon(story if story is not None else run["story_json"])),
                 "repository_sha256": sha256(canon(repository if repository is not None else run.get("repo_context_json"))),
+                "acceptance_sha256": sha256(canon(run.get("ac_json"))),
                 "environment": env, "policy_sha256": sha256(canon(agent.policy)),
                 "config_sha256": sha256(canon(agent.cfg)),
                 "catalog_version": planning.catalog_version(agent.skills),
@@ -130,7 +136,7 @@ def review_configuration(data_dir, run_id, approval_hash):
     if not row:
         raise PackageChanged("review run not found")
     run = dict(row)
-    for key in ("execution_envelope_json", "plan_json", "planning_json", "story_json"):
+    for key in ("execution_envelope_json", "plan_json", "planning_json", "story_json", "repo_context_json", "ac_json"):
         run[key] = json.loads(run[key]) if run.get(key) else None
     if not approval_hash or run["plan_hash"] != approval_hash or digest(run) != approval_hash:
         raise PackageChanged("stale or altered execution package")

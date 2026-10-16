@@ -28,7 +28,7 @@ def write_report(agent, run_id):
         "coverage_gaps": (run.get("planning_json") or {}).get("coverage_gaps", []),
         "understanding": (run.get("planning_json") or {}).get("understanding"),
         "usage": agent.store.run_usage(run_id)["totals"],
-        "approval_identity_note": "authenticated local identity" if (agent.approvals.latest(run_id) or {}).get("identity")
+        "approval_identity_note": ("authenticated " + str((agent.approvals.latest(run_id) or {}).get("auth_mode")) + " identity") if (agent.approvals.latest(run_id) or {}).get("identity")
                                   else "UNAUTHENTICATED demo approver label (local demo mode)",
         "audit_entries": len(audit), "audit_denied": sum(a["decision"] == "deny" for a in audit),
     }

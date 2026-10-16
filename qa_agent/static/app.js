@@ -140,7 +140,7 @@ function lock() {
   state.envs = [];
   state.cfg = null;
   state.section = "session";
-  state.me = { mode: "local", authenticated: false };
+  state.me = { mode: state.me?.mode || "local", authenticated: false };
   closeSheets(false);
   document.querySelectorAll("dialog[open]").forEach((d) => d.close());
   $("#conversation").hidden = false;
@@ -180,12 +180,19 @@ function lock() {
   ].forEach((id) => ($("#" + id).innerHTML = ""));
   $("#send").disabled = true;
   $("#msg").disabled = true;
+  const sso = state.me?.mode === "oidc";
+  $("#tok").hidden = sso;
+  $("#tok").required = !sso;
+  document.querySelector('label[for="tok"]').hidden = sso;
+  $("#login-help").textContent = sso ? "Continue with your organization's identity provider." : "Sign in with your local access token.";
+  $("#login").textContent = sso ? "Continue with organization sign-in" : "Sign in";
+  $("#login-session-note").textContent = sso ? "Your organization controls sign-in and access. This workspace uses a revocable session." : "Your access token is exchanged for a revocable session. It is never saved in browser storage.";
   $("#login-dialog").showModal();
 }
 async function boot() {
   const epoch = ++state.epoch;
   state.me = await api("/api/me");
-  if (state.me.mode === "local" && !state.me.authenticated) {
+  if (state.me.mode !== "demo" && !state.me.authenticated) {
     lock();
     return;
   }
@@ -1100,6 +1107,10 @@ $("#login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   $("#login").disabled = true;
   try {
+    if (state.me?.mode === "oidc") {
+      window.location.assign("/api/oidc/start");
+      return;
+    }
     await api("/api/login", { token: $("#tok").value });
     $("#tok").value = "";
     $("#login-error").textContent = "";

@@ -34,11 +34,13 @@ class _JiraBase(IssueTrackerProvider):
         check_project(project_of(key), self.projects)
         return key
 
-    def _normalize(self, raw: dict) -> dict:
+    def _normalize(self, raw: dict, *, expected_key=None, expected_project=None) -> dict:
         f = raw.get("fields") or {}
         proj = (f.get("project") or {}).get("key") or project_of(raw.get("key", ""))
         if proj not in self.projects:
-            raise ProjectNotAllowed(f"returned issue belongs to non-allowlisted project {proj}")
+            raise ProjectNotAllowed("returned issue is outside the requested project scope")
+        if project_of(raw.get("key", "")) != proj or (expected_key is not None and raw.get("key") != expected_key) or (expected_project is not None and proj != expected_project):
+            raise ProjectNotAllowed("returned issue does not match the requested resource")
         return {"key": raw.get("key"), "_source": self.kind, "fields": {
             "summary": f.get("summary", ""), "description": adf_text(f.get("description")).strip(),
             "labels": f.get("labels") or [], "issuetype": {"name": (f.get("issuetype") or {}).get("name")},
@@ -50,7 +52,7 @@ class _JiraBase(IssueTrackerProvider):
     def get_issue(self, key):
         raw = self.http.get_json(f"rest/api/{self.api}/issue/{self._key(key)}",
                                  {"fields": ISSUE_FIELDS + (f",{self.ac_field}" if self.ac_field else "")})
-        return self._normalize(raw)
+        return self._normalize(raw, expected_key=key, expected_project=project_of(key))
 
     def acceptance_criteria(self, key):
         return extract_acceptance_criteria(self.get_issue(key)["fields"], self.ac_field)
@@ -86,7 +88,7 @@ class _JiraBase(IssueTrackerProvider):
         jql = f"project = {project}" + (f" AND text ~ {_quote_jql(text)}" if text else "") + " ORDER BY key ASC"
         out = []
         for page in self._search_pages(jql, max_results):
-            out += [self._normalize(i) for i in page]
+            out += [self._normalize(i, expected_project=project) for i in page]
             if len(out) >= max_results:
                 break
         return [{"key": i["key"], "summary": i["fields"]["summary"], "status": i["fields"]["status"]["name"],

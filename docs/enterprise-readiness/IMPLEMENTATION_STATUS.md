@@ -6,18 +6,18 @@ Organization targets supplied by the owner: Jira Cloud `https://bluemeteor.atlas
 
 | Finding | Implementation status | Remaining acceptance work |
 |---|---|---|
-| ER-01 Identity/deployment | Pending | Federated identity, secure deployment profile, lifecycle tests |
-| ER-02 Sessions/abuse | Pending | Expiring/revocable sessions, secure cookie/CSRF policy, throttling |
-| ER-03 Project authorization | Pending | Membership-scoped reads/runs/approval/exports/connectors |
+| ER-01 Identity/deployment | OIDC/shared profile passed focused mock-IdP and browser checks; complete CI pending | Actual IdP setup, identity lifecycle and operational qualification remain |
+| ER-02 Sessions/abuse | Session/CSRF/expiry/revocation/throttle controls passed focused checks; operator guide added | Broader abuse tests and live qualification remain |
+| ER-03 Project authorization | Scoped API/run/artifact and exact returned-source controls passed focused checks | Per-connection delegated/service scope and real source ACL qualification remain |
 | ER-04 MCP | Pending | App-owned typed client/broker, operation policy, token/OAuth lifecycle and Cloud qualification |
 | ER-05 Organization capabilities | Pending | Analysis-only unsupported stories, approved action/oracle onboarding |
 | ER-06 Classification | Pending | Source/data-owner decisions and explicit model authorization |
 | ER-07 Grounding | Pending | Versioned custom AC/context sources and validator citations |
-| ER-08 Execution egress | Application controls implemented; broader regression running | Proxy, browser/API redirect/resource controls and DNS tests added; independent worker network isolation and TLS deployment qualification remain |
-| ER-09 Approval envelope | Implemented; targeted tests passed; broader regression running | Immutable snapshots, review-visible full digest and dispatch checks added; remaining deployment/source-version qualification tracked |
+| ER-08 Execution egress | Application controls passed complete CI at 371feee | Independent worker network isolation and TLS deployment qualification remain |
+| ER-09 Approval envelope | Snapshot/binding/handoff controls passed complete CI at 371feee; identity scope hardening in progress | Remaining deployment/source-version qualification tracked |
 | ER-10 Orchestration | Pending | Durable leases/queue/admission/recovery and multi-instance tests |
 | ER-11 Secrets/evidence | Pending | Broker, rotation, encryption, retention/access and privacy tests |
-| ER-12 Integration transport | Streaming/cooldown controls implemented; 9 targeted tests passed | Live quota/CA/explicit-proxy qualification and broader fault coverage remain |
+| ER-12 Integration transport | Streaming/cooldown controls passed complete CI at 371feee | Live quota/CA/explicit-proxy qualification and broader fault coverage remain |
 | ER-13 Live contracts | Pending | Completeness/field contracts and approved Cloud sandbox qualification |
 | ER-14 Model qualification | Pending | Independent held-out dataset, exact model/domain runs, quality/resource gates |
 | ER-15 Observability | Pending | Health/readiness, correlation, alerts and incident evidence |
@@ -30,6 +30,6 @@ Organization targets supplied by the owner: Jira Cloud `https://bluemeteor.atlas
 | ER-22 Client accessibility | Pending | Supported browsers, assistive technology and scale/privacy checks |
 | ER-23 Governance/support | Pending | Owner decisions, licensing/data terms, operating scope and sign-off |
 | ER-24 Adversarial sources | Pending | Source/tool poisoning/exfiltration qualification on implemented paths |
-| ER-25 Resource bounds | Pending | Body/admission/worker/storage quotas, pagination and overload tests |
+| ER-25 Resource bounds | HTTP body/deadline/request/session limits implemented with focused tests | Worker/storage quotas, pagination and broader overload tests remain |
 
 The goal remains active until every point is accounted for with implementation, validation, and any explicitly required external qualification. A revised readiness report will be written from final observed evidence; current status is not an enterprise GO.
