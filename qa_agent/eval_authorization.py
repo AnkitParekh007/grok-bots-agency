@@ -138,8 +138,11 @@ def main(argv=None):
     if not p:
         print("authentication failed (set QA_TOKEN to your local approver token)", file=sys.stderr); return 2
     cfg = load_json(ROOT / "config/agent.json"); cfg["model"]["provider"] = "replay"   # review/grants never call a model
-    agent = QAAgent(Path(a.data_dir), agent_cfg=cfg)
     try:
+        if a.cmd == "review" and a.decision == "approved":
+            from .execution_package import review_configuration
+            cfg = review_configuration(Path(a.data_dir), a.run, a.plan_hash)
+        agent = QAAgent(Path(a.data_dir), agent_cfg=cfg, review_only=True)
         if a.cmd == "create":
             spec = json.loads(Path(a.spec).read_text())
             out = create_grant(agent.store, agent.gateway, p, spec)

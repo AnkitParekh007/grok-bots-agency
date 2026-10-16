@@ -4,6 +4,10 @@ from .util import canon, now, sha256, redact
 
 def write_report(agent, run_id):
     run = agent.store.get_run(run_id)
+    oracle_bytes = agent.artifacts.path_for(run_id, "inputs/oracles.json").read_bytes()
+    if sha256(oracle_bytes) != (run.get("execution_envelope_json") or {}).get("oracle_sha256"):
+        raise ValueError("oracle snapshot changed before report generation")
+    oracle_manifest = json.loads(oracle_bytes)
     results = agent.store.results(run_id)
     audit = agent.store.audit_rows(run_id)
     rep = {
@@ -11,8 +15,8 @@ def write_report(agent, run_id):
         "story_summary": run["story_json"]["fields"]["summary"], "environment": run["environment"],
         "model": {"provider": run["model_provider"], "id": run.get("model_id"), "version": run.get("model_version"), "label": run["model_label"],
                   "note": "Test plan and AC extraction were REPLAYED from a recording; no live LLM was called." if run["model_provider"] == "replay" else ""},
-        "oracle_source": agent._oracles(run["story_key"]).get("source"),
-        "oracle_review": agent._oracles(run["story_key"]).get("review"),
+        "oracle_source": oracle_manifest.get("source"),
+        "oracle_review": oracle_manifest.get("review"),
         "plan_hash": run["plan_hash"], "catalog_version": run.get("catalog_version"),
         "approval_format": "qa-execution-envelope/1", "execution_envelope": run.get("execution_envelope_json"),
         "approval": agent.approvals.latest(run_id),

@@ -7,7 +7,7 @@ Milestone A two-step recording composed into plan_story), and can be scripted to
 Every response carries system_fingerprint LOCAL-STUB-NOT-A-MODEL. Binds to 127.0.0.1 only.
 Run:  python -m uvicorn qa_agent.devtools.model_stub:app --host 127.0.0.1 --port 8701
 """
-import asyncio, hashlib, json, uuid
+import asyncio, hashlib, json, uuid, os
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from .. import ROOT
@@ -16,6 +16,14 @@ from ..util import load_json
 
 app = FastAPI(title="LOCAL model stub (not a model)")
 STATE = {"queue": [], "requests": []}
+
+
+@app.middleware("http")
+async def harness_instance(request, call_next):
+    response = await call_next(request)
+    if os.environ.get("QA_HARNESS_INSTANCE_ID"):
+        response.headers["X-QA-Harness-Instance"] = os.environ["QA_HARNESS_INSTANCE_ID"]
+    return response
 
 
 @app.post("/_stub/queue")

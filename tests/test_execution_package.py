@@ -97,3 +97,25 @@ def test_executor_receives_snapshot_bytes_not_mutable_fixture_files(package):
     with patch("qa_agent.runtime.PlaywrightExecutor.run", new=capture):
         a.execute_approved(rid, wait=True)
     assert seen == [True]
+
+
+def test_manual_reviewer_loads_only_configuration_bound_to_review_hash(package):
+    from qa_agent.execution_package import review_configuration, PackageChanged
+    a, rid, _, _ = package
+    run = a.store.get_run(rid)
+    cfg = review_configuration(a.store.data_dir, rid, run["plan_hash"])
+    assert cfg == a.cfg
+    reviewer = QAAgent(a.store.data_dir, agent_cfg=cfg, review_only=True)
+    try:
+        reviewer.review_plan(rid, Principal("reviewer", "approver", "local"), "approved", run["plan_hash"])
+        with pytest.raises(ConflictError, match="review-only"):
+            reviewer.execute_approved(rid)
+        with pytest.raises(ConflictError, match="review-only"):
+            reviewer.start_run("attempted inference")
+    finally:
+        reviewer.store.db.close()
+    p = a.artifacts.path_for(rid, "inputs/config.json")
+    cfg["budget"]["per_run_usd"] = 100
+    p.write_text(json.dumps(cfg))
+    with pytest.raises(PackageChanged, match="configuration snapshot changed"):
+        review_configuration(a.store.data_dir, rid, run["plan_hash"])

@@ -53,8 +53,9 @@ class ConflictError(ValueError):
 
 
 class QAAgent:
-    def __init__(self, data_dir: Path, config_dir: Path = ROOT / "config", agent_cfg: dict | None = None):
+    def __init__(self, data_dir: Path, config_dir: Path = ROOT / "config", agent_cfg: dict | None = None, review_only=False):
         self.cfg = agent_cfg or load_json(Path(config_dir) / "agent.json")
+        self.review_only = review_only
         self.policy = load_json(Path(config_dir) / "policy.json")
         self.store = Store(data_dir)
         self.artifacts = FileArtifactStore(Path(data_dir) / "runs")
@@ -65,7 +66,8 @@ class QAAgent:
         self.git = build_git(self.cfg, gateway=self.gateway)           # synthetic_git by default
         self.projects = {k: v for k, v in (self.cfg.get("projects") or {}).items() if not k.startswith("_")}
         self.skills = LocalSkillRegistry()
-        self.model = build_model_provider(self.cfg, ROOT, gateway=self.gateway, selected=self.cfg["model"]["provider"] if agent_cfg is not None else None)  # fail-closed if not approved/configured
+        self.model = build_model_provider(self.cfg, ROOT, gateway=self.gateway,
+                     selected="replay" if review_only else (self.cfg["model"]["provider"] if agent_cfg is not None else None))
         self.budget = {"per_run_usd": 1.0, "daily_usd": 15.0, **self.cfg.get("budget", {})}
         if getattr(self.model, "per_attempt_budget", False):
             # billable provider: every cap must be explicitly configured, positive and numeric (fail closed)
@@ -106,6 +108,8 @@ class QAAgent:
     def start_run(self, request: str, environment: str | None = None, story_key: str | None = None, wait=False, requested_by=None,
                   project: str | None = None, repository: str | None = None,
                   model_provider: str | None = None, model_id: str | None = None):
+        if self.review_only:
+            raise ConflictError("review-only agent cannot plan or execute")
         model = self.models.resolve(model_provider, model_id) if model_provider else self.model
         if model_id and not model_provider:
             raise ProviderNotApproved("model_id requires model_provider")
@@ -134,6 +138,8 @@ class QAAgent:
 
     def approve(self, run_id, approver, decision, comment="", wait=False, identity=None, auth_mode="demo",
                 plan_hash=None, approver_label=None):
+        if self.review_only:
+            raise ConflictError("review-only agent cannot dispatch execution")
         run = self.store.get_run(run_id)
         if not run or run["status"] != "awaiting_approval":
             raise ConflictError(f"run not awaiting approval (status={run and run['status']})")
@@ -193,6 +199,8 @@ class QAAgent:
 
     def execute_approved(self, run_id, wait=True):
         """Execute a run whose exact plan was approved via review_plan()."""
+        if self.review_only:
+            raise ConflictError("review-only agent cannot dispatch execution")
         run = self.store.get_run(run_id)
         a = self.approvals.latest(run_id)
         if not run or run["status"] != "approved" or not self.approvals.is_approved(run_id, run["plan_hash"]) \
@@ -245,6 +253,8 @@ class QAAgent:
 
     def execute(self, run_id, wait=True):
         """Direct execution entry (used to prove fail-closed); still gated by approval + gateway."""
+        if self.review_only:
+            raise ConflictError("review-only agent cannot dispatch execution")
         if not self.exec_lock.acquire(blocking=False):
             raise ConflictError("another execution is active")
         return self._spawn(run_id, self._execute_locked, run_id, wait=wait)
@@ -428,6 +438,19 @@ class QAAgent:
 
     def _verify_package(self, run, env=None):
         try:
+            if self.review_only and env is None:
+                # Reviewing an offline synthetic plan need not start its SUT. Only
+                # the explicit loopback harness target may differ by ephemeral port;
+                # dispatch still verifies the actual resolved target independently.
+                proposed = (run.get("execution_envelope_json") or {}).get("environment", {})
+                from .environments import _is_loopback
+                from urllib.parse import urlparse
+                if proposed.get("kind") == "synthetic" and _is_loopback(urlparse(proposed.get("base_url", "")).hostname or ""):
+                    declared = self.envs._base(run["environment"])
+                    declared["base_url"] = proposed["base_url"]
+                    if declared != proposed or self.envs.problems(proposed):
+                        raise EP.PackageChanged("review target is not a registered synthetic environment")
+                    env = proposed
             return EP.verify(self, run, env or self.envs.resolve(run["environment"]))
         except (EP.PackageChanged, OSError, ValueError) as exc:
             self.gateway.record(run["id"], "execution.package", {"approval_hash": run.get("plan_hash")},

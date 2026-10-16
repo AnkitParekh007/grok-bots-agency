@@ -77,6 +77,7 @@ def capture(agent, run_id, env):
     run = agent.store.get_run(run_id)
     manifest, oracle, fixtures = inputs(agent, run, env)
     agent.artifacts.write_bytes(run_id, "inputs/oracles.json", oracle)
+    agent.artifacts.write_bytes(run_id, "inputs/config.json", canon(agent.cfg).encode())
     for name, body in fixtures.items():
         agent.artifacts.write_bytes(run_id, "inputs/fixtures/" + name, body)
     agent.artifacts.write_bytes(run_id, "inputs/envelope.json", canon(manifest).encode())
@@ -113,3 +114,31 @@ def verify(agent, run, env, *, check_sources=True):
             raise PackageChanged("fixture snapshot changed")
         fixtures[name] = body
     return json.loads(oracle), fixtures
+
+
+def review_configuration(data_dir, run_id, approval_hash):
+    """Load a configuration only after binding it to the explicitly reviewed hash.
+
+    Used by the review-only CLI; it never starts model inference or execution.
+    A caller cannot replace its config snapshot under an existing approval token.
+    """
+    import sqlite3
+    data_dir = Path(data_dir).resolve()
+    with sqlite3.connect((data_dir / "qa_agent.db").as_uri() + "?mode=ro", uri=True) as db:
+        db.row_factory = sqlite3.Row
+        row = db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+    if not row:
+        raise PackageChanged("review run not found")
+    run = dict(row)
+    for key in ("execution_envelope_json", "plan_json", "planning_json", "story_json"):
+        run[key] = json.loads(run[key]) if run.get(key) else None
+    if not approval_hash or run["plan_hash"] != approval_hash or digest(run) != approval_hash:
+        raise PackageChanged("stale or altered execution package")
+    root = (data_dir / "runs").resolve()
+    path = (root / run_id / "inputs/config.json").resolve()
+    if not path.is_relative_to(root):
+        raise PackageChanged("review path outside run storage")
+    cfg = json.loads(bounded_read(path))
+    if sha256(canon(cfg)) != run["execution_envelope_json"]["config_sha256"]:
+        raise PackageChanged("review configuration snapshot changed")
+    return cfg

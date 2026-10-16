@@ -42,3 +42,15 @@ The disabled [onboarding template](../../config/connections/bluemeteor-cloud.exa
 - [HTTPX proxy behavior](https://www.python-httpx.org/advanced/proxies/): integration proxy-environment inheritance is now disabled explicitly.
 
 Broad regression suite results and the updated readiness decision will be added after the implementation and qualification audit. Remaining findings are not considered closed by these targeted results.
+
+## Foundation checkpoint regression results
+
+Checkpoint `6644a48` was pushed on `codex/enterprise-readiness`. Its [first CI run](https://github.com/AnkitParekh007/grok-bots-agency/actions/runs/38887700614) passed **355 unit tests**, but failed three of 54 integration cases: evaluation first-plan execution had a changed ephemeral target, and two manual-review CLI cases reconstructed a different configuration. The stub evaluation consequently remained unsuccessful. These are real regressions, not accepted exclusions.
+
+The correction under test persists owned synthetic service ports across evaluation pause/resume, plans the first package only after its target is established, and verifies a per-process service instance header before trusting readiness. The manual-review CLI loads only the configuration snapshot bound to the supplied envelope hash, operates in a mode that cannot plan/dispatch, and retains strict real-target dispatch validation. Expected-result provenance in reports is now read from the verified snapshot as well.
+
+The corrected package and evaluation-handoff selection subsequently passed **15 tests locally** (359.99 seconds), including all three functional regressions from the first CI run. A new complete CI run is still required for the corrected revision.
+
+A resource-constrained local full integration attempt passed 50 cases and failed four: the same three functional regressions plus an execution wait timeout while suites were competing for memory. The local broad unit attempt was explicitly stopped to serialize resource-heavy tests and is not a passing result. Subsequent results will supersede these failures only after the corrected cases and full CI pass.
+
+OIDC/PKCE/token-validation and session-lifecycle cores are currently separate drafts under ignored reports, with 13 and 6 focused mock/unit checks respectively. They are not yet wired into the product and do not close ER-01/02/03. No real identity provider or organization connection has been used.
