@@ -6,6 +6,8 @@ from .interfaces import ArtifactStore, ApprovalProvider
 from datetime import datetime, timezone
 from .util import now, sha256, canon, redact
 
+SCHEMA_VERSION = 1
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, created TEXT, updated TEXT, status TEXT, request TEXT,
   story_key TEXT, environment TEXT, model_provider TEXT, model_label TEXT, story_json TEXT, ac_json TEXT,
@@ -46,8 +48,18 @@ class Store:
         self._job_context = threading.local()
         self.db = sqlite3.connect(self.data_dir / "qa_agent.db", check_same_thread=False, isolation_level=None)
         self.db.row_factory = sqlite3.Row
-        self.db.executescript(SCHEMA)
-        self._migrate()
+        try:
+            version = self.db.execute("PRAGMA user_version").fetchone()[0]
+            if version > SCHEMA_VERSION:
+                raise ValueError("database schema is newer than this application; rollback requires a compatible backup")
+            self.db.executescript("BEGIN IMMEDIATE;\n" + SCHEMA)
+            self._migrate()
+            self.db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            self.db.close()
+            raise
         # Anything mid-flight when the process died is marked interrupted (no silent resume in Milestone A).
         stale = [r[0] for r in self.db.execute("SELECT r.id FROM runs r WHERE r.status IN ('planning','executing') "
                                              "AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.run_id=r.id AND j.state IN ('queued','running'))")]
