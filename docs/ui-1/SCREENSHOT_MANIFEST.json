@@ -1,0 +1,145 @@
+{
+  "baseline_commit": "06d2917219d2a3dba04e6b97c0967350d1fde53b",
+  "capture_date": "2026-10-15",
+  "scope": "Actual Chromium UI captures with synthetic data; replay planning, no real-model reasoning or human QA sign-off claimed.",
+  "screenshots": [
+    {
+      "file": "docs/ui-1/screenshots/after/approval-mobile.png",
+      "width": 390,
+      "height": 844,
+      "sha256": "01254e3446b659dab131a3e2de93b1c339c680f6d6f583dd73551c8483092c44"
+    },
+    {
+      "file": "docs/ui-1/screenshots/after/approval-review.png",
+      "width": 1440,
+      "height": 900,
+      "sha256": "1adb9714a4dad0049e264ca766068b06b958e5c9f35800a9ae541f729b4f4483"
+    },
+    {
+      "file": "docs/ui-1/screenshots/after/completed-evidence.png",
+      "width": 1440,
+      "height": 900,
+      "sha256": "c9fd81fbb90d03fff37b7c5de41794739e685423e1fccc3472e1641af1ab2fc0"
+    },
+    {
+      "file": "docs/ui-1/screenshots/after/conversation-awaiting-approval.png",
+      "width": 1440,
+      "height": 900,
+      "sha256": "acf3ae6fde40491e5c1abb9dd3442d6f686098b3bba83ed2fdf3ad1273df4c26"
+    },
+    {
+      "file": "docs/ui-1/screenshots/after/execution-running.png",
+      "width": 1440,
+      "height": 900,
+      "sha256": "b1eeeec93988996f31d520b8af9299796e8c82bfb9ccabcb1754d0f7948cdb94"
+    },
+    {
+      "file": "docs/ui-1/screenshots/after/failed-run.png",
+      "width": 1440,
+      "height": 900,
+      "sha256": "5a7d715ada64270ed3566ebd2b91bb3f68e465ac6010c0d105574be51d94b770"
+    },
+    {
+      "file": "docs/ui-1/screenshots/after/initial-dark-1440x900.png",
+      "width": 1440,
+      "height": 900,
+      "sha256": "b7f2a1420af4c30937b0c1a039e7a854a64f0b22f8d893a5e5ded69948c8205e"
+    },
+    {
+      "file": "docs/ui-1/screenshots/after/initial-light-1024x768.png",
+      "width": 1024,
+      "height": 768,
+      "sha256": "ef3cf7181b6a0ba1bed70f3697e5e652de2308a40afea68adbe64a748c15292b"
+    },
+    {
+      "file": "docs/ui-1/screenshots/after/initial-light-1366x768.png",
+      "width": 1366,
+      "height": 768,
+      "sha256": "2869076e3780cb5a92585c5ee581ff18d1adc9edebc65559a1e716aac73a136c"
+    },
+    {
+      "file": "docs/ui-1/screenshots/after/initial-light-1440x900.png",
+      "width": 1440,
+      "height": 900,
+      "sha256": "b7c0a8b9b60e27bf0531933daf09e99f58244e1d2678de29d88d2264d231a88f"
+    },
+    {
+      "file": "docs/ui-1/screenshots/after/initial-light-1920x1080.png",
+      "width": 1920,
+      "height": 1080,
+      "sha256": "eca661324c21c0690ddd2d004a4afbbaa49b3848378359a113ada976243cefa7"
+    },
+    {
+      "file": "docs/ui-1/screenshots/after/initial-light-390x844.png",
+      "width": 390,
+      "height": 844,
+      "sha256": "6922efc60f78af60c829e7a5556cea8426ee53ed9ed69f25a6eb50019c83ada9"
+    },
+    {
+      "file": "docs/ui-1/screenshots/after/login.png",
+      "width": 1440,
+      "height": 900,
+      "sha256": "16b014fea4255bfc347c7744ac691cfc9789f4204b86ccec545a0c1a5f263fb5"
+    },
+    {
+      "file": "docs/ui-1/screenshots/after/models.png",
+      "width": 1440,
+      "height": 900,
+      "sha256": "5e8ff7078ba059370ae4e37b4865a3b079acab27f33eeee4dad34feb3f8b62e0"
+    },
+    {
+      "file": "docs/ui-1/screenshots/after/screenshot-viewer.png",
+      "width": 1440,
+      "height": 900,
+      "sha256": "5dfb654596cba560aa096b9039dbf46398b2c1dae91986761ce511a5f57868f1"
+    },
+    {
+      "file": "docs/ui-1/screenshots/after/test-plan.png",
+      "width": 1440,
+      "height": 900,
+      "sha256": "4942b1a756563e039417b8f4f14374d924d99db13e3788178bc6be96947f88ff"
+    },
+    {
+      "file": "docs/ui-1/screenshots/before/approval-1440x900.png",
+      "width": 1440,
+      "height": 900,
+      "sha256": "aebf5e26a0d5bf804380a576bb2ab49bf1b76adcb4ac89aa1d5c789967c8bfa0"
+    },
+    {
+      "file": "docs/ui-1/screenshots/before/initial-1024x768.png",
+      "width": 1024,
+      "height": 768,
+      "sha256": "7134c7c584eaa90394c6843cd7c041fa54757fa56fd5fbf50fb1066c4ef64a6e"
+    },
+    {
+      "file": "docs/ui-1/screenshots/before/initial-1366x768.png",
+      "width": 1366,
+      "height": 768,
+      "sha256": "95bc56a4adcaa7d8b9d754b567d7684b45678f8c464de828626eaca150506223"
+    },
+    {
+      "file": "docs/ui-1/screenshots/before/initial-1440x900.png",
+      "width": 1440,
+      "height": 900,
+      "sha256": "4931123c54358618b97a51e1d7d8e84ce08cbca23133a9b22908fa0a5762ba49"
+    },
+    {
+      "file": "docs/ui-1/screenshots/before/initial-1920x1080.png",
+      "width": 1920,
+      "height": 1080,
+      "sha256": "a0cc2e83dc1938abe6081ed245a0e382d7a1c4630e343349903261682bf0e0bf"
+    },
+    {
+      "file": "docs/ui-1/screenshots/before/initial-390x844.png",
+      "width": 390,
+      "height": 844,
+      "sha256": "1e177c36f1604ded2a98a0a5b61927631498be92d84596d5b42a00e1529c6285"
+    },
+    {
+      "file": "docs/ui-1/screenshots/before/results-1440x900.png",
+      "width": 1440,
+      "height": 900,
+      "sha256": "2c742f62f8c366ac9cfa8598c2f7a285ad81330664a48efbff12a69233dfce4b"
+    }
+  ]
+}

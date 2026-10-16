@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
 from . import ROOT
 from .auth import Principal, UserStore, has_role
@@ -52,6 +53,7 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
     users = UserStore(Path(users_file or os.environ.get("QA_USERS_FILE") or (ROOT / acfg.get("users_file", "data/users.json"))))
     app = FastAPI(title="Bluemeteor QA Agent (Milestone B1)")
     app.state.agent, app.state.auth_mode = agent, mode
+    app.mount("/static", StaticFiles(directory=ROOT / "qa_agent/static"), name="static")
 
     def principal(request: Request) -> Principal:
         if mode == "demo":
