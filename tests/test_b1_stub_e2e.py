@@ -146,6 +146,13 @@ def test_unclassified_story_never_sent_to_model(tmp_path, stub, key):
     a = mk(tmp_path / "data", stub)
     a.tracker = MockJiraProvider(d)
     rid, run = plan(a, "PCC-DEMO-2")
+    assert run["status"] == "analysis_only" and run["plan_hash"] is None and stub.requests() == []
+    from tests.test_enterprise_domains import approval
+    # Supply only domain authority; classification/model approval must still deny.
+    approval(a, {"tenant_id": "local", "project": "PCC", "repository": None,
+                 "story_key": "PCC-DEMO-2", "environment": "synthetic-local"}, a.envs._base("synthetic-local"))
+    rid = a.start_run("Plan PCC-DEMO-2", story_key="PCC-DEMO-2", project="PCC", wait=True)
+    run = a.store.get_run(rid)
     assert run["status"] == "failed" and "DataClassDenied" in run["error"] and stub.requests() == []
     assert any(r["tool"] == "model.data_class_gate" and r["decision"] == "deny" for r in a.store.audit_rows(rid))
 

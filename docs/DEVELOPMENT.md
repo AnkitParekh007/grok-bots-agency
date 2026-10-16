@@ -82,6 +82,8 @@ The fixture token is literally `synthetic-mock-token-not-a-secret`; the server p
 3. Define fixture/oracle references and actual-result fields. Expected values belong in independent oracle manifests, not model output. Unsupported requirements should surface as coverage gaps.
 4. Add positive/negative/policy and real synthetic browser/API tests. Verify approval/hash/expiry, fixture path containment and artifact handling. Broaden tool policy only for a concrete authorized action with denial tests.
 
+Organization execution additionally requires a server-managed `domain_capabilities` receipt binding the exact story/project/repository/environment, action implementations, catalog, fixtures and independently reviewed oracle. Use the [local proposal workflow](enterprise-readiness/SUPPLIER_PORTAL_ONBOARDING.md#enforced-domain-approval-contract) after implementing and reviewing the domain artifacts. A new oracle file, enabled environment or model-data grant alone cannot authorize domain actions. The built-in fixture harness remains explicitly synthetic.
+
 ## Add a Jira or Bitbucket adapter
 
 Implement the read-only `IssueTrackerProvider` or `GitProvider` contract and register it in `qa_agent/integrations/registry.py`. Reuse bounded integration HTTP, exact origin/project/repository allowlists, GET-only semantics, credential references, redaction and pagination/file limits. Add mock pagination, auth, path traversal, redirects, oversized content and denial tests. Start the new configuration disabled. Adapter implementation/testing does not grant real access, classify real data as synthetic or enable model planning on it. Writes require a separate future capability and approval design.

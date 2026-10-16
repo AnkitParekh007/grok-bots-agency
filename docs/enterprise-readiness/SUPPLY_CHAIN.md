@@ -10,7 +10,7 @@ Execution envelopes now bind the lock hash, observed interpreter/platform and in
 
 The separate supply-chain CI job installs its own locked tooling, audits both complete pinned dependency sets against public advisories without invoking dependency resolution, and generates CycloneDX SBOMs. `verify_sbom.py` requires the exact applicable package/version set, including bootstrap packages; missing, extra, duplicate or changed components fail. A scanner/network failure fails the job. Known vulnerabilities are not ignored automatically, including advisories without fixes. The scan covers Python package advisories, not malicious package behavior or every linked OS/native library. See the [pip-audit security model](https://pypi.org/project/pip-audit/#security-model).
 
-Bandit scans all of `qa_agent` and fails on unsuppressed findings. A timezone validation previously implemented with `assert` now uses an explicit exception, including under `python -O`. Dynamic run-update identifiers have a fixed column allowlist with bound values; session/restore maintenance use constant SQL. Browser context cleanup errors are recorded instead of silently swallowed, and model retry jitter uses SystemRandom.
+Bandit scans all of `qa_agent` and the local domain-proposal CLI, and fails on unsuppressed findings. A timezone validation previously implemented with `assert` now uses an explicit exception, including under `python -O`. Dynamic run-update identifiers have a fixed column allowlist with bound values; session/restore maintenance use constant SQL. Browser context cleanup errors are recorded instead of silently swallowed, and model retry jitter uses SystemRandom.
 
 Five narrow inline suppressions have source comments: the public synthetic mock token, operator-only hardware subprocess import/call, a tri-state score named `pass`, and SQL assembled only from the fixed validated run-column set. They do not authorize arbitrary subprocess input or SQL. Review these whenever their call sites/boundaries change.
 
@@ -24,7 +24,7 @@ Run the local equivalents from the repository root, after installing the securit
 .\.venv-security\Scripts\python.exe scripts/verify_sbom.py requirements.lock reports/security/runtime-sbom.json
 .\.venv-security\Scripts\python.exe -m pip_audit -r requirements-security.lock --require-hashes --disable-pip --format cyclonedx-json --output reports/security/tooling-sbom.json --progress-spinner off --timeout 20
 .\.venv-security\Scripts\python.exe scripts/verify_sbom.py requirements-security.lock reports/security/tooling-sbom.json
-.\.venv-security\Scripts\python.exe -m bandit -r qa_agent -f json -o reports/security/bandit.json
+.\.venv-security\Scripts\python.exe -m bandit -r qa_agent scripts/domain_proposal.py -f json -o reports/security/bandit.json
 .\.venv-security\Scripts\python.exe scripts/scan_secrets.py --self-test
 .\.venv-security\Scripts\python.exe scripts/scan_secrets.py
 ```
