@@ -20,8 +20,8 @@ Organization targets supplied by the owner: Jira Cloud `https://bluemeteor.atlas
 | ER-12 Integration transport | Streaming/cooldown controls passed complete CI at 371feee | Live quota/CA/explicit-proxy qualification and broader fault coverage remain |
 | ER-13 Live contracts | Pending | Completeness/field contracts and approved Cloud sandbox qualification |
 | ER-14 Model qualification | Pending | Independent held-out dataset, exact model/domain runs, quality/resource gates |
-| ER-15 Observability | Pending | Health/readiness, correlation, alerts and incident evidence |
-| ER-16 Durable audit | Atomic ledger/outbox, dispatch intent, signed checkpoints and projection recovery passed focused checks | Full regression, external protected sink/key custody and workflow-state atomicity remain |
+| ER-15 Observability | Process health/readiness, minimized correlation logs, protected metrics and example alerts passed focused checks | Full regression, deployment alert routing/on-call ownership and live incident evidence remain |
+| ER-16 Durable audit | Atomic ledger/outbox, dispatch intent, signed checkpoints and projection recovery passed complete CI at acd7a9f | External protected sink/key custody and workflow-state atomicity remain |
 | ER-17 Recovery/migrations | Pending | Consistent backup/restore/rollback and measured recovery |
 | ER-18 Supply chain | Pending | Locks, scans, SBOM/provenance, signed artifacts/deployment policy |
 | ER-19 SUT auth/cleanup | Pending | Approved credentials/actions, login, isolation and compensation |

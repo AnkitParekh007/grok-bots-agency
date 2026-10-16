@@ -5,6 +5,7 @@ is retried idempotently using its exact sequence/hash, without duplicating the l
 """
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .util import canon, now
@@ -59,6 +60,17 @@ class AuditDelivery:
         rows = self.store.q("SELECT COUNT(*) AS pending, MIN(created) AS oldest, MAX(attempts) AS attempts "
                             "FROM audit_outbox WHERE delivered IS NULL")
         return rows[0]
+
+    def admission_denial(self, limits=None):
+        limits = limits or {}
+        state = self.health()
+        if state["pending"] >= limits.get("max_pending", 1000):
+            return "audit projection backlog exceeded; operator recovery required"
+        if state["oldest"]:
+            age = (datetime.now(timezone.utc) - datetime.fromisoformat(state["oldest"])).total_seconds()
+            if age >= limits.get("max_age_s", 300):
+                return "audit projection delivery overdue; operator recovery required"
+        return None
 
     def flush(self, limit=100):
         """No silent overwrite of damaged projections. Return status for health/alerts."""

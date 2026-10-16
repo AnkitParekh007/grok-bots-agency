@@ -6,6 +6,7 @@ Auth modes (config auth.mode or env QA_AUTH_MODE):
           roles viewer/requester/approver enforced per endpoint.
 """
 import os
+import hmac
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from urllib.parse import urlsplit
@@ -25,6 +26,7 @@ from .sessions import SessionManager
 from .oidc import OidcClient, OidcError
 from .security import RateLimits, SecurityMiddleware
 from .util import register_secret_env
+from .observability import Observability, RequestObservability
 
 
 class ChatIn(BaseModel):
@@ -120,7 +122,12 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=[urlsplit(public_url).hostname])
     else:
         app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost", "testserver"])
-    app.add_middleware(SecurityMiddleware, shared=shared, **agent.cfg.get("http_limits", {}))
+    observer = Observability(agent, agent.cfg.get("observability"))
+    app.state.observer = observer
+    metrics_env = observer.cfg.get("metrics_token_env", "QA_METRICS_TOKEN")
+    if not isinstance(metrics_env, str) or not metrics_env.isidentifier() or len(metrics_env) > 128:
+        raise ValueError("metrics credential must be a server-side environment reference")
+    register_secret_env(metrics_env)
     app.mount("/static", StaticFiles(directory=ROOT / "qa_agent/static"), name="static")
 
     def principal(request: Request) -> Principal:
@@ -284,6 +291,35 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
         return {"user": p.name, "role": p.role, "mode": p.mode, "authenticated": p.authenticated,
                 "display_name": p.display_name, "tenant_id": p.tenant_id, "project_roles": p.project_roles}
 
+    @app.get("/healthz")
+    def live():
+        return JSONResponse({"alive": True}, headers={"Cache-Control": "no-store"})
+
+    @app.get("/readyz")
+    def ready():
+        healthy = observer.health()["ready"]
+        return JSONResponse({"ready": healthy, "scope": "process"}, 200 if healthy else 503, headers={"Cache-Control": "no-store"})
+
+    def operator_or_scraper(request):
+        header = request.headers.get("authorization", "")
+        token = os.environ.get(metrics_env, "")
+        if token and len(token) >= 32 and header.startswith("Bearer ") and hmac.compare_digest(header[7:].encode(), token.encode()):
+            return
+        p = principal(request)
+        if mode != "demo" and ((agent.access.strict or p.project_roles is not None) and
+                p.name not in agent.access.cfg.get("system_auditors", []) or not has_role(p, "approver")):
+            raise HTTPException(403, "operator observability permission required")
+
+    @app.get("/api/health")
+    def operator_health(request: Request):
+        operator_or_scraper(request)
+        return observer.health()
+
+    @app.get("/metrics")
+    def metrics(request: Request):
+        operator_or_scraper(request)
+        return Response(observer.prometheus(), media_type="text/plain; version=0.0.4", headers={"Cache-Control": "no-store"})
+
     @app.get("/api/config")
     def config(p: Principal = Depends(need("viewer"))):
         return {"model_label": agent.model.label, "model_provider": agent.model.name, "auth_mode": mode,
@@ -291,6 +327,8 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
 
     @app.post("/api/chat")
     def chat(body: ChatIn, p: Principal = Depends(need("requester"))):
+        if not observer.health()["ready"]:
+            raise HTTPException(503, "service admission unavailable; operator recovery required")
         if (agent.access.strict or p.project_roles is not None) and not body.project:
             raise HTTPException(400, "an authorized project is required")
         if body.project:
@@ -419,6 +457,8 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
 
     @app.post("/api/runs/{run_id}/approval")
     def approval(run_id: str, body: ApprovalIn, p: Principal = Depends(need("approver"))):
+        if not observer.health()["ready"]:
+            raise HTTPException(503, "service admission unavailable; operator recovery required")
         run = owned_run(run_id, p, "approve")   # approvers may act on any run (but never self-approve, below)
         if mode != "demo":
             if p.kind != "human":
@@ -545,12 +585,21 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
     def artifact(run_id: str, rel: str, p: Principal = Depends(need("viewer"))):
         return send(run_id, rel, None, p)
 
+    app.add_middleware(SecurityMiddleware, shared=shared, **agent.cfg.get("http_limits", {}))
+    app.add_middleware(RequestObservability, observer=observer)
     return app
 
 
 def main():
     import uvicorn
-    uvicorn.run(create_app(), host="127.0.0.1", port=int(os.environ.get("QA_AGENT_PORT", 8600)))
+    import logging
+    logger = logging.getLogger("qa_agent.access")
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(handler)
+        logger.propagate = False
+    uvicorn.run(create_app(), host="127.0.0.1", port=int(os.environ.get("QA_AGENT_PORT", 8600)), access_log=False)
 
 
 if __name__ == "__main__":

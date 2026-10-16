@@ -118,3 +118,13 @@ Audit sequence allocation and ledger/outbox insertion now commit in a single ser
 An operator-held Ed25519 checkpoint binds the full canonical prefix, chain head/sequence and an explicit ledger identity. Verification detects altered/shortened prefixes and wrong identities without constructing a runtime. External retention-protected delivery and signing-key custody remain unqualified. Application-state/audit atomicity beyond the audit/outbox transaction remains open.
 
 Focused durability/gateway/audit checks passed **52 tests** (29.68 seconds). Expanded checkpoint/recovery/path checks passed **58 tests** (32.08 seconds). Artifact paths now check path-component containment and single-component run IDs, including rejection of prefix-matching siblings. Full regression remains pending. See [audit operations](AUDIT_OPERATIONS.md).
+
+Audit checkpoint `acd7a9f` then passed [complete CI](https://github.com/AnkitParekh007/grok-bots-agency/actions/runs/38899136074), including unit/integration suites, offline evaluation and demo. External audit retention/signing custody remain unqualified.
+
+## Process observability: ER-15 (partial)
+
+Minimal non-cacheable liveness/readiness endpoints perform local database/audit/storage checks without initiating IdP/source/model/SUT probes. Protected health reports distinguish process admission from enterprise qualification. New planning/approval requests refuse admission when checks fail; the gateway also bounds overdue audit delivery. Protected Prometheus counters/histograms use trusted route templates and bounded methods/status classes, without resource/user IDs in labels. A separately scoped rotating scrape credential cannot act as an application user.
+
+Generated request IDs link minimized structured logs containing route template, method, status and duration only. Raw Uvicorn access logging is disabled by the standard entry point, keeping callback queries/credentials out of that log. Security/origin/body rejections also receive request IDs and security headers. [Operations guidance](OPERATIONS.md) and [example alert rules](../../config/alerts.example.yml) cover diagnosis, preservation and recovery. No monitoring receiver or production alert routing has been deployed.
+
+Focused observability/admission/identity checks passed **24 tests** (18.68 seconds); the expanded operations/audit selection passed **35 tests** (24.31 seconds). Broader regression and actual alert/incident exercises remain required.

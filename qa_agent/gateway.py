@@ -80,8 +80,9 @@ class ToolGateway:
             self._audit(run_id, tool, args, "deny", reason, "not_executed", 0)
             raise PolicyDenied(f"{tool}: {reason}")
         limits = self.policy.get("audit_delivery", {})
-        if self.audit_delivery.health()["pending"] >= limits.get("max_pending", 1000):
-            raise PolicyDenied("audit projection backlog exceeded; operator recovery required")
+        reason = self.audit_delivery.admission_denial(limits)
+        if reason:
+            raise PolicyDenied(reason)
         invocation = uuid.uuid4().hex
         self._audit(run_id, "tool.intent", {"invocation": invocation, "tool": tool, "arguments_sha256": sha256(canon(args))},
                     "allow", "policy ok; durable intent before dispatch", "pending", 0)
