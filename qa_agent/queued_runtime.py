@@ -11,7 +11,8 @@ class QueuedRuntime:
         self.jobs = DurableJobs(agent.store, agent.cfg.get("jobs"))
         self.configuration = sha256(canon({"config": agent.cfg, "policy": agent.policy}))
         implementation = {str(path.relative_to(ROOT)): sha256(path.read_bytes()) for path in sorted((ROOT / "qa_agent").rglob("*.py"))}
-        self.fingerprint = sha256(canon({"configuration": self.configuration, "implementation": implementation}))
+        from .dependencies import fingerprint
+        self.fingerprint = sha256(canon({"configuration": self.configuration, "implementation": implementation, "dependencies": fingerprint()}))
         self.authorizer = None
         self.workers = JobWorkers(self.jobs, self.fingerprint, self._dispatch, authorize=self._authorize, after_job=self._finished)
 

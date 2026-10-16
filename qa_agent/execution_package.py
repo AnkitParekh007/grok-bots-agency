@@ -79,6 +79,8 @@ def inputs(agent, run, env, story=None, repository=None):
                 "oracle_sha256": sha256(oracle),
                 "fixtures": {name: sha256(body) for name, body in fixtures.items()},
                 "code_sha256": code}
+    from .dependencies import fingerprint
+    manifest["dependencies"] = fingerprint()
     return manifest, oracle, fixtures
 
 

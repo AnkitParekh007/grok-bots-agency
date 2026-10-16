@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from .util import now, sha256, canon, redact
 
 SCHEMA_VERSION = 1
+RUN_UPDATE_FIELDS = frozenset("updated status request story_key environment model_provider model_label story_json ac_json plan_json plan_hash summary_json error model_id model_version planning_json requested_by cancel_requested catalog_version plan_created_at project repository repo_context_json execution_envelope_json tenant_id analysis_json source_bundle_json".split())
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, created TEXT, updated TEXT, status TEXT, request TEXT,
@@ -154,6 +155,8 @@ class Store:
                (run_id, t, t, "planning", request, environment, provider, label))
 
     def update_run(self, run_id, **kw):
+        if set(kw) - RUN_UPDATE_FIELDS:
+            raise ValueError("unknown or immutable run update field")
         kw["updated"] = now()
         if kw.get("error"):
             kw["error"] = redact(kw["error"])
@@ -162,7 +165,8 @@ class Store:
                 kw[k] = json.dumps(v)
         cols = ",".join(f"{k}=?" for k in kw)
         with self._fenced_state(run_id):
-            self.x(f"UPDATE runs SET {cols} WHERE id=?", (*kw.values(), run_id))
+            # Identifiers use the fixed RUN_UPDATE_FIELDS allowlist; values are bound.
+            self.x(f"UPDATE runs SET {cols} WHERE id=?", (*kw.values(), run_id))  # nosec B608
 
     def get_run(self, run_id):
         rows = self.q("SELECT * FROM runs WHERE id=?", (run_id,))

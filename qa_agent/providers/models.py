@@ -217,7 +217,7 @@ class OpenAICompatibleProvider(ModelProvider):
         self.backoff_base = float(cfg.get("backoff_base_s", 1.0))
         self.max_backoff = float(cfg.get("max_backoff_s", 30.0))
         self.jitter = float(cfg.get("backoff_jitter_ratio", 0.25))
-        self.rng = random.Random()
+        self.rng = random.SystemRandom()
         self.max_completion_tokens = int(cfg.get("max_completion_tokens", 8000))
         self.context_window = int(cfg.get("context_window", 131072))
         if not math.isfinite(self.timeout) or not 0 < self.timeout <= 600 or not 0 <= self.max_retries <= 5:

@@ -1,0 +1,4 @@
+/requirements.txt text eol=lf
+/requirements.lock text eol=lf
+/requirements-security.in text eol=lf
+/requirements-security.lock text eol=lf

@@ -50,7 +50,8 @@ def create_grant(store, gateway, principal, spec: dict) -> dict:
     exp = spec.get("expires_at")
     try:
         e = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
-        assert e.tzinfo is not None
+        if e.tzinfo is None:
+            raise ValueError("timezone required")
     except Exception:
         raise AuthorizationError("expires_at must be an ISO-8601 timestamp with timezone")
     if e <= datetime.now(timezone.utc):

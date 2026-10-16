@@ -26,12 +26,13 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: "3.12"
+          python-version: "3.12.15"
           cache: pip
+          cache-dependency-path: requirements.lock
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          python scripts/verify_dependency_locks.py
+          python -m pip --isolated install --require-hashes --only-binary=:all: --index-url https://pypi.org/simple -r requirements.lock
           python -m playwright install --with-deps chromium
       - name: Unit, planning, provider, cost and security tests (no servers)
         run: python -m pytest -q -m "not integration" --junitxml=reports/unit.xml
@@ -76,4 +77,81 @@ jobs:
           path: |
             reports/
             data/runs/*/report.*
+          retention-days: 14
+
+  supply-chain:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12.15"
+      - name: Verify reviewed lock inputs and hashes
+        run: python scripts/verify_dependency_locks.py
+      - name: Install separate locked security tools
+        run: |
+          python -m venv .venv-security
+          .venv-security/bin/python -m pip --isolated install --require-hashes --only-binary=:all: --index-url https://pypi.org/simple -r requirements-security.lock
+          mkdir -p reports/security
+      - name: Audit runtime dependencies and generate CycloneDX SBOM
+        run: |
+          .venv-security/bin/python -m pip_audit -r requirements.lock --require-hashes --disable-pip --format cyclonedx-json --output reports/security/runtime-sbom.json --progress-spinner off --timeout 20
+          .venv-security/bin/python scripts/verify_sbom.py requirements.lock reports/security/runtime-sbom.json
+      - name: Audit security-tool dependencies and generate SBOM
+        if: always()
+        run: |
+          .venv-security/bin/python -m pip_audit -r requirements-security.lock --require-hashes --disable-pip --format cyclonedx-json --output reports/security/tooling-sbom.json --progress-spinner off --timeout 20
+          .venv-security/bin/python scripts/verify_sbom.py requirements-security.lock reports/security/tooling-sbom.json
+      - name: Static security analysis
+        if: always()
+        run: .venv-security/bin/python -m bandit -r qa_agent -f json -o reports/security/bandit.json
+      - name: Prove offline secret guard rejects a synthetic canary
+        if: always()
+        run: .venv-security/bin/python scripts/scan_secrets.py --self-test
+      - name: Scan tracked source for new secrets without network verification
+        if: always()
+        run: .venv-security/bin/python scripts/scan_secrets.py
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: supply-chain-reports
+          path: reports/security/
+          retention-days: 14
+
+  provenance:
+    needs: [test, supply-chain]
+    if: github.event_name == 'push' && github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: supply-chain-reports
+          path: release/security
+      - name: Package reviewed source and security receipts
+        run: |
+          git archive --format=tar --output=release/qa-buddy-source.tar "$GITHUB_SHA"
+          printf '%s\n' "$GITHUB_SHA" > release/source-commit.txt
+          sha256sum requirements.lock requirements-security.lock > release/dependency-lock-sha256.txt
+          tar -czf qa-buddy-review-bundle.tar.gz -C release .
+      - name: Attest bundle provenance on trusted default-branch pushes only
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: qa-buddy-review-bundle.tar.gz
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: qa-buddy-attested-review-bundle
+          path: qa-buddy-review-bundle.tar.gz
           retention-days: 14

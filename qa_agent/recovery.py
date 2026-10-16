@@ -333,9 +333,9 @@ def _invalidate_restored_authority(stage, backup_id):
     try:
         with jobs.transaction() as db:
             tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            for table in ("oidc_flows", "connection_discovery", "connection_scopes"):
+            for table, delete_sql in (("oidc_flows", "DELETE FROM oidc_flows"), ("connection_discovery", "DELETE FROM connection_discovery"), ("connection_scopes", "DELETE FROM connection_scopes")):
                 if table in tables:
-                    receipt["invalidated_" + table] = db.execute(f"DELETE FROM {table}").rowcount
+                    receipt["invalidated_" + table] = db.execute(delete_sql).rowcount
             if "web_sessions" in tables:
                 receipt["revoked_sessions"] = db.execute("UPDATE web_sessions SET revoked=? WHERE revoked IS NULL", (time.time(),)).rowcount
             receipt["revoked_eval_grants"] = db.execute("UPDATE eval_grants SET revoked_at=?,revoked_by='restore-maintenance' WHERE revoked_at IS NULL", (now(),)).rowcount

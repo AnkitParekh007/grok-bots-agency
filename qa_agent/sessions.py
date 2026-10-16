@@ -129,6 +129,6 @@ class SessionManager:
     def revoke_external(self, issuer, *, subject=None, sid=None):
         if not issuer or not (subject or sid):
             raise ValueError("logout requires issuer and subject or external session id")
-        column, value = ("external_sid", sid) if sid else ("subject", subject)
-        self.store.x(f"UPDATE web_sessions SET revoked=? WHERE issuer=? AND {column}=? AND revoked IS NULL",
+        sql, value = ("UPDATE web_sessions SET revoked=? WHERE issuer=? AND external_sid=? AND revoked IS NULL", sid) if sid else ("UPDATE web_sessions SET revoked=? WHERE issuer=? AND subject=? AND revoked IS NULL", subject)
+        self.store.x(sql,
                      (self.clock(), issuer, value))

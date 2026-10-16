@@ -1,5 +1,6 @@
 /.venv
 /.venv/
+/.venv-security/
 __pycache__/
 *.pyc
 /data/

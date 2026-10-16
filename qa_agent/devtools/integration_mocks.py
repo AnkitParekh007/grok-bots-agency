@@ -11,7 +11,8 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs, unquote
 from .. import ROOT
 
-EXPECTED_TOKEN = "synthetic-mock-token-not-a-secret"
+# Public offline-fixture value, never an organization credential.
+EXPECTED_TOKEN = "synthetic-mock-token-not-a-secret"  # nosec B105
 
 
 def _adf(text):

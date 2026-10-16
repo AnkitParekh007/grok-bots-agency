@@ -1,0 +1,12 @@
+{
+  "format": "qa-dependency-locks/1",
+  "generator": "uv 0.12.5",
+  "resolution_python": "3.12",
+  "universal": true,
+  "files": {
+    "requirements.txt": "688086e34894353381c3b084d2685becbcb52c0acd8a28e140b4decae5b72d07",
+    "requirements.lock": "12b2567144ab6408762dfe9584654372903bb931082fd57df6c27b54c35d9094",
+    "requirements-security.in": "ddfb7f8b8bae32d431bb425583686b0ad3f104682ff468cb4c5c47c0a94d5762",
+    "requirements-security.lock": "354f1f4838342bfc7cd2921aa0667b8e6a54c3b98c9cbd2f1b5032086d141ddd"
+  }
+}

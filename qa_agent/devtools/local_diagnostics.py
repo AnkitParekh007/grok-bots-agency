@@ -8,7 +8,8 @@ import os
 import platform
 import re
 import shutil
-import subprocess
+# Operator-only read-only hardware diagnostics; no web/model dispatch.
+import subprocess  # nosec B404
 from pathlib import Path
 
 from ..util import now, redact
@@ -16,7 +17,8 @@ from ..util import now, redact
 
 def command(args, timeout=20):
     try:
-        p = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
+        # Fixed internal hardware-command call sites; shell=False, bounded timeout.
+        p = subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)  # nosec B603
         return {"ok": p.returncode == 0, "stdout": redact(p.stdout.strip()),
                 "error": None if p.returncode == 0 else "command failed"}
     except (OSError, subprocess.TimeoutExpired) as e:

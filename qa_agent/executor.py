@@ -188,8 +188,9 @@ class PlaywrightExecutor(TestExecutor):
                 t.log(f"trace failed: {e}")
             try:
                 context.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                t.log(f"browser context cleanup failed: {type(exc).__name__}")
+                res["status"], res["error"] = "error", "browser context cleanup failed; target effects require reconciliation"
             if proxy.denials:
                 res["status"], res["error"] = "blocked", "execution network policy denied traffic"
                 t.log("network policy", {"denials": len(proxy.denials)})

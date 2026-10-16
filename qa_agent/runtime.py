@@ -99,6 +99,10 @@ class QAAgent:
             raise ValueError("jobs.enabled must be a boolean")
         if self.shared and self.cfg.get("jobs", {}).get("enabled") is False:
             raise ValueError("shared deployment requires durable job workers")
+        if self.shared:
+            from .dependencies import fingerprint
+            if not fingerprint()["matches_lock"]:
+                raise ValueError("shared deployment requires the exact locked dependency environment")
         if self.cfg.get("jobs", {}).get("enabled", self.shared) is True:
             from .queued_runtime import QueuedRuntime
             self.queue = QueuedRuntime(self)

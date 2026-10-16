@@ -35,13 +35,17 @@ def review(a, rid):
     a.review_plan(rid, Principal("reviewer", "approver", "local"), "approved", r["plan_hash"])
 
 
-@pytest.mark.parametrize("change", ["oracle", "fixture", "policy", "configuration", "environment", "source", "plan", "snapshot", "scope", "stored_repository", "acceptance", "model_identity"])
+@pytest.mark.parametrize("change", ["oracle", "fixture", "policy", "configuration", "environment", "source", "plan", "snapshot", "scope", "stored_repository", "acceptance", "model_identity", "dependencies"])
 def test_changed_inputs_cannot_execute_under_old_approval(package, change, monkeypatch):
     a, rid, oracle_dir, fixture_dir = package
     review(a, rid)
     if change == "oracle":
         p = oracle_dir / "PCC-DEMO-1.expected.json"
         obj = json.loads(p.read_text());obj["review"] = {"status": "changed"};p.write_text(json.dumps(obj))
+    elif change == "dependencies":
+        from qa_agent import dependencies
+        original_version = dependencies.importlib.metadata.version
+        monkeypatch.setattr(dependencies.importlib.metadata, "version", lambda name: "0.0.0" if name == "fastapi" else original_version(name))
     elif change == "fixture":
         p = next(fixture_dir.glob("*.csv"));p.write_bytes(p.read_bytes() + b"\nchanged")
     elif change == "policy":

@@ -139,7 +139,7 @@ Prerequisites: Git, Python **3.12+** and PowerShell. CI uses Python 3.12; the do
 git clone https://github.com/AnkitParekh007/grok-bots-agency.git
 cd grok-bots-agency
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install --require-hashes --only-binary=:all: -r requirements.lock
 .\.venv\Scripts\python.exe -m playwright install chromium
 ```
 

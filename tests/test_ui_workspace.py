@@ -306,7 +306,8 @@ def test_authenticated_full_workflow_and_artifacts(page, workspace):
     expect(page.locator('#links')).to_be_visible();shot(page,'completed-evidence')
     page.locator('[data-action="screenshot"]').first.click()
     expect(page.locator('#evidence-dialog')).to_be_visible()
-    page.wait_for_function('document.querySelector("#evidence-image").naturalWidth > 0')
+    expect(page.locator('#evidence-image')).to_have_js_property('complete', True)
+    expect(page.locator('#evidence-image')).not_to_have_js_property('naturalWidth', 0)
     shot(page,'screenshot-viewer');page.keyboard.press('Escape')
     with page.expect_download() as download:
         page.get_by_role('link',name='Download trace').first.click()

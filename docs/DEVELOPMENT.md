@@ -4,7 +4,7 @@
 
 ## Environment and conventions
 
-Use Python 3.12+ and the README's virtual environment. CI currently uses Python 3.12 on Ubuntu 24.04. Windows commands below use the virtual environment's interpreter without activation; after activation `python` is equivalent. The frontend is plain HTML/CSS/JavaScript served by FastAPI, with no Node build step. Node is not an application prerequisite.
+Use Python 3.12+ and the README's virtual environment with `requirements.lock` and mandatory hashes. CI currently pins Python 3.12.15 on Ubuntu 24.04. Windows commands below use the virtual environment's interpreter without activation; after activation `python` is equivalent. The frontend is plain HTML/CSS/JavaScript served by FastAPI, with no Node build step. Node is not an application prerequisite. See [dependency/source assurance](enterprise-readiness/SUPPLY_CHAIN.md) for lock updates and the separate security-tool environment.
 
 Follow neighboring Python modules, existing abstract interfaces in `qa_agent/interfaces.py`, JSON configuration/schema/catalog validation and pytest markers in `pytest.ini`. The repository does not mandate a formatter/linter toolchain. Prefer extending a provider, skill or adapter boundary rather than embedding domain behavior in the runtime. Preserve default-deny policy, oracle independence, explicit approvals and recorded model identity. Do not alter gold/replay answers merely to make quality metrics pass.
 
