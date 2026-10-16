@@ -105,8 +105,16 @@ The runtime classifies/minimizes input before native model preparation and creat
 
 Configured custom acceptance criteria enter both the prompt and validator. Criteria must quote their own authoritative requirement and cite its exact field source ID/hash; description text cannot silently substitute. Observed line locations/content versions are explicit. Upstream Jira version and non-issue sources remain unqualified. [Data approval setup](DATA_APPROVAL_SETUP.md) documents deliberately non-authorizing operator templates.
 
-The focused source/provider/planning/package selection passed **118 tests** (158.51 seconds). A hardened data/package selection passed **33 tests** (35.43 seconds), including the full runtime planning path through a mock native protocol with a fixture answer, custom-source grounding and snapshot-tamper rejection. That test is explicitly stub evidence, not genuine model reasoning. Full CI remains required.
+The focused source/provider/planning/package selection passed **118 tests** (158.51 seconds). A hardened data/package selection passed **33 tests** (35.43 seconds), including the full runtime planning path through a mock native protocol with a fixture answer, custom-source grounding and snapshot-tamper rejection. That test is explicitly stub evidence, not genuine model reasoning. Checkpoint `2fb3f02` then passed [complete CI](https://github.com/AnkitParekh007/grok-bots-agency/actions/runs/38897937089): **458 unit + 57 integration tests**, offline evaluation and demo. Stub model-quality eligibility remains false.
 
 ## Governance: ER-23 (partial)
 
 The repository owner explicitly selected **MIT** in this chat on 2026-10-16. Added the standard MIT license under the verified Git author name Ankit Parekh and updated current README/development guidance. Historical baseline assessments retain their accurate observation that no license existed then. Dependency/model/service licensing, data decisions, operating/support owners and final sign-off remain separate acceptance work.
+
+## Durable audit foundation: ER-16 (partial)
+
+Audit sequence allocation and ledger/outbox insertion now commit in a single serialized transaction. The gateway persists a dispatch intent before calling a permitted tool, then records a linked outcome. Missing outcomes remain unknown. Projection delivery fsyncs global/run JSONL records, retries complete-but-unacknowledged lines idempotently, preserves pending records on failure, and applies backlog backpressure. Partial/corrupt projections require explicit recovery; the operator tool preserves prior bytes, verifies the ledger and refuses active runs.
+
+An operator-held Ed25519 checkpoint binds the full canonical prefix, chain head/sequence and an explicit ledger identity. Verification detects altered/shortened prefixes and wrong identities without constructing a runtime. External retention-protected delivery and signing-key custody remain unqualified. Application-state/audit atomicity beyond the audit/outbox transaction remains open.
+
+Focused durability/gateway/audit checks passed **52 tests** (29.68 seconds). Expanded checkpoint/recovery/path checks passed **58 tests** (32.08 seconds). Artifact paths now check path-component containment and single-component run IDs, including rejection of prefix-matching siblings. Full regression remains pending. See [audit operations](AUDIT_OPERATIONS.md).

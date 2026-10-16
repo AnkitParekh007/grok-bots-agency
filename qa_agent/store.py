@@ -1,5 +1,5 @@
 """SQLite task history + filesystem artifact store (runs/<run_id>/)."""
-import json, sqlite3, threading
+import json, sqlite3, threading, re
 from pathlib import Path
 from .interfaces import ArtifactStore, ApprovalProvider
 from datetime import datetime, timezone
@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS eval_grants(grant_id TEXT PRIMARY KEY, created_by TEX
   require_first_manual_approval INTEGER, purpose TEXT, grant_hash TEXT, revoked_at TEXT, revoked_by TEXT);
 CREATE TABLE IF NOT EXISTS eval_grant_uses(id INTEGER PRIMARY KEY AUTOINCREMENT, grant_id TEXT, run_id TEXT UNIQUE, ts TEXT);
 CREATE TABLE IF NOT EXISTS telemetry(id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, ts TEXT, kind TEXT, provider TEXT, detail TEXT);
+CREATE TABLE IF NOT EXISTS audit_outbox(seq INTEGER PRIMARY KEY, payload TEXT NOT NULL, created TEXT NOT NULL,
+  delivered TEXT, attempts INTEGER DEFAULT 0, last_error TEXT);
 CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT,'audit is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit BEGIN SELECT RAISE(ABORT,'audit is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS approvals_no_update BEFORE UPDATE ON approvals BEGIN SELECT RAISE(ABORT,'approvals are append-only'); END;
@@ -119,16 +121,27 @@ class Store:
         return sha256(f"audit-v2|{seq}|{prev_hash}|{payload_hash}")
 
     def append_audit(self, rec):
-        """Caller must hold the gateway lock. v2 chain: monotonically increasing seq + canonical payload hash."""
+        """Serialize sequence allocation across processes; ledger and outbox commit together."""
         with self.lock:
-            last = self.db.execute("SELECT entry_hash, seq FROM audit WHERE entry_hash IS NOT NULL ORDER BY id DESC LIMIT 1").fetchone()
-            last_seq = self.db.execute("SELECT MAX(seq) FROM audit").fetchone()[0] or 0
-            rec["prev_hash"] = last[0] if last else "GENESIS"
-            rec["seq"] = last_seq + 1
-            rec["payload_hash"] = self.payload_hash(rec)
-            rec["entry_hash"] = self.entry_hash_v2(rec["seq"], rec["prev_hash"], rec["payload_hash"])
-            self.db.execute("INSERT INTO audit(ts,run_id,tool,args_hash,args_summary,decision,reason,outcome,duration_ms,prev_hash,entry_hash,seq,payload_hash)"
-                            " VALUES(:ts,:run_id,:tool,:args_hash,:args_summary,:decision,:reason,:outcome,:duration_ms,:prev_hash,:entry_hash,:seq,:payload_hash)", rec)
+            outer = self.db.in_transaction
+            self.db.execute("SAVEPOINT audit_append" if outer else "BEGIN IMMEDIATE")
+            try:
+                last = self.db.execute("SELECT entry_hash, seq FROM audit WHERE entry_hash IS NOT NULL ORDER BY id DESC LIMIT 1").fetchone()
+                last_seq = self.db.execute("SELECT MAX(seq) FROM audit").fetchone()[0] or 0
+                rec["prev_hash"] = last[0] if last else "GENESIS"
+                rec["seq"] = last_seq + 1
+                rec["payload_hash"] = self.payload_hash(rec)
+                rec["entry_hash"] = self.entry_hash_v2(rec["seq"], rec["prev_hash"], rec["payload_hash"])
+                self.db.execute("INSERT INTO audit(ts,run_id,tool,args_hash,args_summary,decision,reason,outcome,duration_ms,prev_hash,entry_hash,seq,payload_hash)"
+                                " VALUES(:ts,:run_id,:tool,:args_hash,:args_summary,:decision,:reason,:outcome,:duration_ms,:prev_hash,:entry_hash,:seq,:payload_hash)", rec)
+                payload = {k: rec[k] for k in (*self.AUDIT_FIELDS, "prev_hash", "entry_hash", "seq", "payload_hash")}
+                self.db.execute("INSERT INTO audit_outbox(seq,payload,created) VALUES(?,?,?)", (rec["seq"], canon(payload), now()))
+                self.db.execute("RELEASE audit_append" if outer else "COMMIT")
+            except Exception:
+                self.db.execute("ROLLBACK TO audit_append" if outer else "ROLLBACK")
+                if outer:
+                    self.db.execute("RELEASE audit_append")
+                raise
         return rec
 
     def export_audit(self, path):
@@ -282,8 +295,13 @@ class FileArtifactStore(ArtifactStore):
         self.root.mkdir(parents=True, exist_ok=True)
 
     def path_for(self, run_id, rel=""):
-        p = (self.root / run_id / rel).resolve()
-        if not str(p).startswith(str(self.root / run_id)):
+        if not isinstance(run_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", run_id):
+            raise ValueError("invalid run artifact identity")
+        base = (self.root / run_id).resolve()
+        if base.parent != self.root:
+            raise ValueError("run directory outside artifact storage")
+        p = (base / rel).resolve()
+        if not p.is_relative_to(base):
             raise ValueError("path escapes run directory")
         p.parent.mkdir(parents=True, exist_ok=True)
         return p
@@ -294,7 +312,7 @@ class FileArtifactStore(ArtifactStore):
         return str(p)
 
     def manifest(self, run_id):
-        base = self.root / run_id
+        base = self.path_for(run_id)
         out = []
         for p in sorted(base.rglob("*")):
             if p.is_file() and p.name != "manifest.json":

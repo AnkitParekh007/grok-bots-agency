@@ -1,5 +1,5 @@
 """Tool gateway: default-deny policy check + append-only audit (SQLite + JSONL) for every tool call."""
-import json, threading, time
+import json, threading, time, uuid
 from pathlib import Path
 from urllib.parse import urlparse
 from . import ROOT
@@ -16,6 +16,9 @@ class ToolGateway:
         self.audit_jsonl = Path(audit_jsonl)
         self.audit_jsonl.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+        from .audit_delivery import AuditDelivery
+        self.audit_delivery = AuditDelivery(store, artifacts, self.audit_jsonl)
+        self.audit_delivery.flush()
 
     def _audit(self, run_id, tool, args, decision, reason, outcome, dur):
         rec = {"ts": now(), "run_id": run_id, "tool": tool, "args_hash": sha256(canon(args)),
@@ -23,13 +26,7 @@ class ToolGateway:
                "outcome": redact(outcome)[:300], "duration_ms": dur}
         with self._lock:
             self.store.append_audit(rec)
-            rec = {k: rec[k] for k in (*self.store.AUDIT_FIELDS, "prev_hash", "entry_hash", "seq", "payload_hash")}
-            line = json.dumps(rec) + "\n"
-            with open(self.audit_jsonl, "a") as f:
-                f.write(line)
-            if run_id:
-                with open(self.artifacts.path_for(run_id, "audit.jsonl"), "a") as f:
-                    f.write(line)
+            self.audit_delivery.flush()
         return rec
 
     def record(self, run_id, tool, args, decision, reason, outcome="not_executed"):
@@ -82,11 +79,17 @@ class ToolGateway:
         if reason:
             self._audit(run_id, tool, args, "deny", reason, "not_executed", 0)
             raise PolicyDenied(f"{tool}: {reason}")
+        limits = self.policy.get("audit_delivery", {})
+        if self.audit_delivery.health()["pending"] >= limits.get("max_pending", 1000):
+            raise PolicyDenied("audit projection backlog exceeded; operator recovery required")
+        invocation = uuid.uuid4().hex
+        self._audit(run_id, "tool.intent", {"invocation": invocation, "tool": tool, "arguments_sha256": sha256(canon(args))},
+                    "allow", "policy ok; durable intent before dispatch", "pending", 0)
         t = time.time()
         try:
             out = fn()
         except Exception as e:
-            self._audit(run_id, tool, args, "allow", "policy ok", f"error: {type(e).__name__}: {e}"[:300], int((time.time()-t)*1000))
+            self._audit(run_id, tool, args, "allow", "policy ok; invocation=" + invocation, f"error: {type(e).__name__}: {e}"[:300], int((time.time()-t)*1000))
             raise
-        self._audit(run_id, tool, args, "allow", "policy ok", "ok", int((time.time()-t)*1000))
+        self._audit(run_id, tool, args, "allow", "policy ok; invocation=" + invocation, "ok", int((time.time()-t)*1000))
         return out
