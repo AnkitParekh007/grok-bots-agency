@@ -30,7 +30,7 @@ The owner subsequently identified `bluemeteorapps/supplierportalui`, Supplier Po
 | ER-20 Jira write-back | Pending | Separately reviewed bounded operations, idempotency and workflow mapping |
 | ER-21 Regression automation | Legacy synthetic-eval source restrictions passed complete CI at 1c05c9b | Organization versioned suites/grants/schedules/release semantics remain unimplemented |
 | ER-22 Client accessibility | Pending | Supported browsers, assistive technology and scale/privacy checks |
-| ER-23 Governance/support | Owner approved MIT on 2026-10-16; LICENSE and current guides updated | Third-party/model/data terms, operating owners/support scope and sign-off remain |
+| ER-23 Governance/support | MIT owner decision applied; locked installed-package license/notice collection implemented, with every decision explicitly NOT_REVIEWED; focused checks passed | Actual third-party/native/model/data terms decisions, operating owners/support scope and sign-off remain |
 | ER-24 Adversarial sources | Pinned MCP/inner-operation, source identity/quote, pagination-scope and revocation negatives passed focused checks | Broader adversarial model/source exfiltration and actual deployment qualification remain |
 | ER-25 Resource bounds | Existing request/worker/source bounds plus per-file/run/aggregate evidence quotas, disk reserve, bounded inventory and multi-instance publication checks implemented; focused checks passing | Native/OS/SQLite/audit storage ceilings, tenant fairness, scale and overload/soak qualification remain |
 

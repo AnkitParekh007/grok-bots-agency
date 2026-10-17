@@ -59,6 +59,15 @@ jobs:
       - name: Smoke demo (headless UI, replay model)
         if: always()
         run: python scripts/demo_and_screenshots.py
+      - name: Collect installed runtime license evidence without approving terms
+        if: always()
+        run: python scripts/license_inventory.py requirements.lock reports/security/runtime-licenses
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: runtime-license-evidence
+          path: reports/security/runtime-licenses/
+          retention-days: 14
       - name: Test summary
         if: always()
         run: |
@@ -107,9 +116,12 @@ jobs:
         run: |
           .venv-security/bin/python -m pip_audit -r requirements-security.lock --require-hashes --disable-pip --format cyclonedx-json --output reports/security/tooling-sbom.json --progress-spinner off --timeout 20
           .venv-security/bin/python scripts/verify_sbom.py requirements-security.lock reports/security/tooling-sbom.json
+      - name: Collect installed tooling license evidence without approving terms
+        if: always()
+        run: .venv-security/bin/python scripts/license_inventory.py requirements-security.lock reports/security/tooling-licenses
       - name: Static security analysis
         if: always()
-        run: .venv-security/bin/python -m bandit -r qa_agent scripts/domain_proposal.py -f json -o reports/security/bandit.json
+        run: .venv-security/bin/python -m bandit -r qa_agent scripts/domain_proposal.py scripts/license_inventory.py -f json -o reports/security/bandit.json
       - name: Prove offline secret guard rejects a synthetic canary
         if: always()
         run: .venv-security/bin/python scripts/scan_secrets.py --self-test
@@ -140,6 +152,10 @@ jobs:
         with:
           name: supply-chain-reports
           path: release/security
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: runtime-license-evidence
+          path: release/runtime-licenses
       - name: Package reviewed source and security receipts
         run: |
           git archive --format=tar --output=release/qa-buddy-source.tar "$GITHUB_SHA"
