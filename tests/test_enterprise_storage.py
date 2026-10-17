@@ -239,6 +239,18 @@ def test_storage_exhaustion_degrades_readiness_and_blocks_http_and_direct_planni
         agent.close(); agent.store.db.close()
 
 
+def test_missing_artifact_reads_do_not_create_directories(tmp_path):
+    app = create_app(tmp_path, agent_cfg=agent_cfg("replay"))
+    agent = app.state.agent
+    try:
+        agent.store.create_run("empty-run", "Synthetic read-only path fixture", "synthetic-local", "replay", "Fixture")
+        with TestClient(app) as client:
+            assert client.get("/api/runs/empty-run/artifacts/not-present").status_code == 404
+            assert not (agent.artifacts.root / "empty-run").exists()
+    finally:
+        agent.close(); agent.store.db.close()
+
+
 def test_tool_dispatch_rechecks_capacity_after_durable_intent(tmp_path, monkeypatch):
     agent = QAAgent(tmp_path, agent_cfg=agent_cfg("replay"))
     original = agent.gateway._audit

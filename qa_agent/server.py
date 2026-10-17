@@ -575,7 +575,7 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
             path = agent.artifacts.path_for(run_id, rel, create=False)
         except ValueError:
             raise HTTPException(400, "bad path")
-        if path == agent.artifacts.path_for(run_id, "inputs/config.json") and \
+        if path == agent.artifacts.path_for(run_id, "inputs/config.json", create=False) and \
                 p.name not in agent.access.cfg.get("system_auditors", []):
             raise HTTPException(404, "artifact not found")
         if not path.is_file():
