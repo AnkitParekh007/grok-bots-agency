@@ -22,3 +22,5 @@ For an incident:
 4. For projection corruption or interrupted delivery, follow [audit operations](AUDIT_OPERATIONS.md). Repair requires quiescent planning/execution and does not repair an invalid authoritative ledger.
 5. Resolve storage/permissions/transport causes, verify the chain and independent checkpoint, confirm process readiness, and perform a supervised synthetic check before approving new organization work.
 6. Record impact, uncertain external effects, timeline, recovery evidence and the designated owner's decision. Full backup/restore, worker fencing, external immutable delivery and real on-call drills remain unqualified acceptance gates.
+
+[Run-history paging](RUN_HISTORY.md) bounds HTTP inventory and query work without deleting evidence. [Reviewed Jira write operations](JIRA_WRITES.md) explains the disabled capability, separate review/send steps, admission limits and mandatory manual reconciliation after uncertain or restored receipts.

@@ -92,10 +92,13 @@ def test_exact_review_minimal_payload_and_one_dispatch(writes, kind, kw):
     w = writes
     draft = proposal(w, kind, **kw)
     assert draft["state"] == "pending" and not posts(w)
+    assert w.agent.gateway.audit_delivery.health()["pending"] == 0
     assert "private-customer-text" not in json.dumps(draft)
     approve(w, draft)
+    assert w.agent.gateway.audit_delivery.health()["pending"] == 0
     outcome = w.service.dispatch("run", draft["draft"]["id"], w.receipts["reviewer"])
     assert outcome["state"] == "succeeded"
+    assert w.agent.gateway.audit_delivery.health()["pending"] == 0
     assert json.loads(posts(w)[0].content) == draft["draft"]["payload"]
     assert len(posts(w)) == 1
     with pytest.raises(JiraWriteDenied):
@@ -109,6 +112,26 @@ def test_duplicate_proposal_returns_original_receipt_without_new_operation(write
     two = proposal(writes)
     assert one == two
     assert len(writes.agent.store.q("SELECT * FROM jira_writes")) == 1
+    assert len(writes.calls) == 1  # Reuse never repeats the Jira metadata read.
+
+
+def test_admission_rate_is_durable_and_throttles_before_upstream_reads(writes):
+    w = writes
+    c = TestClient(w.app)
+    headers = {"Authorization": "Bearer " + w.tokens["requester"]}
+    # Freeze the rate window independently from the approval lifetime clock.
+    w.service.rates.clock = lambda: 100
+    for _ in range(10):
+        response = c.post('/api/runs/run/jira-writes', headers=headers, json={"kind": "create"})
+        assert response.status_code == 200, response.text
+    assert len(w.calls) == 1 and not posts(w)
+    response = c.post('/api/runs/run/jira-writes', headers=headers, json={"kind": "create"})
+    assert response.status_code == 429 and int(response.headers['retry-after']) == 20
+    assert len(w.calls) == 1
+    # A new service instance shares SQLite admission state instead of resetting it.
+    other = JiraWrites(w.agent, w.service.authorization, transport=w.service.transport, clock=lambda: 100)
+    from qa_agent.jira_writes import JiraWriteThrottled
+    with pytest.raises(JiraWriteThrottled): other.propose('run', 'create', w.receipts['requester'])
 
 
 @pytest.mark.parametrize("mutate", ["disabled", "unapproved", "host", "project", "credentials", "http", "prefix", "kind"])
@@ -230,6 +253,37 @@ def test_crashed_dispatching_receipt_is_never_reset_by_startup(writes):
         with pytest.raises(JiraWriteDenied): w.service.dispatch("run", draft["draft"]["id"], w.receipts["reviewer"])
         assert not posts(w)
     finally: reopened.db.close()
+
+
+def test_restore_blocks_new_operation_kinds_on_old_completed_run(writes, tmp_path):
+    import os
+    from qa_agent.recovery import backup, restore
+    w = writes
+    draft = proposal(w)
+    approve(w, draft)
+    key = os.urandom(32)
+    archive, target = tmp_path / 'writes.qab', tmp_path / 'restored'
+    backup(w.agent.store.data_dir, archive, key, 'synthetic-writes', confirmed_quiescent=True)
+    restore(archive, target, key, 'synthetic-writes')
+    store = Store(target)
+    agent = copy.copy(w.agent)
+    agent.store = store
+    service = JiraWrites(agent, w.service.authorization, transport=w.service.transport)
+    try:
+        assert store.get_run('run')['status'] == 'completed'
+        assert service.get('run', draft['draft']['id'], w.receipts['reviewer'])['state'] == 'restored_reconciliation_required'
+        assert not service.list('run', w.receipts['reviewer'])['available']
+        with pytest.raises(JiraWriteDenied, match='fresh run'):
+            service.propose('run', 'comment', w.receipts['requester'], target='PCC-1')
+        assert not posts(w)
+    finally: store.db.close()
+
+
+def test_denied_or_run_scoped_tool_record_is_not_restore_authority(writes):
+    w = writes
+    w.agent.gateway.record(None, 'maintenance.restore', {}, 'deny', 'synthetic denied tool')
+    w.agent.gateway.record('run', 'maintenance.restore', {}, 'allow', 'synthetic run-scoped tool')
+    assert proposal(w)['state'] == 'pending'
 
 
 def test_api_roles_exact_review_and_cross_owner_visibility(writes):

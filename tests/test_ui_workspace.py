@@ -69,7 +69,7 @@ def workspace(tmp_path_factory):
                 time.sleep(.1)
             else:
                 raise AssertionError('workspace did not start')
-            yield base, tokens
+            yield base, tokens, directory / 'data'
         finally:
             proc.terminate(); proc.wait(15)
             connector_mock.__exit__(None, None, None)
@@ -369,3 +369,32 @@ def test_safe_markdown_and_copy(page,workspace):
     expect(page.locator('.user-message code')).to_contain_text('synthetic only')
     page.locator('.user-message [data-action="copy-code"]').click()
     expect(page.locator('#live-status')).to_contain_text('Copied to clipboard')
+
+
+def test_run_history_pages_keep_recent_sidebar_and_return_to_latest(page, workspace):
+    from qa_agent.store import Store
+    store = Store(workspace[2])
+    try:
+        with store.lock:
+            store.db.execute('BEGIN IMMEDIATE')
+            for index in range(105):
+                rid = f'history{index:03}'
+                store.create_run(rid, 'Synthetic pagination fixture', 'synthetic-local', 'replay', 'Replay')
+                store.update_run(rid, status='completed', project='PCC', requested_by='ui_requester')
+                store.x("UPDATE runs SET created='2099-01-01T00:00:00.000+00:00' WHERE id=?", (rid,))
+            store.db.commit()
+    finally:
+        store.db.close()
+    login(page, workspace)
+    page.get_by_role('button', name='Test Runs', exact=True).click()
+    expect(page.locator('#page-view .list-card')).to_have_count(100)
+    expect(page.locator('#page-view [data-run="history104"]')).to_be_visible()
+    page.get_by_role('button', name='Older runs', exact=True).click()
+    expect(page.locator('#page-view [data-run="history000"]')).to_be_visible()
+    expect(page.locator('#page-view [data-run="history104"]')).to_have_count(0)
+    expect(page.locator('#runs [data-run="history104"]')).to_be_visible()
+    expect(page.locator('#page-view')).to_be_focused()
+    page.get_by_role('button', name='Latest runs', exact=True).click()
+    expect(page.locator('#page-view .list-card')).to_have_count(100)
+    expect(page.locator('#page-view [data-run="history104"]')).to_be_visible()
+    expect(page.get_by_role('button', name='Latest runs', exact=True)).to_have_count(0)

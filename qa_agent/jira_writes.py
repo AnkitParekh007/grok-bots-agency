@@ -17,10 +17,17 @@ import httpx
 
 from .util import canon, sha256, register_secret_env, register_secret_value
 from .integrations.http import IntegrationError
+from .security import RateLimits
 
 
 class JiraWriteDenied(ValueError):
     pass
+
+
+class JiraWriteThrottled(JiraWriteDenied):
+    def __init__(self, retry_after):
+        super().__init__("Jira write admission rate exceeded")
+        self.retry_after = retry_after
 
 
 def _require(ok, message):
@@ -42,6 +49,15 @@ class JiraWrites:
     def __init__(self, agent, authorization, *, transport=None, clock=time.time):
         self.agent, self.store, self.authorization = agent, agent.store, authorization
         self.transport, self.clock = transport, clock
+        self.rates = RateLimits(self.store, clock=clock)
+
+    def _admit(self, run, principal):
+        for scope, key, limit in (("jira_write_actor", principal.name, 10),
+                                  ("jira_write_project", canon([run.get("tenant_id"), run["project"]]), 30),
+                                  ("jira_write_global", "all", 60)):
+            retry = self.rates.consume(scope, key, limit, period=60)
+            if retry:
+                raise JiraWriteThrottled(retry)
 
     @contextmanager
     def _transaction(self):
@@ -51,6 +67,9 @@ class JiraWrites:
             try:
                 yield
                 self.store.db.commit()
+                # In-transaction audit calls intentionally defer projection.
+                # Drain after commit so an idle review cannot age the backlog.
+                self.agent.gateway.audit_delivery.flush()
             except BaseException:
                 self.store.db.rollback()
                 raise
@@ -61,7 +80,12 @@ class JiraWrites:
         _identifier(run_id, r"[A-Za-z0-9_-]{1,80}", "run id")
         if completed:
             _require(run["status"] == "completed" and not run.get("cancel_requested"), "write requires a completed, non-cancelled run")
+            _require(not self._restored(run), "restored run requires reconciliation and a fresh run before Jira writes")
         return run
+
+    def _restored(self, run):
+        return bool(self.store.q("SELECT 1 FROM audit WHERE tool='maintenance.restore' AND decision='allow' "
+                                 "AND run_id IS NULL AND ts>=? LIMIT 1", (run["created"],)))
 
     def _actor(self, receipt, run, role):
         p = self.authorization._principal(receipt)
@@ -249,9 +273,15 @@ class JiraWrites:
         run = self._run(run_id)
         p = self._actor(receipt, run, "requester")
         cfg, origin, ttl = self._configuration(run)
+        self._admit(run, p)
         failures, evidence_hash = self._evidence(run)
-        upstream = self._upstream(cfg, run, kind, target, transition)
         fingerprint = sha256(canon([run_id, kind, target, transition, evidence_hash]))
+        old = self.store.q("SELECT id FROM jira_writes WHERE fingerprint=?", (fingerprint,))
+        if old:
+            return self.get(run_id, old[0]["id"], receipt)
+        _require(self.store.q("SELECT COUNT(*) AS n FROM jira_writes WHERE run_id=?", (run_id,))[0]["n"] < 20,
+                 "per-run write proposal limit reached")
+        upstream = self._upstream(cfg, run, kind, target, transition)
         op = uuid.uuid4().hex
         lines = ["QA Buddy review evidence; failed assertions may need investigation.",
                  "Operation: " + op, "Evidence SHA-256: " + evidence_hash,
@@ -304,7 +334,7 @@ class JiraWrites:
         available, transitions = False, []
         try:
             cfg, _, _ = self._configuration(run)
-            available = run["status"] == "completed" and not run.get("cancel_requested")
+            available = run["status"] == "completed" and not run.get("cancel_requested") and not self._restored(run)
             transitions = sorted(k for k in cfg.get("transitions", {}) if isinstance(k, str) and
                                  re.fullmatch(r"[A-Za-z0-9_-]{1,80}", k))
         except (JiraWriteDenied, ValueError, TypeError, KeyError, IntegrationError):
@@ -339,6 +369,7 @@ class JiraWrites:
         row = self._row(run_id, op)
         _require(row["state"] == "approved" and p.name == row["approver"], "only the approving human can dispatch once")
         cfg, _, _ = self._configuration(run)
+        self._admit(run, p)
         draft = json.loads(row["draft"])
         upstream = self._upstream(cfg, run, draft["kind"], draft["target"], draft["transition"])
         with self._transaction():

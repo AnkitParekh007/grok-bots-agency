@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS jira_writes(id TEXT PRIMARY KEY,run_id TEXT NOT NULL,
   draft TEXT NOT NULL,draft_hash TEXT NOT NULL,state TEXT NOT NULL,requester TEXT NOT NULL,requester_receipt TEXT NOT NULL,
   approver TEXT,approver_receipt TEXT,expires REAL NOT NULL,started REAL,outcome TEXT);
 CREATE INDEX IF NOT EXISTS jobs_ready ON jobs(state,config_hash,created);
+CREATE INDEX IF NOT EXISTS runs_history ON runs(created DESC,id DESC);
+CREATE INDEX IF NOT EXISTS audit_restore_history ON audit(tool,ts);
 CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT,'audit is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit BEGIN SELECT RAISE(ABORT,'audit is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS approvals_no_update BEFORE UPDATE ON approvals BEGIN SELECT RAISE(ABORT,'approvals are append-only'); END;

@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 from urllib.parse import urlsplit
 from pathlib import Path
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, Form
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, Form, Query
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
@@ -134,7 +134,7 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
     oidc = OidcClient(acfg["oidc"], agent.store, transport=oidc_transport) if mode == "oidc" else None
     from .job_authorization import JobAuthorization
     job_authorization = JobAuthorization(agent, sessions, users, mode, forbid_self_approval=acfg.get("forbid_self_approval", True))
-    from .jira_writes import JiraWrites, JiraWriteDenied
+    from .jira_writes import JiraWrites, JiraWriteDenied, JiraWriteThrottled
     jira_writes = JiraWrites(agent, job_authorization)
     app.state.jira_writes = jira_writes
     if mode == "demo" and any(c.get("enabled") for c in agent.cfg.get("jira_writes", {}).values()):
@@ -472,9 +472,27 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
         allowed = {e for k, pc in agent.projects.items() if agent.access.allows(p, k) for e in pc.get("environments", [])}
         return [e for e in _read("env.list", {}, agent.envs.list_environments) if e["name"] in allowed]
 
+    def history(p, limit, cursor):
+        from .run_history import page_runs, HistoryUnavailable
+        try:
+            return page_runs(agent, p, limit=limit, cursor=cursor)
+        except ValueError:
+            raise HTTPException(400, "invalid or unsupported run-history page") from None
+        except HistoryUnavailable:
+            raise HTTPException(503, "run-history query budget exceeded; operator review required") from None
+
+    @app.get("/api/run-pages")
+    def run_pages(limit: int = Query(default=100, ge=1, le=100), cursor: str | None = Query(default=None, max_length=512),
+                  p: Principal = Depends(need("viewer"))):
+        return history(p, limit, cursor)
+
     @app.get("/api/runs")
-    def runs(p: Principal = Depends(need("viewer"))):
-        return [r for r in agent.store.list_runs() if can_access(p, r)]
+    def runs(response: Response, limit: int = Query(default=100, ge=1, le=100),
+             cursor: str | None = Query(default=None, max_length=512), p: Principal = Depends(need("viewer"))):
+        result = history(p, limit, cursor)
+        if result["next_cursor"]:
+            response.headers["X-Next-Cursor"] = result["next_cursor"]
+        return result["items"]
 
     @app.get("/api/runs/{run_id}")
     def run(run_id: str, p: Principal = Depends(need("viewer"))):
@@ -524,6 +542,8 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
         try:
             receipt = job_authorization.receipt(request, p, session_cookie)
             return action(receipt)
+        except JiraWriteThrottled as e:
+            raise HTTPException(429, "Jira write admission rate exceeded", headers={"Retry-After": str(e.retry_after)}) from None
         except JiraWriteDenied as e:
             agent.gateway.record(run_id, "jira.write.denied", {}, "deny", str(e))
             raise HTTPException(409, str(e)) from None

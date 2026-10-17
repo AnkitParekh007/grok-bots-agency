@@ -35,6 +35,10 @@ const state = {
   projects: [],
   envs: [],
   runs: [],
+  recentRuns: [],
+  runPageCursor: null,
+  runNextCursor: null,
+  historyGeneration: 0,
   run: null,
   current: null,
   section: "session",
@@ -140,6 +144,9 @@ function lock() {
   state.run = null;
   state.review = null;
   state.runs = [];
+  state.recentRuns = [];
+  state.runPageCursor = state.runNextCursor = null;
+  state.historyGeneration++;
   state.models = [];
   state.projects = [];
   state.connections = [];
@@ -209,7 +216,7 @@ async function boot() {
       "/api/environments",
       "/api/projects",
       "/api/models",
-      "/api/runs",
+      "/api/run-pages",
       "/api/connections",
     ].map((u) => api(u)),
   );
@@ -218,7 +225,11 @@ async function boot() {
   state.envs = envs;
   state.projects = projects;
   state.models = models;
-  state.runs = runs;
+  state.runs = runs.items;
+  state.recentRuns = runs.items;
+  state.runPageCursor = null;
+  state.runNextCursor = runs.next_cursor;
+  state.historyGeneration++;
   state.connections = connections;
   state.discoveries.clear();
   $("#notice").hidden = true;
@@ -335,8 +346,8 @@ function renderNav() {
     .join("");
 }
 function renderRecent() {
-  $("#runs").innerHTML = state.runs.length
-    ? state.runs
+  $("#runs").innerHTML = state.recentRuns.length
+    ? state.recentRuns
         .slice(0, 8)
         .map(
           (r) =>
@@ -485,6 +496,9 @@ function renderPage() {
             ? "Reports become available after an approved execution."
             : "Start a new QA session to generate a test plan.",
         );
+    body += '<div class="actions" aria-label="Run history pages">' +
+      (state.runPageCursor ? '<button class="button" data-action="latest-runs">Latest runs</button>' : '') +
+      (state.runNextCursor ? '<button class="button" data-action="older-runs">Older runs</button>' : '') + '</div>';
   }
   if (state.section === "projects")
     body =
@@ -567,7 +581,7 @@ function connectionSettings() {
 async function refresh() {
   clearTimeout(state.timer);
   const rid = state.current,
-    epoch = state.epoch;
+    epoch = state.epoch, pageCursor = state.runPageCursor;
   if (!rid) return;
   try {
     const r = await api("/api/runs/" + encodeURIComponent(rid));
@@ -576,9 +590,13 @@ async function refresh() {
     state.run = r;
     if (changed)
       announce((r.story_key || r.id) + ": " + r.status.replaceAll("_", " "));
-    const rs = await api("/api/runs");
+    const rs = await api('/api/run-pages' + (pageCursor ? '?cursor=' + encodeURIComponent(pageCursor) : ''));
     if (rid !== state.current || epoch !== state.epoch) return;
-    state.runs = rs;
+    if (pageCursor === state.runPageCursor) {
+      state.runs = rs.items;
+      state.runNextCursor = rs.next_cursor;
+      if (!pageCursor) state.recentRuns = rs.items;
+    }
     renderRecent();
     render();
     if (!terminal.has(r.status)) state.timer = setTimeout(refresh, 1400);
@@ -589,6 +607,7 @@ async function refresh() {
   }
 }
 async function openRun(rid) {
+  closeJiraWrites();
   clearTimeout(state.timer);
   state.current = rid;
   state.run = null;
@@ -601,6 +620,7 @@ async function openRun(rid) {
   await refresh();
 }
 function newSession() {
+  closeJiraWrites();
   clearTimeout(state.timer);
   state.current = null;
   state.run = null;
@@ -612,6 +632,7 @@ function newSession() {
   $("#msg").focus();
 }
 function navigate(section) {
+  closeJiraWrites();
   state.section = section;
   closeSheets(false);
   render();
@@ -909,6 +930,28 @@ async function probe(index, button) {
 }
 async function handleAction(button) {
   const action = button.dataset.action;
+  if (['older-runs', 'latest-runs'].includes(action)) {
+    const cursor = action === 'older-runs' ? state.runNextCursor : null;
+    const previous = state.runPageCursor, epoch = state.epoch, generation = ++state.historyGeneration;
+    state.runPageCursor = cursor;
+    button.disabled = true;
+    try {
+      const page = await api('/api/run-pages' + (cursor ? '?cursor=' + encodeURIComponent(cursor) : ''));
+      if (epoch !== state.epoch || generation !== state.historyGeneration) return;
+      state.runs = page.items;
+      state.runNextCursor = page.next_cursor;
+      if (!cursor) {state.recentRuns = page.items; renderRecent();}
+      renderPage();
+      $('#page-view').focus({preventScroll: true});
+      announce(cursor ? 'Older runs loaded.' : 'Latest runs loaded.');
+    } catch (error) {
+      if (generation === state.historyGeneration) state.runPageCursor = previous;
+      throw error;
+    } finally {
+      if (button.isConnected) button.disabled = false;
+    }
+    return;
+  }
   if (action === 'jira-writes') {
     if (state.run && state.me?.authenticated) await openJiraWrites(state.run, state.me);
     return;

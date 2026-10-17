@@ -36,6 +36,7 @@ Implementation is ongoing on `codex/enterprise-readiness`. The [current implemen
 |---|---|---|
 | AI-generated test plans | Experimental | Structured understanding, behaviors, tests and gaps; real-model quality evaluation pending. Replay is recorded output. |
 | Jira story reading | Available / Experimental | Synthetic fixtures available; Cloud/Data Center read-only adapters tested against mocks, disabled for real sites. |
+| Reviewed Jira writes | Experimental / Disabled | Separate Cloud create/comment/transition capability; exact human review and a separate send step. Live mappings, credentials and qualification remain pending. |
 | Acceptance-criteria extraction | Experimental | Source-quoted ACs, including explicitly approved custom fields and content-hash citations; reasoning quality remains unqualified. |
 | Unsupported story review | Available | Deterministic, non-executable source review and capability gaps when independent expected results are absent; no model/SUT calls. |
 | Playwright browser automation | Available | Registered synthetic upload, error and product-count checks; no arbitrary website agent. |
@@ -206,7 +207,7 @@ $env:QA_MODEL_PROVIDER = 'replay'
 
 ## Security model
 
-Execution requires validation and approval bound to the full immutable execution envelope; plans expire, and uncertain mutations are not silently replayed. Local/OIDC identities support tenant/project-scoped roles; demo mode uses unauthenticated labels. Integrations remain read-only. Browser/API traffic uses a validated application proxy, with independent worker-network isolation still required. Production is prohibited; Test/Playground remain unverified. Organization model input needs separate source-classification and exact model-data approvals. Credentials use server-side references. Audit intents and outcomes use a hash-chained ledger with recoverable file delivery and optional operator-signed checkpoints.
+Execution requires validation and approval bound to the full immutable execution envelope; plans expire, and uncertain mutations are not silently replayed. Local/OIDC identities support tenant/project-scoped roles; demo mode uses unauthenticated labels. Source adapters remain read-only; a separate disabled [Jira Cloud write capability](docs/enterprise-readiness/JIRA_WRITES.md) requires exact human review and a separate send action. Browser/API traffic uses a validated application proxy, with independent worker-network isolation still required. Production is prohibited; Test/Playground remain unverified. Organization model input needs separate source-classification and exact model-data approvals. Credentials use server-side references. Audit intents and outcomes use a hash-chained ledger with recoverable file delivery and optional operator-signed checkpoints.
 
 This remains a prototype. Real IdP/source/model qualification, managed secrets/evidence encryption, worker deployment/soak qualification, independent network/audit protection, recovery and governance gates remain open. Defaults authorize synthetic data only; broader data decisions must be explicit. See [architecture and limitations](docs/ARCHITECTURE_SECURITY.md) and the [implementation ledger](docs/enterprise-readiness/IMPLEMENTATION_STATUS.md).
 
@@ -272,7 +273,7 @@ $env:QA_MODEL_PROVIDER = 'replay'
 | C1 — Approved real Jira/Bitbucket access | Approval-gated, not completed |
 | C2 — Repository-grounded QA | Planned |
 | C3 — Environment testing | Planned; nonlocal environments unverified |
-| C4 — Human-approved Jira write-back | Planned |
+| C4 — Human-approved Jira write-back | Implemented / Disabled; live qualification pending |
 | C5 — Regression and release sanity automation | Planned |
 
 See [the detailed roadmap](docs/ROADMAP.md) for delivered scope and remaining boundaries.

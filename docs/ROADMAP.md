@@ -14,7 +14,7 @@ Status describes implementation, not production readiness. “Delivered” does 
 | C1 — Approved real Jira/Bitbucket access | Approval-gated, not completed | Obtain service-account/scope approval, verify real contracts and data handling. Real-story classification/model authorization must be resolved explicitly. |
 | C2 — Repository-grounded QA | Planned | Use approved repository evidence to ground planning. Current read-only context snapshots are recorded but not model input. |
 | C3 — Environment testing | Planned / safety-gated | Verify nonproduction URLs, synthetic accounts, cleanup and actual registered environment-specific checks before execution. |
-| C4 — Human-approved Jira write-back | Planned | Design explicit reviewed defect/comment/transition operations with identity, scope and audit. No write adapters currently exist. |
+| C4 — Human-approved Jira write-back | Implemented / Disabled; qualification pending | Separate Jira Cloud create/comment/transition drafts bind exact payload, source/evidence and live identities; distinct review and send actions, durable single-attempt receipts and restore invalidation. Actual project/type/workflow mappings, ACLs and reconciliation qualification remain. |
 | C5 — Regression and release sanity automation | Planned | Approved suite orchestration, scheduling, report comparisons and release gates; current individual reruns are manual. |
 
 Immediate follow-up work is actual operator-installed local-model evaluation, QA-lead agreement on thresholds, independent blinded human stories/review, and separately authorized account/access checks. No dates, hosted access entitlement, model download, spend or production deployment are implied by this roadmap.
