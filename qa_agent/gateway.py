@@ -84,6 +84,8 @@ class ToolGateway:
         reason = self.audit_delivery.admission_denial(limits)
         if reason:
             raise PolicyDenied(reason)
+        if tool not in ("report.generate", "artifact.write"):
+            self.artifacts.ensure_capacity(run_id)
         invocation = uuid.uuid4().hex
         self._audit(run_id, "tool.intent", {"invocation": invocation, "tool": tool, "arguments_sha256": sha256(canon(args))},
                     "allow", "policy ok; durable intent before dispatch", "pending", 0)
@@ -92,6 +94,8 @@ class ToolGateway:
             # Intent delivery may block on storage; recheck authority immediately
             # before dispatch as well as before recording the intent.
             self.store.assert_job_lease(run_id, allow_cancel=tool in ("report.generate", "artifact.write"))
+            if tool not in ("report.generate", "artifact.write"):
+                self.artifacts.ensure_capacity(run_id)
             out = fn()
             self.store.assert_job_lease(run_id, allow_cancel=True, authorize=False)
         except Exception as e:

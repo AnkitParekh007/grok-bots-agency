@@ -83,9 +83,14 @@ class ToolContext:
         self.log(f"upload {name}")
 
     def screenshot(self):
-        p = self.art.path_for(self.run_id, f"evidence/{self.tc_id}/screenshot.png")
-        self.gw.invoke(self.run_id, "browser.screenshot", {"path": str(p)},
-                       lambda: self.page.screenshot(path=str(p), full_page=True), self.ctx)
+        rel = f"evidence/{self.tc_id}/screenshot.png"
+        p = self.art.path_for(self.run_id, rel, create=False)
+        def capture():
+            data = self.page.screenshot(full_page=True)
+            if not data:
+                raise ValueError("screenshot has no evidence bytes")
+            return self.art.write_bytes(self.run_id, rel, data)
+        self.gw.invoke(self.run_id, "browser.screenshot", {"path": str(p)}, capture, self.ctx)
         return p
 
 
@@ -101,23 +106,26 @@ class PlaywrightExecutor(TestExecutor):
 
     def run(self, run_id, plan, env, on_event, plan_hash=None):
         results = []
+        halted = None
         with sync_playwright() as pw:
             browser = pw.chromium.launch(headless=True, args=["--disable-quic", "--dns-prefetch-disable",
                                           "--force-webrtc-ip-handling-policy=disable_non_proxied_udp"])
             try:
                 for tc in plan["test_cases"]:
-                    if self.is_cancelled(run_id):
+                    if self.is_cancelled(run_id) or halted:
                         res = {"id": tc["id"], "title": tc["title"], "type": tc["type"], "skill": tc["skill"], "ac_refs": tc["ac_refs"],
                                "oracle_ref": tc["oracle_ref"], "expected": self.oracles[tc["oracle_ref"]]["expected"], "actual": None,
-                               "diffs": [], "error": "not run: run cancelled", "status": "not_run", "category": tc.get("category")}
+                               "diffs": [], "error": halted or "not run: run cancelled", "status": "not_run", "category": tc.get("category")}
                         self.store.save_result(run_id, res)
                         results.append(res)
-                        on_event("execute", f"{tc['id']} NOT RUN (cancelled)")
+                        on_event("execute", f"{tc['id']} NOT RUN: {res['error']}")
                         continue
                     on_event("execute", f"{tc['id']} running: {tc['title']}")
                     res = self._run_one(browser, run_id, tc, env, plan_hash)
                     self.store.save_result(run_id, res)
                     results.append(res)
+                    if res.get("evidence_complete") is False:
+                        halted = "not run: previous test evidence unavailable; target effects require review"
                     on_event("execute", f"{tc['id']} {res['status'].upper()}" +
                              (f" ({len(res['diffs'])} mismatch)" if res.get("diffs") else "") +
                              (f" - {res['error']}" if res.get("error") else ""))
@@ -176,16 +184,18 @@ class PlaywrightExecutor(TestExecutor):
         finally:
             # Evidence is preserved on every outcome, including errors and timeouts.
             res["duration_ms"] = int((time.time() - start) * 1000)
+            evidence_errors = []
             try:
                 res["screenshot"] = str(t.screenshot().relative_to(self.art.path_for(run_id)))
             except Exception as e:
                 t.log(f"screenshot failed: {type(e).__name__}: {e}")
+                evidence_errors.append("screenshot")
             try:
-                trace = self.art.path_for(run_id, f"{ev}/trace.zip")
-                context.tracing.stop(path=str(trace))
+                self.art.capture_file(run_id, f"{ev}/trace.zip", lambda path: context.tracing.stop(path=str(path)))
                 res["trace"] = f"{ev}/trace.zip"
             except Exception as e:
                 t.log(f"trace failed: {e}")
+                evidence_errors.append("trace")
             try:
                 context.close()
             except Exception as exc:
@@ -195,6 +205,14 @@ class PlaywrightExecutor(TestExecutor):
                 res["status"], res["error"] = "blocked", "execution network policy denied traffic"
                 t.log("network policy", {"denials": len(proxy.denials)})
             t.log("result", {k: res.get(k) for k in ("status", "actual", "diffs", "error")})
-            self.art.write_bytes(run_id, f"{ev}/log.txt", redact("\n".join(t.lines)).encode())
-            res["log"] = f"{ev}/log.txt"
+            try:
+                self.art.write_bytes(run_id, f"{ev}/log.txt", redact("\n".join(t.lines)).encode())
+                res["log"] = f"{ev}/log.txt"
+            except Exception:
+                evidence_errors.append("log")
+            res["evidence_complete"] = not evidence_errors
+            if evidence_errors:
+                res["comparison_status"] = res["status"]
+                res["status"] = "error"
+                res["error"] = "required evidence unavailable: " + ", ".join(evidence_errors) + "; target effects require review"
         return res

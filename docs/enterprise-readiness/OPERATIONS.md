@@ -2,6 +2,8 @@
 
 `GET /healthz` exposes only liveness. `GET /readyz` exposes minimal process readiness and returns 503 on failed database-read, audit-backlog/age or disk-reserve checks. Both are non-cacheable. Readiness is an admission signal, not enterprise qualification. The protected `/api/health` explicitly reports `enterprise_qualified: false`; no model, IdP, organization source or SUT probe is initiated by health polling.
 
+Readiness also checks bounded evidence capacity. Per-file/run/aggregate quotas, atomic publication, private native-capture staging, failure semantics and remaining filesystem/retention requirements are documented in [evidence storage](EVIDENCE_STORAGE.md). Native capture buffers, the authoritative database/global audit and OS disk ceilings need independent deployment controls.
+
 New planning and approval requests are refused while process readiness fails. The tool gateway separately refuses dispatch when audit projections exceed `policy.audit_delivery.max_pending` (default 1,000) or `max_age_s` (default 300 seconds). HTTP body/request limits and model quotas remain separate controls. Active worker recovery and full deployment readiness still require the orchestration/qualification work in the ledger.
 
 `GET /metrics` exports Prometheus aggregate counters, duration histograms, uptime, active-run counts, audit projection backlog/age and disk availability. Labels contain only configured route templates, bounded HTTP methods and status classes. Actual user, tenant, project, story, repository and run IDs never become metric labels. State is per process for HTTP counters; scrape each replica independently and aggregate in the monitoring system.

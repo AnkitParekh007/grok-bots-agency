@@ -8,6 +8,7 @@ import uuid
 from datetime import datetime, timezone
 
 from starlette.responses import JSONResponse
+from .storage import StorageLimitExceeded
 
 BUCKETS = (0.1, 0.5, 1, 5, 30, 120, 600)
 
@@ -50,6 +51,11 @@ class Observability:
             detail["storage_free_bytes"] = free
         except OSError:
             checks["storage_free"] = False
+        try:
+            detail.update(self.agent.artifacts.ensure_capacity())
+            checks["artifact_capacity"] = True
+        except (OSError, ValueError, StorageLimitExceeded):
+            checks["artifact_capacity"] = False
         return {"ready": all(checks.values()), "scope": "process admission checks", "enterprise_qualified": False,
                 "checks": checks, "observed": detail, "uptime_s": round(time.monotonic() - self.started, 3)}
 

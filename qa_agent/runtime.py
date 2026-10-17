@@ -58,7 +58,8 @@ class QAAgent:
         self.review_only = review_only
         self.policy = load_json(Path(config_dir) / "policy.json")
         self.store = Store(data_dir)
-        self.artifacts = FileArtifactStore(Path(data_dir) / "runs", guard=self.store.assert_job_lease)
+        self.artifacts = FileArtifactStore(Path(data_dir) / "runs", guard=self.store.assert_job_lease,
+                                           store=self.store, limits=self.cfg.get("storage"))
         self.approvals = SqliteApprovalProvider(self.store)
         self.envs = RegistryEnvironmentProvider(load_json(Path(config_dir) / "environments.json"))
         self.gateway = ToolGateway(self.policy, self.store, self.approvals, self.envs, self.artifacts, Path(data_dir) / "audit.jsonl")
@@ -144,6 +145,7 @@ class QAAgent:
                   model_provider: str | None = None, model_id: str | None = None, tenant_id="local", authorization=None):
         if self.review_only:
             raise ConflictError("review-only agent cannot plan or execute")
+        self.artifacts.ensure_capacity()
         model = self.models.resolve(model_provider, model_id) if model_provider else self.model
         if model_id and not model_provider:
             raise ProviderNotApproved("model_id requires model_provider")
@@ -371,6 +373,7 @@ class QAAgent:
         return sorted(p.name for p in d.glob("*.csv"))
 
     def _plan(self, run_id, story_key, env_name):
+        self.artifacts.ensure_capacity(run_id)
         model = self._run_models.get(run_id, self.model)
         ev = lambda s, m: self.store.event(run_id, s, m)
         if not story_key:
@@ -516,6 +519,7 @@ class QAAgent:
 
     def _verify_package(self, run, env=None):
         try:
+            self.artifacts.ensure_capacity(run["id"])
             if self.review_only and env is None:
                 # Reviewing an offline synthetic plan need not start its SUT. Only
                 # the explicit loopback harness target may differ by ephemeral port;
@@ -529,13 +533,16 @@ class QAAgent:
                     if declared != proposed or self.envs.problems(proposed):
                         raise EP.PackageChanged("review target is not a registered synthetic environment")
                     env = proposed
-            return EP.verify(self, run, env or self.envs.resolve(run["environment"]))
+            verified = EP.verify(self, run, env or self.envs.resolve(run["environment"]))
+            self.artifacts.check_execution_capacity(run["id"], run["plan_json"])
+            return verified
         except (EP.PackageChanged, OSError, ValueError) as exc:
             self.gateway.record(run["id"], "execution.package", {"approval_hash": run.get("plan_hash")},
                                 "deny", str(exc))
             raise ConflictError(str(exc)) from exc
 
     def _execute(self, run_id):
+        self.artifacts.ensure_capacity(run_id)
         run = self.store.get_run(run_id)
         ev = lambda s, m: self.store.event(run_id, s, m)
         if self._plan_expired(run):

@@ -160,6 +160,11 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
     async def validation_error(request, exc):
         return JSONResponse({"detail": [{k: e[k] for k in ("loc", "msg", "type")} for e in exc.errors()]}, 422)
 
+    from .storage import StorageLimitExceeded
+    @app.exception_handler(StorageLimitExceeded)
+    async def storage_unavailable(request, exc):
+        return JSONResponse({"detail": "evidence storage admission unavailable; operator review required"}, 503)
+
     @app.middleware("http")
     async def browser_mutation_boundary(request, call_next):
         if request.method in ("POST", "PUT", "PATCH", "DELETE"):
@@ -567,7 +572,7 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
     def send(run_id, rel, media=None, p=None):
         owned_run(run_id, p, f"artifact:{rel}")
         try:
-            path = agent.artifacts.path_for(run_id, rel)
+            path = agent.artifacts.path_for(run_id, rel, create=False)
         except ValueError:
             raise HTTPException(400, "bad path")
         if path == agent.artifacts.path_for(run_id, "inputs/config.json") and \

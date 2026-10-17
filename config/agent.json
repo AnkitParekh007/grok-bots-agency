@@ -474,5 +474,14 @@
       ],
       "data_class": "synthetic"
     }
+  },
+  "storage": {
+    "max_file_bytes": 20000000,
+    "max_run_bytes": 100000000,
+    "max_total_bytes": 1000000000,
+    "max_run_files": 500,
+    "max_total_files": 10000,
+    "minimum_free_bytes": 100000000,
+    "inventory_timeout_s": 5
   }
 }

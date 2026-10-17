@@ -374,40 +374,7 @@ class Store:
         return self.q("SELECT * FROM audit WHERE run_id=? ORDER BY id", (run_id,))
 
 
-class FileArtifactStore(ArtifactStore):
-    def __init__(self, runs_dir: Path, guard=None):
-        self.root = Path(runs_dir).resolve()
-        self.root.mkdir(parents=True, exist_ok=True)
-        self.guard = guard
-
-    def path_for(self, run_id, rel=""):
-        if self.guard:
-            self.guard(run_id, allow_cancel=True, authorize=False)
-        if not isinstance(run_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", run_id):
-            raise ValueError("invalid run artifact identity")
-        base = (self.root / run_id).resolve()
-        if base.parent != self.root:
-            raise ValueError("run directory outside artifact storage")
-        p = (base / rel).resolve()
-        if not p.is_relative_to(base):
-            raise ValueError("path escapes run directory")
-        p.parent.mkdir(parents=True, exist_ok=True)
-        return p
-
-    def write_bytes(self, run_id, rel, data):
-        p = self.path_for(run_id, rel)
-        p.write_bytes(data)
-        return str(p)
-
-    def manifest(self, run_id):
-        base = self.path_for(run_id)
-        out = []
-        for p in sorted(base.rglob("*")):
-            if p.is_file() and p.name != "manifest.json":
-                if not p.resolve().is_relative_to(base):
-                    raise ValueError("artifact manifest contains a file outside run storage")
-                out.append({"path": str(p.relative_to(base)), "bytes": p.stat().st_size, "sha256": sha256(p.read_bytes())})
-        return out
+from .storage import FileArtifactStore  # Stable import for existing adapters and maintenance tools.
 
 
 class SqliteApprovalProvider(ApprovalProvider):
