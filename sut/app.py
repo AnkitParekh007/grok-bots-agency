@@ -71,6 +71,14 @@ def process_csv(text: str) -> dict:
     return {"imported": imported, "rejected": len(errors), "errors": errors}
 
 
+@app.middleware("http")
+async def harness_instance(request, call_next):
+    response = await call_next(request)
+    if os.environ.get("QA_HARNESS_INSTANCE_ID"):
+        response.headers["X-QA-Harness-Instance"] = os.environ["QA_HARNESS_INSTANCE_ID"]
+    return response
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True, "defects": sorted(active_defects())}

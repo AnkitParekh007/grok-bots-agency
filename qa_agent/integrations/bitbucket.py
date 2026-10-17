@@ -8,6 +8,8 @@ import posixpath, re
 from urllib.parse import quote
 from ..interfaces import GitProvider
 from .http import ReadOnlyHttpClient, IntegrationError, Unsupported
+from .pagination import CollectionBudget, IncompleteSource, cloud_next, next_offset
+from ..util import sha256
 
 SLUG = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}")
 REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]{0,199}")
@@ -58,15 +60,31 @@ class _BitbucketBase(GitProvider):
 
     def repo_context(self, repo, ref=None):
         info = self.get_repository(repo)
-        ref = ref or info.get("default_branch") or "main"
+        ref = ref or info.get("default_branch")
+        if not ref:
+            raise Unsupported("repository has no observed default branch; an explicit reviewed ref is required")
         top = self.list_dir(repo, "", ref)
         readme = next((e["path"] for e in top if e["type"] == "file" and e["path"].lower().startswith("readme")), None)
-        return {"repository": info, "ref": ref, "top_level": top,
-                "readme": self.read_file(repo, readme, ref)[:4000] if readme else None,
+        body = self.read_file(repo, readme, ref) if readme else None
+        return {"repository": info, "ref": ref, "resolved_commit": None, "version_basis": "requested ref; upstream commit not pinned",
+                "top_level": top, "top_level_pagination_complete": True,
+                "readme": body[:4000] if body is not None else None,
+                "readme_complete": len(body) <= 4000 if body is not None else None,
+                "readme_sha256": sha256(body) if body is not None else None,
                 "code_search_supported": self.supports_code_search()}
 
     def supports_code_search(self):
         return False
+
+    def _file_text(self, response):
+        if len(response.content) > self.max_file_bytes:
+            raise IntegrationError("file exceeds max_file_bytes")
+        try:
+            if b"\x00" in response.content:
+                raise UnicodeError()
+            return response.content.decode("utf-8")
+        except UnicodeError:
+            raise IncompleteSource("repository file is not supported UTF-8 text; source review required") from None
 
     def search_code(self, repo, query, max_results=25):
         raise Unsupported(f"{self.kind}: code search is not supported/enabled")
@@ -76,13 +94,21 @@ class BitbucketCloudProvider(_BitbucketBase):
     kind = "bitbucket_cloud"
 
     def _pages(self, path, params=None):
-        url, p = path, dict(params or {}, pagelen=self.page_size)
-        for _ in range(self.max_pages):
-            d = self.http.get_json(url, p)
-            yield d.get("values") or []
-            url, p = d.get("next"), None   # 'next' is an absolute URL; client re-checks it against the allowlist
+        original = dict(params or {}, pagelen=self.page_size)
+        url, p, seen = path, original, set()
+        budget = CollectionBudget(self.http, self.cfg)
+        for _ in range(budget.max_pages):
+            d = budget.get(url, p)
+            rows = budget.rows(d, "values")
+            url, p = cloud_next(self.http, path, d.get("next"), original), None
+            if url in seen:
+                raise IncompleteSource("Bitbucket collection repeats its continuation")
+            if url:
+                seen.add(url)
+            yield rows
             if not url:
                 return
+        raise IncompleteSource("source collection exceeds page budget; retrieval is incomplete")
 
     def list_repositories(self):
         out = []
@@ -97,14 +123,15 @@ class BitbucketCloudProvider(_BitbucketBase):
 
     def get_repository(self, repo):
         ws, slug = check_repo(repo, self.repos)
-        return self._repo(self.http.get_json(f"2.0/repositories/{ws}/{slug}"))
+        info = self._repo(self.http.get_json(f"2.0/repositories/{ws}/{slug}"))
+        if info["full_name"] != repo:
+            raise RepoNotAllowed("returned repository does not match the requested resource")
+        return info
 
     def read_file(self, repo, path, ref="main"):
         ws, slug = check_repo(repo, self.repos)
         r = self.http.request("GET", f"2.0/repositories/{ws}/{slug}/src/{quote(check_ref(ref), safe='')}/{quote(clean_path(path))}", accept="*/*")
-        if len(r.content) > self.max_file_bytes:
-            raise IntegrationError("file exceeds max_file_bytes")
-        return r.text
+        return self._file_text(r)
 
     def list_dir(self, repo, path="", ref="main"):
         ws, slug = check_repo(repo, self.repos)
@@ -138,12 +165,16 @@ class BitbucketDataCenterProvider(_BitbucketBase):
 
     def _pages(self, path, params=None):
         start = 0
-        for _ in range(self.max_pages):
-            d = self.http.get_json(path, dict(params or {}, start=start, limit=self.page_size))
+        budget = CollectionBudget(self.http, self.cfg)
+        for _ in range(budget.max_pages):
+            d = budget.get(path, dict(params or {}, start=start, limit=self.page_size))
+            budget.rows(d, "values")
+            continuation = next_offset(d, start)
             yield d
-            if d.get("isLastPage", True):
+            if continuation is None:
                 return
-            start = d.get("nextPageStart")
+            start = continuation
+        raise IncompleteSource("source collection exceeds page budget; retrieval is incomplete")
 
     def _repo(self, v):
         return {"full_name": f"{(v.get('project') or {}).get('key')}/{v.get('slug')}", "name": v.get("name"),
@@ -159,32 +190,35 @@ class BitbucketDataCenterProvider(_BitbucketBase):
     def get_repository(self, repo):
         proj, slug = check_repo(repo, self.repos)
         info = self._repo(self.http.get_json(f"rest/api/1.0/projects/{proj}/repos/{slug}"))
+        if info["full_name"] != repo:
+            raise RepoNotAllowed("returned repository does not match the requested resource")
         try:
             info["default_branch"] = self.http.get_json(f"rest/api/1.0/projects/{proj}/repos/{slug}/default-branch").get("displayId")
-        except IntegrationError:
-            pass
+        except IntegrationError as exc:
+            if exc.status != 404:
+                raise
         return info
 
     def read_file(self, repo, path, ref="main"):
         proj, slug = check_repo(repo, self.repos)
         r = self.http.request("GET", f"rest/api/1.0/projects/{proj}/repos/{slug}/raw/{quote(clean_path(path))}",
                               {"at": check_ref(ref)}, accept="*/*")
-        if len(r.content) > self.max_file_bytes:
-            raise IntegrationError("file exceeds max_file_bytes")
-        return r.text
+        return self._file_text(r)
 
     def list_dir(self, repo, path="", ref="main"):
         proj, slug = check_repo(repo, self.repos)
         p = clean_path(path)
         out, start = [], 0
-        for _ in range(self.max_pages):
-            d = self.http.get_json(f"rest/api/1.0/projects/{proj}/repos/{slug}/browse/{quote(p)}",
+        budget = CollectionBudget(self.http, self.cfg)
+        for _ in range(budget.max_pages):
+            d = budget.get(f"rest/api/1.0/projects/{proj}/repos/{slug}/browse/{quote(p)}",
                                    {"at": check_ref(ref), "start": start, "limit": self.page_size})
             ch = d.get("children") or {}
-            for v in ch.get("values") or []:
+            for v in budget.rows(ch, "values"):
                 name = "/".join((v.get("path") or {}).get("components") or [])
                 out.append({"path": f"{p}/{name}" if p else name, "type": "dir" if v.get("type") == "DIRECTORY" else "file", "size": v.get("size")})
-            if ch.get("isLastPage", True):
-                break
-            start = ch.get("nextPageStart")
-        return out
+            continuation = next_offset(ch, start)
+            if continuation is None:
+                return out
+            start = continuation
+        raise IncompleteSource("source directory exceeds page budget; retrieval is incomplete")

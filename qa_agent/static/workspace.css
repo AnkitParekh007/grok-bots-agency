@@ -851,6 +851,8 @@ dd {
   color: var(--warning);
 }
 .status.executing,
+.status.queued_planning,
+.status.queued_execution,
 .status.planning,
 .status.running {
   background: var(--running-bg);
@@ -1014,6 +1016,12 @@ details[open] > summary {
   border-left: 2px solid var(--border);
   color: var(--muted);
   font-size: var(--text-sm);
+}
+[data-context-review] {
+  overflow-wrap: anywhere;
+}
+[data-context-review] blockquote {
+  white-space: pre-wrap;
 }
 .progress-label {
   display: flex;
@@ -1589,4 +1597,11 @@ dialog::backdrop {
   .welcome-footnote {
     margin-top: var(--space-4);
   }
+}
+.connection-resource {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+  overflow-wrap: anywhere;
 }

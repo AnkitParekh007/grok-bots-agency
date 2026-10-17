@@ -182,7 +182,7 @@ def summarize(cfg, out):
     approval = agent.approvals.latest(a["run_id"])
     reviewed = bool(approval and approval["decision"] == "approved" and approval.get("auth_mode") == "local"
                     and approval.get("identity") and approval["identity"] != a["requester"] and approval["plan_hash"] == run["plan_hash"])
-    valid = bool(run["plan_hash"] and run["plan_hash"] == hashlib.sha256(canon(run["plan_json"]).encode()).hexdigest())
+    valid = bool(run["plan_hash"] and run["plan_hash"] == B2._sha_plan(run))
     gold = load_json(ROOT / "fixtures/eval/gold/PCC-DEMO-5.gold.json")
     rec = load_json(ROOT / "fixtures/replay/PCC-DEMO-5.json")["responses"]["plan_story"]
     quality = B2.score_plan(run["planning_json"], gold, agent._oracles("PCC-DEMO-5"), rec) if valid else None

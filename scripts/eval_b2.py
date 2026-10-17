@@ -45,15 +45,21 @@ def free_port():
 
 
 @contextlib.contextmanager
-def serve(module, env_extra=None, probe="/"):
-    port = free_port()
+def serve(module, env_extra=None, probe="/", port=None):
+    import secrets
+    port = port or free_port()
+    instance = secrets.token_urlsafe(24)
     p = subprocess.Popen([sys.executable, "-m", "uvicorn", module, "--host", "127.0.0.1", "--port", str(port)], cwd=ROOT,
-                         env=dict(os.environ, **(env_extra or {})), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                         env=dict(os.environ, **{**(env_extra or {}), "QA_HARNESS_INSTANCE_ID": instance}), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     url = f"http://127.0.0.1:{port}"
     try:
         for _ in range(150):
+            if p.poll() is not None:
+                raise RuntimeError(f"{module} exited before owned-service verification")
             try:
-                if httpx.get(url + probe).status_code < 500:
+                with httpx.Client(trust_env=False, timeout=1, follow_redirects=False) as client:
+                    response = client.get(url + probe)
+                if response.status_code < 500 and response.headers.get("x-qa-harness-instance") == instance:
                     break
             except httpx.HTTPError:
                 time.sleep(0.1)
@@ -148,7 +154,7 @@ def run_story(agent, key, gold, phase, execute, grant, recorded, provider, first
             rec["execution_missing_reason"] = f"approval refused: {e}"
             return rec
     fin = agent.store.get_run(rid)
-    rec["execution"] = {"status": fin["status"], **detection(plan, agent.store.results(rid), gold),
+    rec["execution"] = {"status": fin["status"], "error": fin.get("error"), **detection(plan, agent.store.results(rid), gold),
                         "failed_tests": sorted(r["id"] for r in agent.store.results(rid) if r["status"] == "failed")}
     return rec
 
@@ -286,8 +292,11 @@ def first_plan_stage(agent, a, out, stories, simulate):
 
 
 def _sha_plan(run):
-    import hashlib as _h
-    return _h.sha256(canon(run["plan_json"] or {}).encode()).hexdigest()
+    from qa_agent.execution_package import digest, PackageChanged
+    try:
+        return digest(run)
+    except PackageChanged:
+        return None
 
 
 def pinned_identity_matches(runs, provider, model, version):
@@ -354,10 +363,21 @@ def _run(a, QAAgent):
             golds[k] = load_json(ROOT / f"fixtures/eval/gold/{k}.gold.json")
     smoke = a.no_execute or bool(set(required) - set(stories)) or runs_n < es["min_runs_per_story"]
     phases = ["plan_only"] if a.no_execute else list(es["phases"])
+    state_path = out / STATE
+    saved_state = json.loads(state_path.read_text()) if state_path.exists() else {}
+    if "services" not in saved_state:
+        stub_port, sut_port = free_port(), free_port()
+        while sut_port == stub_port:
+            sut_port = free_port()
+        saved_state["services"] = {"stub_port": stub_port, "sut_port": sut_port}
+        state_path.write_text(json.dumps(saved_state, indent=2))
+    services = saved_state["services"]
+    if any(type(services.get(k)) is not int or not 1024 <= services[k] <= 65535 for k in ("stub_port", "sut_port")):
+        raise SystemExit("invalid persisted synthetic service port")
     with contextlib.ExitStack() as st:
         stub = None
         if a.provider == "stub":
-            stub = st.enter_context(serve("qa_agent.devtools.model_stub:app", probe="/_stub/requests"))
+            stub = st.enter_context(serve("qa_agent.devtools.model_stub:app", probe="/_stub/requests", port=services["stub_port"]))
             os.environ.setdefault("MODEL_API_KEY", "stub-not-a-real-key-000000")
         cfg = agent_config(a.provider, stub)
         if getattr(a, "requested_by", None) and cfg.get("auth", {}).get("mode") != "local":
@@ -376,19 +396,19 @@ def _run(a, QAAgent):
                    "mode": "not-run", "completeness": {"complete": False, "missing": ["provider construction failed (fail-closed)"]}}
             (out / "eval_report.json").write_text(json.dumps(rep, indent=2), encoding="utf-8"); print(json.dumps(rep, indent=2)); return 2
         runs, first = [], None
-        if not a.no_execute:
-            first, paused = first_plan_stage(agent, a, out, [k for k in golds], a.self_test_simulated_review)
-            if paused:
-                rep = {"provider": a.provider, "verdict": paused["verdict"], "mode": "paused", "first_plan": paused,
-                       "completeness": {"complete": False, "missing": [paused["reason"]]}}
-                (out / "eval_report.json").write_text(json.dumps(rep, indent=2), encoding="utf-8"); print(json.dumps(rep, indent=2))
-                return paused["exit"]
-            if a.self_test_simulated_review and not a.grant:
-                a.grant = selftest_grant(agent, out, list(golds))
         for phase in phases:
             defects = "" if phase == "plan_only" else es["phases"][phase]
-            with serve("sut.app:app", {"SUT_DEFECTS": defects}, "/api/health") as sut:
+            with serve("sut.app:app", {"SUT_DEFECTS": defects}, "/api/health", port=services["sut_port"]) as sut:
                 os.environ["SYNTHETIC_SUT_URL"] = sut
+                if not a.no_execute and phase == phases[0]:
+                    first, paused = first_plan_stage(agent, a, out, [k for k in golds], a.self_test_simulated_review)
+                    if paused:
+                        rep = {"provider": a.provider, "verdict": paused["verdict"], "mode": "paused", "first_plan": paused,
+                               "completeness": {"complete": False, "missing": [paused["reason"]]}}
+                        (out / "eval_report.json").write_text(json.dumps(rep, indent=2), encoding="utf-8"); print(json.dumps(rep, indent=2))
+                        return paused["exit"]
+                    if a.self_test_simulated_review and not a.grant:
+                        a.grant = selftest_grant(agent, out, list(golds))
                 for k in golds:
                     rec = load_json(ROOT / f"fixtures/replay/{k}.json")["responses"]["plan_story"] if (ROOT / f"fixtures/replay/{k}.json").exists() else None
                     for i in range(runs_n):

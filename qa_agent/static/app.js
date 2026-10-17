@@ -25,7 +25,10 @@ import {
   evidencePanel,
   modelCard,
   approvalRecord,
+  executionEnvelope,
+  contextReview,
 } from "./components.js";
+import {openJiraWrites, closeJiraWrites} from './jira-writes.js';
 const state = {
   me: null,
   cfg: null,
@@ -33,6 +36,10 @@ const state = {
   projects: [],
   envs: [],
   runs: [],
+  recentRuns: [],
+  runPageCursor: null,
+  runNextCursor: null,
+  historyGeneration: 0,
   run: null,
   current: null,
   section: "session",
@@ -44,6 +51,8 @@ const state = {
   sheetReturn: null,
   busy: false,
   errors: new Map(),
+  connections: [],
+  discoveries: new Map(),
 };
 const nav = [
   ["sessions", "Sessions", "sessions"],
@@ -60,6 +69,7 @@ const terminal = new Set([
   "blocked",
   "interrupted",
   "cancelled",
+  "analysis_only",
 ]);
 const selected = () =>
   $("#model-choice").value === ""
@@ -121,25 +131,31 @@ function account() {
     "<small>" +
     esc(me.mode === "demo" ? "Unauthenticated identity" : me.role) +
     "</small></span>" +
-    (me.mode === "local"
+    (me.authenticated
       ? '<button data-action="logout" aria-label="Sign out">' +
         icon("logout") +
         "</button>"
       : "");
 }
 function lock() {
+  closeJiraWrites();
   clearTimeout(state.timer);
   state.epoch++;
   state.current = null;
   state.run = null;
   state.review = null;
   state.runs = [];
+  state.recentRuns = [];
+  state.runPageCursor = state.runNextCursor = null;
+  state.historyGeneration++;
   state.models = [];
   state.projects = [];
+  state.connections = [];
+  state.discoveries.clear();
   state.envs = [];
   state.cfg = null;
   state.section = "session";
-  state.me = { mode: "local", authenticated: false };
+  state.me = { mode: state.me?.mode || "local", authenticated: false };
   closeSheets(false);
   document.querySelectorAll("dialog[open]").forEach((d) => d.close());
   $("#conversation").hidden = false;
@@ -179,22 +195,30 @@ function lock() {
   ].forEach((id) => ($("#" + id).innerHTML = ""));
   $("#send").disabled = true;
   $("#msg").disabled = true;
+  const sso = state.me?.mode === "oidc";
+  $("#tok").hidden = sso;
+  $("#tok").required = !sso;
+  document.querySelector('label[for="tok"]').hidden = sso;
+  $("#login-help").textContent = sso ? "Continue with your organization's identity provider." : "Sign in with your local access token.";
+  $("#login").textContent = sso ? "Continue with organization sign-in" : "Sign in";
+  $("#login-session-note").textContent = sso ? "Your organization controls sign-in and access. This workspace uses a revocable session." : "Your access token is exchanged for a revocable session. It is never saved in browser storage.";
   $("#login-dialog").showModal();
 }
 async function boot() {
   const epoch = ++state.epoch;
   state.me = await api("/api/me");
-  if (state.me.mode === "local" && !state.me.authenticated) {
+  if (state.me.mode !== "demo" && !state.me.authenticated) {
     lock();
     return;
   }
-  const [cfg, envs, projects, models, runs] = await Promise.all(
+  const [cfg, envs, projects, models, runs, connections] = await Promise.all(
     [
       "/api/config",
       "/api/environments",
       "/api/projects",
       "/api/models",
-      "/api/runs",
+      "/api/run-pages",
+      "/api/connections",
     ].map((u) => api(u)),
   );
   if (epoch !== state.epoch) return;
@@ -202,7 +226,13 @@ async function boot() {
   state.envs = envs;
   state.projects = projects;
   state.models = models;
-  state.runs = runs;
+  state.runs = runs.items;
+  state.recentRuns = runs.items;
+  state.runPageCursor = null;
+  state.runNextCursor = runs.next_cursor;
+  state.historyGeneration++;
+  state.connections = connections;
+  state.discoveries.clear();
   $("#notice").hidden = true;
   account();
   $("#proj").innerHTML =
@@ -317,8 +347,8 @@ function renderNav() {
     .join("");
 }
 function renderRecent() {
-  $("#runs").innerHTML = state.runs.length
-    ? state.runs
+  $("#runs").innerHTML = state.recentRuns.length
+    ? state.recentRuns
         .slice(0, 8)
         .map(
           (r) =>
@@ -403,7 +433,7 @@ function renderPanels() {
   );
   update($("#plan-content"), planPanel(r));
   update($("#execution-content"), executionPanel(r));
-  update($("#evidence-content"), evidencePanel(r));
+  update($("#evidence-content"), evidencePanel(r, state.me));
 }
 function renderPage() {
   const heading =
@@ -467,6 +497,9 @@ function renderPage() {
             ? "Reports become available after an approved execution."
             : "Start a new QA session to generate a test plan.",
         );
+    body += '<div class="actions" aria-label="Run history pages">' +
+      (state.runPageCursor ? '<button class="button" data-action="latest-runs">Latest runs</button>' : '') +
+      (state.runNextCursor ? '<button class="button" data-action="older-runs">Older runs</button>' : '') + '</div>';
   }
   if (state.section === "projects")
     body =
@@ -514,13 +547,13 @@ function renderPage() {
         state.me.mode === "demo"
           ? "Demo mode uses unauthenticated reviewer labels. Use local authenticated mode for real evaluation."
           : "Signed in as " +
-              state.me.user +
+              (state.me.display_name || state.me.user) +
               " · " +
               state.me.role +
               ". The backend enforces roles, ownership, expiry, and exact-plan approval.",
       ) +
       "</p>" +
-      (state.me.mode === "local"
+      (state.me.authenticated
         ? '<button class="button" data-action="logout">Sign out</button>'
         : "") +
       '</section><section class="settings-card"><h2>Budget & registered skills</h2><p>Per run: $' +
@@ -530,12 +563,26 @@ function renderPage() {
       "</p><p>" +
       state.cfg.skills.map((s) => esc(s.name)).join(" · ") +
       '</p><p class="small">Provider credentials, policy changes, and integration configuration are managed by the server administrator.</p></section>';
+  if (state.section === "settings")
+    body += connectionSettings();
   update($("#page-view"), heading + body);
+}
+function connectionSettings() {
+  if (!state.connections.length) return '<section class="settings-card"><h2>Organization connections</h2><p>No connections are assigned to you for administration. An administrator configures the Jira or Bitbucket destination and server-side token or MCP credentials, then grants connection access.</p></section>';
+  return state.connections.map((c) => {
+    const d = state.discoveries.get(c.id);
+    const selected = new Set(c.selected_resources);
+    return '<section class="settings-card" data-connection-card="' + esc(c.id) + '"><h2>' + esc(c.label) + '</h2><p>' + esc(c.target) + ' · ' + esc(c.route === 'mcp' ? 'MCP' : 'Token') + '</p><p>Selected resources: ' + esc(c.selected_resources.join(', ') || 'None') + '</p><p class="small">Discovery reads resource names using the configured credential. Saving a selection grants this connection access only to those resources. Project memberships and model-data approvals apply separately.</p><button class="button" data-action="discover-connection" data-connection="' + esc(c.id) + '" ' + (!c.enabled || !c.discovery_approved ? 'disabled' : '') + '>Discover available resources</button>' +
+      (c.revision ? '<button class="button" data-action="revoke-connection-scope" data-connection="' + esc(c.id) + '">Revoke resource access</button>' : '') +
+      (d ? '<fieldset><legend>Choose resources for this connection</legend>' + (!d.complete ? '<p role="alert">Discovery is incomplete. Ask an administrator to adjust the approved discovery limits before saving a selection.</p>' : '') +
+        d.resources.map((r) => '<label class="connection-resource"><input type="checkbox" data-connection-resource="' + esc(c.id) + '" value="' + esc(r.id) + '" ' + (selected.has(r.id) ? 'checked' : '') + '> ' + esc(r.name) + ' (' + esc(r.id) + ')</label>').join('') +
+        '<button class="button" data-action="save-connection-scope" data-connection="' + esc(c.id) + '" ' + (!d.complete || !d.resources.length ? 'disabled' : '') + '>Save selected access</button></fieldset>' : '') + '</section>';
+  }).join('');
 }
 async function refresh() {
   clearTimeout(state.timer);
   const rid = state.current,
-    epoch = state.epoch;
+    epoch = state.epoch, pageCursor = state.runPageCursor;
   if (!rid) return;
   try {
     const r = await api("/api/runs/" + encodeURIComponent(rid));
@@ -544,9 +591,13 @@ async function refresh() {
     state.run = r;
     if (changed)
       announce((r.story_key || r.id) + ": " + r.status.replaceAll("_", " "));
-    const rs = await api("/api/runs");
+    const rs = await api('/api/run-pages' + (pageCursor ? '?cursor=' + encodeURIComponent(pageCursor) : ''));
     if (rid !== state.current || epoch !== state.epoch) return;
-    state.runs = rs;
+    if (pageCursor === state.runPageCursor) {
+      state.runs = rs.items;
+      state.runNextCursor = rs.next_cursor;
+      if (!pageCursor) state.recentRuns = rs.items;
+    }
     renderRecent();
     render();
     if (!terminal.has(r.status)) state.timer = setTimeout(refresh, 1400);
@@ -557,6 +608,7 @@ async function refresh() {
   }
 }
 async function openRun(rid) {
+  closeJiraWrites();
   clearTimeout(state.timer);
   state.current = rid;
   state.run = null;
@@ -569,6 +621,7 @@ async function openRun(rid) {
   await refresh();
 }
 function newSession() {
+  closeJiraWrites();
   clearTimeout(state.timer);
   state.current = null;
   state.run = null;
@@ -580,6 +633,7 @@ function newSession() {
   $("#msg").focus();
 }
 function navigate(section) {
+  closeJiraWrites();
   state.section = section;
   closeSheets(false);
   render();
@@ -750,11 +804,13 @@ async function showReview() {
     gaps(r) +
     "<h2>Proposed test cases</h2>" +
     cases(r, true) +
+    contextReview(r) +
+    executionEnvelope(r) +
     '<p class="small muted">' +
     esc(r.id) +
     " · Created " +
     date(r.plan_created_at) +
-    ". The server checks expiry and catalog validity at approval.</p>";
+    ". The server checks expiry and every bound execution input at approval and dispatch.</p>";
   $("#review-identity").innerHTML =
     state.me.mode === "demo"
       ? '<div class="callout">Demo review · reviewer identity is NOT authenticated.</div><label for="who">Reviewer label</label><input id="who" required placeholder="Your reviewer label">'
@@ -765,7 +821,7 @@ async function showReview() {
         "</p>";
   $("#review-identity").insertAdjacentHTML(
     "beforeend",
-    '<span class="small muted">Exact plan · SHA-256</span><code id="review-hash" class="hash" aria-label="Exact plan hash">' +
+    '<span class="small muted">Execution envelope · SHA-256</span><code id="review-hash" class="hash" aria-label="Execution envelope hash">' +
       esc(r.plan_hash) +
       "</code>",
   );
@@ -876,6 +932,32 @@ async function probe(index, button) {
 }
 async function handleAction(button) {
   const action = button.dataset.action;
+  if (['older-runs', 'latest-runs'].includes(action)) {
+    const cursor = action === 'older-runs' ? state.runNextCursor : null;
+    const previous = state.runPageCursor, epoch = state.epoch, generation = ++state.historyGeneration;
+    state.runPageCursor = cursor;
+    button.disabled = true;
+    try {
+      const page = await api('/api/run-pages' + (cursor ? '?cursor=' + encodeURIComponent(cursor) : ''));
+      if (epoch !== state.epoch || generation !== state.historyGeneration) return;
+      state.runs = page.items;
+      state.runNextCursor = page.next_cursor;
+      if (!cursor) {state.recentRuns = page.items; renderRecent();}
+      renderPage();
+      $('#page-view').focus({preventScroll: true});
+      announce(cursor ? 'Older runs loaded.' : 'Latest runs loaded.');
+    } catch (error) {
+      if (generation === state.historyGeneration) state.runPageCursor = previous;
+      throw error;
+    } finally {
+      if (button.isConnected) button.disabled = false;
+    }
+    return;
+  }
+  if (action === 'jira-writes') {
+    if (state.run && state.me?.authenticated) await openJiraWrites(state.run, state.me);
+    return;
+  }
   if (
     state.me?.mode === "local" &&
     !state.me.authenticated &&
@@ -938,8 +1020,59 @@ async function handleAction(button) {
     return;
   }
   if (action === "logout") {
+    closeJiraWrites();
     await api("/api/logout", {});
     lock();
+    return;
+  }
+  if (action === "discover-connection") {
+    const epoch = state.epoch;
+    button.disabled = true;
+    try {
+      const result = await api('/api/connections/' + encodeURIComponent(button.dataset.connection) + '/discover', {});
+      if (epoch !== state.epoch) return;
+      state.discoveries.set(button.dataset.connection, result);
+      renderPage();
+      announce(result.resources.length + ' resources discovered. Review the selection before saving access.');
+    } finally {
+      if (button.isConnected) button.disabled = false;
+    }
+    return;
+  }
+  if (action === "save-connection-scope") {
+    const epoch = state.epoch;
+    const id = button.dataset.connection, discovery = state.discoveries.get(id);
+    const resources = Array.from(document.querySelectorAll('[data-connection-resource]')).filter((el) => el.dataset.connectionResource === id && el.checked).map((el) => el.value);
+    if (!resources.length) { announce('Select at least one resource.'); return; }
+    button.disabled = true;
+    try {
+      await api('/api/connections/' + encodeURIComponent(id) + '/scope', {receipt: discovery.receipt, resources, previous_revision: discovery.scope_revision});
+      const connections = await api('/api/connections');
+      if (epoch !== state.epoch) return;
+      state.connections = connections;
+      state.discoveries.delete(id);
+      renderPage();
+      announce('Connection resource access saved.');
+    } finally {
+      if (button.isConnected) button.disabled = false;
+    }
+    return;
+  }
+  if (action === "revoke-connection-scope") {
+    const epoch = state.epoch, id = button.dataset.connection;
+    const connection = state.connections.find((c) => c.id === id);
+    button.disabled = true;
+    try {
+      await api('/api/connections/' + encodeURIComponent(id) + '/scope', {previous_revision: connection.revision}, 'DELETE');
+      const connections = await api('/api/connections');
+      if (epoch !== state.epoch) return;
+      state.connections = connections;
+      state.discoveries.delete(id);
+      renderPage();
+      announce('Connection resource access revoked.');
+    } finally {
+      if (button.isConnected) button.disabled = false;
+    }
     return;
   }
   if (action === "open-run") {
@@ -1098,6 +1231,10 @@ $("#login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   $("#login").disabled = true;
   try {
+    if (state.me?.mode === "oidc") {
+      window.location.assign("/api/oidc/start");
+      return;
+    }
     await api("/api/login", { token: $("#tok").value });
     $("#tok").value = "";
     $("#login-error").textContent = "";

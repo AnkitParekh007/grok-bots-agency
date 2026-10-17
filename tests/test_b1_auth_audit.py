@@ -79,7 +79,9 @@ def test_cookie_session_login(local):
     assert c.post("/api/login", json={"token": "vic.bad"}).status_code == 401
     assert c.post("/api/login", json={"token": t["vic"]}).json()["user"] == "vic"
     assert c.get("/api/runs").status_code == 200          # cookie
-    assert c.get("/api/me").json() == {"user": "vic", "role": "viewer", "mode": "local", "authenticated": True}
+    me = c.get("/api/me").json()
+    assert {k: me[k] for k in ("user", "role", "mode", "authenticated")} == {"user": "vic", "role": "viewer", "mode": "local", "authenticated": True}
+    assert me["tenant_id"] == "local" and me["project_roles"] is None
 
 
 def test_rejection_enforced(local):

@@ -1,0 +1,68 @@
+{
+  "schema": "enterprise-assessment-probes/1",
+  "baseline": "285f9c42f8f6e6f45ed8526f895ad29a5bab6da9",
+  "source_sha256": {
+    "qa_agent/runtime.py": "d15458d5267bdef626af93903234b6ebc27cdd6397791521f4c77b813ae2ad28",
+    "qa_agent/server.py": "2eadc1c3da742a53c05c14274d0da8ebd2fa157663eb499e6271b9a2ba5935d3",
+    "qa_agent/executor.py": "927918eb2b7def327b4a33341f78b8300e0cb8083d896e397d447a9d44c39371",
+    "qa_agent/store.py": "a995acf451af7d7440ed9a047464702ce5f0bd785161c6b6007d9eb3e7c88106",
+    "qa_agent/auth.py": "30d0855c40b2949877076b55018e1e063fc30ec90c59ad82fcd5319ef39b2b54",
+    "qa_agent/integrations/http.py": "8233c3afabb51aa1e37c78a1fa381a5ee18b2474d5ad48082544db53e8f2c125"
+  },
+  "scope": "offline synthetic probes; temporary credentials, stores and loopback HTTP only; no model inference or organization access",
+  "observations": [
+    {
+      "id": "P01",
+      "finding": "ER-03",
+      "projects_status": 200,
+      "story_status": 200,
+      "explanation": "A viewer without project memberships can read every configured project; fixture story only."
+    },
+    {
+      "id": "P02",
+      "finding": "ER-02",
+      "httponly": true,
+      "same_site_strict": true,
+      "secure_attribute": false,
+      "bearer_after_logout_status": 200,
+      "explanation": "Logout clears the browser cookie; long-lived bearer remains valid. Cookie/token values omitted."
+    },
+    {
+      "id": "P03",
+      "finding": "ER-09",
+      "test_plan_hash_unchanged": true,
+      "mutated_oracle_reached_executor": true,
+      "actual_sut_execution": false,
+      "explanation": "Executor replaced with a capture stub; demonstrates oracle change reaches execution boundary without invalidating approval, not a real test result."
+    },
+    {
+      "id": "P04",
+      "finding": "ER-05",
+      "error": "no expected-results manifest for ORG-123; cannot test without an oracle"
+    },
+    {
+      "id": "P05",
+      "finding": "ER-10",
+      "first_store_still_open": true,
+      "status_after_second_store_initialization": "interrupted",
+      "explanation": "Second Store treats another still-open instance planning row as interrupted. No OS process kill/restart performed."
+    },
+    {
+      "id": "P06",
+      "finding": "ER-08",
+      "target_url_allowed_by_registry": false,
+      "subresource_observed": true,
+      "redirect_observed": true,
+      "explanation": "Actual Chromium ToolContext navigation with fixture approval; both servers are owned temporary loopback servers. Different target port is denied by registry yet received requests."
+    },
+    {
+      "id": "P07",
+      "finding": "ER-12",
+      "configured_max_bytes": 1024,
+      "bytes_consumed_before_rejection": 3072,
+      "response_rejected": true,
+      "proxy_environment_inheritance": true,
+      "explanation": "MockTransport only. Limit checked after body is buffered; integration HTTP inherits HTTPX environment proxy settings by default."
+    }
+  ]
+}

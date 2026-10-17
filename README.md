@@ -4,7 +4,11 @@ A standalone QA workspace that turns a story into a proposed test plan, asks a p
 
 The current runnable domain is **synthetic supplier imports and attribute mapping**. The wider vision is a QA workspace independent of any single model provider. Local models let teams experiment without a paid API account; optional hosted free tiers offer another route when explicitly authorized. Human approval remains essential because a plausible model-generated plan can still be wrong.
 
-**Current maturity:** a local prototype with deterministic execution safeguards. Replay demonstrations and mock provider contracts work; real-model quality and real organization integrations have not been certified. Hosted inference is disabled by default. “Open” describes the project vision; see [license and contributions](#license-and-contributions) for the current licensing limits.
+**Current maturity:** a local prototype with deterministic execution safeguards. Replay demonstrations and mock provider contracts work; real-model quality and real organization integrations have not been certified. Hosted inference is disabled by default. The project is [MIT licensed](LICENSE).
+
+The [enterprise readiness assessment](docs/enterprise-readiness/ASSESSMENT.md) records the remaining security, integration, model-quality and operational gaps against the merged UI-1 code. The [qualification plan](docs/enterprise-readiness/TEST_PLAN.md) covers token and MCP connections to Jira/Bitbucket, organization sandbox testing and staged adoption; its [scenario inventory](docs/enterprise-readiness/SCENARIOS.csv) distinguishes existing offline coverage from work still requiring implementation or live qualification.
+
+Implementation is ongoing on `codex/enterprise-readiness`. The [current implementation ledger](docs/enterprise-readiness/IMPLEMENTATION_STATUS.md) and [verification notes](docs/enterprise-readiness/IMPLEMENTATION_NOTES.md) distinguish shipped controls from remaining qualification gates. Setup guides cover [OIDC/project access](docs/enterprise-readiness/IDENTITY_SETUP.md), [token/MCP connections](docs/enterprise-readiness/CONNECTION_SETUP.md), [source/model approvals](docs/enterprise-readiness/DATA_APPROVAL_SETUP.md), [audit recovery](docs/enterprise-readiness/AUDIT_OPERATIONS.md) and [operations](docs/enterprise-readiness/OPERATIONS.md).
 
 ## Contents
 
@@ -32,18 +36,23 @@ The current runnable domain is **synthetic supplier imports and attribute mappin
 |---|---|---|
 | AI-generated test plans | Experimental | Structured understanding, behaviors, tests and gaps; real-model quality evaluation pending. Replay is recorded output. |
 | Jira story reading | Available / Experimental | Synthetic fixtures available; Cloud/Data Center read-only adapters tested against mocks, disabled for real sites. |
-| Acceptance-criteria extraction | Experimental | Source-quoted ACs validated against story text; extraction quality depends on the selected model. |
+| Reviewed Jira writes | Experimental / Disabled | Separate Cloud create/comment/transition capability; exact human review and a separate send step. Live mappings, credentials and qualification remain pending. |
+| Acceptance-criteria extraction | Experimental | Source-quoted ACs, including explicitly approved custom fields and content-hash citations; reasoning quality remains unqualified. |
+| Unsupported story review | Available | Deterministic, non-executable source review and capability gaps when independent expected results are absent; no model/SUT calls. |
 | Playwright browser automation | Available | Registered synthetic upload, error and product-count checks; no arbitrary website agent. |
 | API testing | Available | Registered supplier import and per-product validation actions. |
-| Bitbucket repository context | Experimental | Read-only Cloud/Data Center discovery/files/context adapters; context is recorded, **not yet used in model planning**. |
+| Selected contextual evidence | Experimental / Opt-in | Owner-selected files at full commits, comments and text attachments can inform planning with digest/line citations and handoff revalidation. Other repository context remains recorded only. |
 | Test reports | Available | HTML, JSON and JSON checksum per run. |
 | Screenshots and traces | Available | Real Chromium evidence with artifact manifests. |
-| Human approvals | Available | Exact plan hash, expiry, rejection/cancellation; authenticated roles in local auth mode. |
+| Human approvals | Available | Immutable execution-envelope hash, expiry and distinct-human review; snapshots bind source, target, policy, fixtures, oracles and implementation. |
+| Organization sign-in | Experimental | Pinned OIDC/PKCE, expiring revocable sessions and tenant/project roles; actual IdP qualification pending. |
+| Token/MCP connections | Experimental | Human-reviewed resource discovery and scoped adapters; pinned remote MCP reads; hosted schemas/OAuth/live contracts pending. |
 | Responsive QA workspace | Available | Conversation, dedicated plan review, execution/evidence tabs, light/dark themes and mobile drawers. |
 | Model selection | Available | Administrator-approved provider/model for each new run; read-only settings and connection probes. |
 | Local inference | Experimental | Native Ollama and compatible LM Studio/llama.cpp/vLLM; protocol tests passed, installed-model evaluation pending. |
 | Free hosted inference | Experimental | Groq, Gemini and explicit OpenRouter free models; disabled pending account and egress approval. |
-| Credential management | Available / Planned | Process environment secret references and hashed local login tokens available; enterprise vault, SSO and managed rotation planned. |
+| Credential management | Available / Planned | Server-side environment references, hashed local credentials and revocable sessions; managed vault/evidence encryption/rotation remain open. |
+| Operations | Experimental | Protected metrics, minimized logs, process readiness and recoverable audit projections/checkpoints; live monitoring/recovery qualification pending. |
 | Jira defect reporting | Planned | Evidence reports available locally; no Jira create/comment/transition operations. |
 | Regression execution | Available / Planned | Rerun individual approved synthetic plans today; suite scheduling and orchestration planned. |
 | Release sanity testing | Planned | No automated release gate or release-wide orchestration. |
@@ -131,7 +140,7 @@ Prerequisites: Git, Python **3.12+** and PowerShell. CI uses Python 3.12; the do
 git clone https://github.com/AnkitParekh007/grok-bots-agency.git
 cd grok-bots-agency
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install --require-hashes --only-binary=:all: -r requirements.lock
 .\.venv\Scripts\python.exe -m playwright install chromium
 ```
 
@@ -198,9 +207,9 @@ $env:QA_MODEL_PROVIDER = 'replay'
 
 ## Security model
 
-Execution requires validation and approval bound to the exact plan hash; plans expire, and cancelled/interrupted runs do not silently resume. Local auth provides requester/approver/viewer roles and ownership checks; demo mode does not authenticate approvers. Integrations expose read-only operations. Tool, endpoint, file and environment allowlists constrain registered skills. Production is prohibited; Dev/Playground remain unverified. Credentials use server-process environment references and redaction; local tokens are hashed. Audit records are hash-chained, not signed or independently immutable.
+Execution requires validation and approval bound to the full immutable execution envelope; plans expire, and uncertain mutations are not silently replayed. Local/OIDC identities support tenant/project-scoped roles; demo mode uses unauthenticated labels. Source adapters remain read-only; a separate disabled [Jira Cloud write capability](docs/enterprise-readiness/JIRA_WRITES.md) requires exact human review and a separate send action. Browser/API traffic uses a validated application proxy, with independent worker-network isolation still required. Production is prohibited; Test/Playground remain unverified. Organization model input needs separate source-classification and exact model-data approvals. Credentials use server-side references. Audit intents and outcomes use a hash-chained ledger with recoverable file delivery and optional operator-signed checkpoints.
 
-This is a prototype, without enterprise SSO, managed secrets, encrypted evidence storage or tamper-proof audit infrastructure. Hosted privacy depends on provider/account policy as well as synthetic-only enforcement. See [architecture, controls and limitations](docs/ARCHITECTURE_SECURITY.md).
+This remains a prototype. Real IdP/source/model qualification, managed secrets/evidence encryption, worker deployment/soak qualification, independent network/audit protection, recovery and governance gates remain open. Defaults authorize synthetic data only; broader data decisions must be explicit. See [architecture and limitations](docs/ARCHITECTURE_SECURITY.md) and the [implementation ledger](docs/enterprise-readiness/IMPLEMENTATION_STATUS.md).
 
 ## Project structure
 
@@ -262,15 +271,15 @@ $env:QA_MODEL_PROVIDER = 'replay'
 | C0 — Read-only integration foundation | Adapters delivered; real access disabled |
 | B2-FREE — Multi-model/local inference | Provider implementation delivered; real quality evaluation pending |
 | C1 — Approved real Jira/Bitbucket access | Approval-gated, not completed |
-| C2 — Repository-grounded QA | Planned |
+| C2 — Repository-grounded QA | Selected-source contracts implemented; live/model qualification pending |
 | C3 — Environment testing | Planned; nonlocal environments unverified |
-| C4 — Human-approved Jira write-back | Planned |
+| C4 — Human-approved Jira write-back | Implemented / Disabled; live qualification pending |
 | C5 — Regression and release sanity automation | Planned |
 
 See [the detailed roadmap](docs/ROADMAP.md) for delivered scope and remaining boundaries.
 
 ## License and contributions
 
-There is **no `LICENSE` file** in the repository at this revision. It is publicly readable but has no explicit redistribution or modification license. Do not assume an open-source license; no license is added by this documentation change.
+The project is available under the [MIT License](LICENSE), approved by the repository owner on 2026-10-16. Dependencies, model weights and external services retain their own licenses and terms.
 
 Propose focused branches and pull requests, describe behavior and validation, and let the existing push/PR CI run. Keep real credentials, customer material, generated state and sealed gold out of commits. See [contribution details](docs/DEVELOPMENT.md#contributions). Historical milestone documents retain their original evidence and superseded labels. [Documentation validation and before/after summary](docs/DOCUMENTATION_VALIDATION.md).

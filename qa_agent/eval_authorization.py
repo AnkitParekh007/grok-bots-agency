@@ -50,7 +50,8 @@ def create_grant(store, gateway, principal, spec: dict) -> dict:
     exp = spec.get("expires_at")
     try:
         e = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
-        assert e.tzinfo is not None
+        if e.tzinfo is None:
+            raise ValueError("timezone required")
     except Exception:
         raise AuthorizationError("expires_at must be an ISO-8601 timestamp with timezone")
     if e <= datetime.now(timezone.utc):
@@ -107,6 +108,11 @@ def check(g: dict, run: dict, env: dict) -> None:
         raise AuthorizationError(f"environment {run.get('environment')} not in grant scope")
     if env.get("production") is not False or env.get("data_class") != "synthetic":
         raise AuthorizationError("environment is not a non-production synthetic environment")
+    story = run.get("story_json") or {}
+    bundle = run.get("source_bundle_json") or {}
+    if (story.get("_source") not in (None, "mock_jira") or bundle.get("classification") not in (None, "synthetic")
+            or "synthetic" not in (story.get("fields", {}).get("labels") or [])):
+        raise AuthorizationError("legacy eval grants require exclusively synthetic fixture sources")
     mc = model_class(run.get("model_label"))
     if mc not in g["model_classes"]:
         raise AuthorizationError(f"model class {mc!r} not in grant scope")
@@ -138,8 +144,11 @@ def main(argv=None):
     if not p:
         print("authentication failed (set QA_TOKEN to your local approver token)", file=sys.stderr); return 2
     cfg = load_json(ROOT / "config/agent.json"); cfg["model"]["provider"] = "replay"   # review/grants never call a model
-    agent = QAAgent(Path(a.data_dir), agent_cfg=cfg)
     try:
+        if a.cmd == "review" and a.decision == "approved":
+            from .execution_package import review_configuration
+            cfg = review_configuration(Path(a.data_dir), a.run, a.plan_hash)
+        agent = QAAgent(Path(a.data_dir), agent_cfg=cfg, review_only=True)
         if a.cmd == "create":
             spec = json.loads(Path(a.spec).read_text())
             out = create_grant(agent.store, agent.gateway, p, spec)

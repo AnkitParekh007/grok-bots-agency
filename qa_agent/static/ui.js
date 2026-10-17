@@ -43,8 +43,11 @@ export function icons(root = document) {
 export const labels = {
   awaiting_approval: "Awaiting approval",
   planning: "Planning",
+  queued_planning: "Queued for planning",
+  queued_execution: "Queued for execution",
   executing: "Executing",
   completed: "Completed",
+  analysis_only: "Analysis only",
   failed: "Failed",
   blocked: "Blocked",
   cancelled: "Cancelled",
@@ -86,9 +89,11 @@ export const fileURL = (rid, rel) =>
     .map(encodeURIComponent)
     .join("/");
 export async function api(url, body, method) {
+  const csrf = document.cookie.match(/(?:^|;\s*)(?:__Host-qa_csrf|qa_csrf)=([^;]+)/)?.[1];
   const response = await fetch(url, {
     method: method || (body === undefined ? "GET" : "POST"),
-    headers: body === undefined ? {} : { "Content-Type": "application/json" },
+    headers: { ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      ...(csrf ? { "X-CSRF-Token": decodeURIComponent(csrf) } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body),
     credentials: "same-origin",
   });

@@ -1,0 +1,24 @@
+{
+  "jira_writes": {
+    "REPLACE_WORKSPACE_PROJECT": {
+      "enabled": false,
+      "approved": false,
+      "approval_ref": null,
+      "kind": "jira_cloud",
+      "base_url": "https://bluemeteor.atlassian.net",
+      "project_key": null,
+      "issue_type_id": null,
+      "issue_type_name": null,
+      "review_ttl_s": 600,
+      "auth": {
+        "type": "basic",
+        "user_env": "QA_JIRA_WRITE_USER",
+        "token_env": "QA_JIRA_WRITE_TOKEN"
+      },
+      "transitions": {}
+    }
+  },
+  "policy_fragment": {
+    "jira_writes": {"approved_hosts": []}
+  }
+}
