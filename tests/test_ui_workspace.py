@@ -371,6 +371,45 @@ def test_safe_markdown_and_copy(page,workspace):
     expect(page.locator('#live-status')).to_contain_text('Copied to clipboard')
 
 
+def test_context_review_displays_provenance_and_escapes_untrusted_quotes(page, workspace):
+    from qa_agent.util import sha256
+    rid = request_run(workspace)
+    quote = 'Synthetic rendering only: <img src=x onerror=alert(1)> must stay text.'
+    source_file = 'docs/' + 'supplier_onboarding_' * 9 + '.md'
+    digest, source_id = sha256(quote), 'ctx:synthetic-rendering'
+    def render_fixture(route):
+        response = route.fetch()
+        record = response.json()
+        # Rendering-only API fixture. Never submit this altered plan for approval.
+        record['source_bundle_json'] = {'classification': 'synthetic', 'context_ids': [source_id], 'sources': [
+            {'id': source_id, 'kind': 'repository_file', 'sha256': digest,
+             'locator': {'repository': 'SYN/pim-import-service', 'commit': 'a' * 40, 'file': source_file}}]}
+        record['planning_json']['context_review'] = [{'source_id': source_id, 'source_sha256': digest,
+            'decision': 'used', 'reason': 'Synthetic rendering contract only.', 'citations': [{'quote': quote,
+                'line_start': 2, 'line_end': 2, 'test_refs': [record['plan_json']['test_cases'][0]['id']]}]}]
+        route.fulfill(response=response, json=record)
+    page.route('**/api/runs/' + rid, render_fixture)
+    login(page, workspace, 'approver')
+    open_run(page, rid)
+    page.locator('[data-tab="plan"]').click()
+    evidence = page.locator('#plan-content [data-context-review]')
+    expect(evidence).to_be_visible()
+    expect(evidence).to_contain_text(quote)
+    expect(evidence.locator('img')).to_have_count(0)
+    page.get_by_role('button', name='Open full plan review', exact=True).click()
+    review = page.locator('#review-dialog [data-context-review]')
+    expect(review).to_be_visible()
+    expect(review).to_contain_text(source_file)
+    expect(review).to_contain_text(digest)
+    expect(review.locator('img')).to_have_count(0)
+    review.scroll_into_view_if_needed()
+    expect(review).to_be_in_viewport()
+    assert page.locator('#review-dialog').evaluate('(el) => el.scrollWidth <= el.clientWidth')
+    shot(page, 'context-source-review')
+    page.keyboard.press('Escape')
+    expect(page.locator('#review-dialog')).not_to_be_visible()
+
+
 def test_run_history_pages_keep_recent_sidebar_and_return_to_latest(page, workspace):
     from qa_agent.store import Store
     store = Store(workspace[2])

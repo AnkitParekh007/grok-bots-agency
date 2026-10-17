@@ -1017,6 +1017,12 @@ details[open] > summary {
   color: var(--muted);
   font-size: var(--text-sm);
 }
+[data-context-review] {
+  overflow-wrap: anywhere;
+}
+[data-context-review] blockquote {
+  white-space: pre-wrap;
+}
 .progress-label {
   display: flex;
   justify-content: space-between;

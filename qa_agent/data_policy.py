@@ -26,7 +26,9 @@ def _expires(record, clock):
 
 
 def _approved(record, clock):
-    if record.get("approved") is not True or not record.get("approval_ref") or not record.get("approved_by"):
+    if not isinstance(record, dict) or record.get("approved") is not True or any(
+            not isinstance(record.get(key), str) or not 1 <= len(record[key]) <= 256 or not record[key].strip()
+            for key in ("approval_ref", "approved_by")):
         raise DataClassDenied("data-owner approval record is missing")
     return _expires(record, clock)
 
@@ -42,10 +44,11 @@ class DataPolicy:
         if not isinstance(self.grants, list) or len(self.grants) > 1000 or any(not isinstance(g, dict) for g in self.grants):
             raise ValueError("invalid bounded model-data grant list")
         self.lock, self.permits = threading.RLock(), {}
+        self.context_collector = None
 
     def source_rule(self, run):
         project = self.projects.get(run.get("project"), {})
-        rule = project.get("source_policy") or {}
+        rule = copy.deepcopy(project.get("source_policy") or {})
         _approved(rule, self.clock)
         if project.get("tenant_id", "local") != run.get("tenant_id", "local") or rule.get("tenant_id") != run.get("tenant_id", "local"):
             raise DataClassDenied("source classification does not match the run tenant/project")
@@ -59,11 +62,15 @@ class DataPolicy:
     def prepare(self, run, context, model, *, ac_field=None):
         """Minimize source fields, build a typed corpus, and issue a process-local permit."""
         if context.get("data_class") == "synthetic":
+            from .context_sources import selections
+            if selections(self.projects.get(run.get("project"), {}).get("source_policy") or {}):
+                raise DataClassDenied("selected contextual sources require explicitly classified organization planning")
             return context
         try:
             if model.name == "replay":
                 raise DataClassDenied("recorded plans are not organization-model inference")
             rule = self.source_rule(run)
+            self._grant(run, "plan_story", rule["classification"], model, rule)
             result = copy.deepcopy(context)
             source = result.get("story") or {}
             fields = source.get("fields") or {}
@@ -75,6 +82,21 @@ class DataPolicy:
             from .sources import issue_bundle
             custom = ac_field or self.projects[run["project"]].get("acceptance_criteria_field")
             result["source_bundle"] = issue_bundle(result["story"], rule, custom)
+            from .context_sources import selections
+            selected = selections(rule)
+            if selected:
+                if self.context_collector is None:
+                    raise DataClassDenied("context collection is unavailable")
+                sources = self.context_collector(run, rule)
+                bundle = result["source_bundle"]
+                bundle["sources"] += sources
+                bundle["context_ids"] = [source["id"] for source in sources]
+                bundle["context_selection_sha256"] = sha256(canon(selected))
+                bundle["completeness"] = "approved issue fields and exact selected context only; other sources have not been ingested"
+                if len(canon(bundle).encode()) > 300000:
+                    raise DataClassDenied("combined source bundle exceeds input limit")
+            if canon(rule) != canon(self.source_rule(run)):
+                raise DataClassDenied("source approval changed during preparation")
             result["data_permit"] = self.authorize(run, "plan_story", result, model, rule)
             return result
         except DataClassDenied:
@@ -82,14 +104,16 @@ class DataPolicy:
                                 "deny", "source or exact model-data grant missing, expired or incompatible")
             raise
 
-    def authorize(self, run, task, context, model, rule):
-        if context.get("data_class") not in getattr(model, "allowed_data_classes", []):
+    def _grant(self, run, task, data_class, model, rule):
+        if data_class not in getattr(model, "allowed_data_classes", []):
             raise DataClassDenied("provider data-class allowlist does not include the approved classification")
         endpoint = getattr(model, "base_url", "").rstrip("/")
-        candidates = [g for g in self.grants if isinstance(g, dict) and g.get("tenant_id") == run.get("tenant_id", "local") and
+        if not isinstance(self.grants, list) or len(self.grants) > 1000:
+            raise DataClassDenied("model-data grant inventory exceeds bounds")
+        candidates = [g for g in copy.deepcopy(self.grants) if isinstance(g, dict) and g.get("tenant_id") == run.get("tenant_id", "local") and
                       g.get("project") == run.get("project") and g.get("provider") == model.name and g.get("model") == model.model and
                       g.get("endpoint", "").rstrip("/") == endpoint and g.get("purpose") == task and
-                      context["data_class"] in g.get("data_classes", [])]
+                      data_class in g.get("data_classes", [])]
         if len(candidates) != 1:
             raise DataClassDenied("one exact model/source/purpose approval is required")
         grant = candidates[0]
@@ -97,10 +121,14 @@ class DataPolicy:
         declared_region = getattr(model, "cfg", {}).get("region")
         if not declared_region or grant.get("region") != declared_region or any(not isinstance(grant.get(k), str) or not grant[k].strip() for k in ("retention_decision", "training_use_decision")):
             raise DataClassDenied("matching declared region, retention and training-use decisions are required")
+        return grant, expires
+
+    def authorize(self, run, task, context, model, rule):
+        grant, expires = self._grant(run, task, context.get("data_class"), model, rule)
         permit = secrets.token_urlsafe(32)
         record = {"run_id": run["id"], "tenant_id": run.get("tenant_id", "local"), "project": run.get("project"),
-                  "provider": model.name, "model": model.model, "endpoint": endpoint, "task": task,
-                  "data_class": context["data_class"],
+                  "provider": grant["provider"], "model": grant["model"], "endpoint": grant["endpoint"].rstrip("/"), "task": task,
+                  "data_class": rule["classification"],
                   "input_hash": _input_hash(task, context), "grant_hash": sha256(canon(grant)), "rule_hash": sha256(canon(rule)),
                   "expires": min(expires, self.clock() + 900)}
         with self.lock:

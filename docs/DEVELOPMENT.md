@@ -88,6 +88,8 @@ Organization execution additionally requires a server-managed `domain_capabiliti
 
 Implement the read-only `IssueTrackerProvider` or `GitProvider` contract and register it in `qa_agent/integrations/registry.py`. Reuse bounded integration HTTP, exact origin/project/repository allowlists, GET-only semantics, credential references, redaction and pagination/file limits. Add mock pagination, auth, path traversal, redirects, oversized content and denial tests. Start the new configuration disabled. Adapter implementation/testing does not grant real access, classify real data as synthetic or enable model planning on it. Jira Cloud writes use the [separate human-reviewed capability](enterprise-readiness/JIRA_WRITES.md); never relax the read adapter's method boundary or register writes as model tools.
 
+Optional [context-source ingestion](enterprise-readiness/CONTEXT_SOURCES.md) consumes only exact owner-reviewed file/commit or comment/attachment selections with observed text digests. Preserve the normalized complete-text/byte/hash contract and source scope. Tests must distinguish citation provenance and protocol checks from actual reasoning/domain quality. An adapter must not add discovered or unapproved content to the model corpus.
+
 ## Add a synthetic story
 
 Add a synthetic Jira fixture under `fixtures/jira/`, CSV inputs under `fixtures/data/`, and independent expected results under `fixtures/oracles/<story>.expected.json`. Follow neighboring fixture formats and registered skill/parameter domains. If the story needs new SUT behavior, implement it in `sut/` with explicit defect toggles and verify both defect-on and defect-off paths.

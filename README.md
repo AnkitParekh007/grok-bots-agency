@@ -41,7 +41,7 @@ Implementation is ongoing on `codex/enterprise-readiness`. The [current implemen
 | Unsupported story review | Available | Deterministic, non-executable source review and capability gaps when independent expected results are absent; no model/SUT calls. |
 | Playwright browser automation | Available | Registered synthetic upload, error and product-count checks; no arbitrary website agent. |
 | API testing | Available | Registered supplier import and per-product validation actions. |
-| Bitbucket repository context | Experimental | Read-only Cloud/Data Center discovery/files/context adapters; context is recorded, **not yet used in model planning**. |
+| Selected contextual evidence | Experimental / Opt-in | Owner-selected files at full commits, comments and text attachments can inform planning with digest/line citations and handoff revalidation. Other repository context remains recorded only. |
 | Test reports | Available | HTML, JSON and JSON checksum per run. |
 | Screenshots and traces | Available | Real Chromium evidence with artifact manifests. |
 | Human approvals | Available | Immutable execution-envelope hash, expiry and distinct-human review; snapshots bind source, target, policy, fixtures, oracles and implementation. |
@@ -271,7 +271,7 @@ $env:QA_MODEL_PROVIDER = 'replay'
 | C0 — Read-only integration foundation | Adapters delivered; real access disabled |
 | B2-FREE — Multi-model/local inference | Provider implementation delivered; real quality evaluation pending |
 | C1 — Approved real Jira/Bitbucket access | Approval-gated, not completed |
-| C2 — Repository-grounded QA | Planned |
+| C2 — Repository-grounded QA | Selected-source contracts implemented; live/model qualification pending |
 | C3 — Environment testing | Planned; nonlocal environments unverified |
 | C4 — Human-approved Jira write-back | Implemented / Disabled; live qualification pending |
 | C5 — Regression and release sanity automation | Planned |

@@ -107,6 +107,12 @@ def verify(agent, run, env, *, check_sources=True):
     authorize(agent, run, env, run["story_json"])
     story, repo = run["story_json"], run.get("repo_context_json")
     if check_sources:
+        from .context_sources import verify as verify_context_sources
+        from .providers.models import DataClassDenied
+        try:
+            verify_context_sources(agent, run)
+        except DataClassDenied:
+            raise PackageChanged("selected contextual evidence or its source approval changed") from None
         story = agent._tool(run["id"], "tracker.get_issue", {"key": run["story_key"]},
                             lambda: agent.tracker_for(run.get("project")).get_issue(run["story_key"]))
         if run.get("repository"):

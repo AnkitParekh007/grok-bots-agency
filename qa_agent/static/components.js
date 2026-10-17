@@ -356,6 +356,15 @@ export function approvalRecord(r) {
     "</div>"
   );
 }
+export function contextReview(r) {
+  const reviews = r?.planning_json?.context_review || [];
+  if (!reviews.length) return '';
+  const sources = new Map((r.source_bundle_json?.sources || []).map(source => [source.id, source]));
+  return '<section data-context-review><h3>Selected contextual evidence</h3><p class="small muted">Supporting sources inform tests; acceptance criteria and oracle expectations remain separate.</p>' + reviews.map(review => {
+    const source = sources.get(review.source_id);
+    return '<article class="criterion"><strong>' + esc(source?.kind || 'Context') + ' · ' + esc(review.decision.replaceAll('_', ' ')) + '</strong><p>' + esc(Object.values(source?.locator || {}).join(' · ')) + '</p><p>' + esc(review.reason) + '</p><code class="hash">' + esc(review.source_sha256) + '</code>' + review.citations.map(citation => '<blockquote>' + esc(citation.quote) + '</blockquote><p class="small">Lines ' + esc(citation.line_start) + '–' + esc(citation.line_end) + ' · ' + esc(citation.test_refs.join(', ')) + '</p>').join('') + '</article>';
+  }).join('') + '</section>';
+}
 export function planPanel(r) {
   return !r?.plan_json
     ? empty(
@@ -376,6 +385,7 @@ export function planPanel(r) {
         gaps(r) +
         '<h3 style="margin-top:24px">Proposed tests</h3>' +
         cases(r) +
+        contextReview(r) +
         executionEnvelope(r) +
         '<h3 style="margin-top:20px">Execution envelope hash</h3><code class="hash">' +
         esc(r.plan_hash) +

@@ -73,6 +73,8 @@ class QAAgent:
         self.connections = ConnectionBroker(self.cfg.get("connections"), self.store, self.gateway, self.projects)
         from .data_policy import DataPolicy
         self.data_policy = DataPolicy(self.projects, self.cfg.get("model_data_grants"), self.gateway)
+        from .context_sources import collect
+        self.data_policy.context_collector = lambda run, rule: collect(self, run, rule)
         self.gateway.data_policy = self.data_policy
         self.skills = LocalSkillRegistry()
         self.model = build_model_provider(self.cfg, ROOT, gateway=self.gateway,

@@ -26,6 +26,7 @@ import {
   modelCard,
   approvalRecord,
   executionEnvelope,
+  contextReview,
 } from "./components.js";
 import {openJiraWrites, closeJiraWrites} from './jira-writes.js';
 const state = {
@@ -803,6 +804,7 @@ async function showReview() {
     gaps(r) +
     "<h2>Proposed test cases</h2>" +
     cases(r, true) +
+    contextReview(r) +
     executionEnvelope(r) +
     '<p class="small muted">' +
     esc(r.id) +
