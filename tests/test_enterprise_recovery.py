@@ -76,6 +76,23 @@ def test_encrypted_set_roundtrip_preserves_evidence_and_revokes_rollback_authori
         restored.db.close()
 
 
+def test_restore_never_resurrects_jira_write_authority_or_assumes_upstream_state(tmp_path, state):
+    a, key, _ = state
+    states = ("pending", "approved", "dispatching", "uncertain", "succeeded", "rejected")
+    for index, status in enumerate(states):
+        a.store.x("INSERT INTO jira_writes(id,run_id,fingerprint,draft,draft_hash,state,requester,requester_receipt,expires) "
+                  "VALUES(?,?,?,?,?,?,?,?,?)", (str(index), "saved", str(index), "{}", "synthetic-hash", status, "owner", "{}", 9999999999))
+    archive, _ = make_backup(tmp_path, state)
+    receipt = restore(archive, tmp_path / "restored", key, "synthetic-ledger")
+    assert receipt["invalidated_jira_writes"] == len(states)
+    restored = Store(tmp_path / "restored")
+    try:
+        assert {row["state"] for row in restored.q("SELECT state FROM jira_writes")} == {"restored_reconciliation_required"}
+        assert verify_chain(restored.q("SELECT * FROM audit ORDER BY id"))["ok"]
+    finally:
+        restored.db.close()
+
+
 @pytest.mark.parametrize("mutation", ["wrong-key", "ciphertext", "truncated", "final-record", "appended"])
 def test_authentication_and_ending_failures_never_publish_partial_state(tmp_path, state, mutation):
     _, key, _ = state

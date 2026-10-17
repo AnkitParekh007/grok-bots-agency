@@ -27,6 +27,7 @@ import {
   approvalRecord,
   executionEnvelope,
 } from "./components.js";
+import {openJiraWrites, closeJiraWrites} from './jira-writes.js';
 const state = {
   me: null,
   cfg: null,
@@ -132,6 +133,7 @@ function account() {
       : "");
 }
 function lock() {
+  closeJiraWrites();
   clearTimeout(state.timer);
   state.epoch++;
   state.current = null;
@@ -419,7 +421,7 @@ function renderPanels() {
   );
   update($("#plan-content"), planPanel(r));
   update($("#execution-content"), executionPanel(r));
-  update($("#evidence-content"), evidencePanel(r));
+  update($("#evidence-content"), evidencePanel(r, state.me));
 }
 function renderPage() {
   const heading =
@@ -907,6 +909,10 @@ async function probe(index, button) {
 }
 async function handleAction(button) {
   const action = button.dataset.action;
+  if (action === 'jira-writes') {
+    if (state.run && state.me?.authenticated) await openJiraWrites(state.run, state.me);
+    return;
+  }
   if (
     state.me?.mode === "local" &&
     !state.me.authenticated &&
@@ -969,6 +975,7 @@ async function handleAction(button) {
     return;
   }
   if (action === "logout") {
+    closeJiraWrites();
     await api("/api/logout", {});
     lock();
     return;

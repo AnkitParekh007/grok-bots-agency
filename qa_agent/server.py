@@ -68,6 +68,19 @@ class ConnectionRevokeIn(BaseModel):
     previous_revision: str = Field(pattern="^[a-f0-9]{64}$")
 
 
+class JiraWriteProposalIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: str = Field(pattern="^(create|comment|transition)$")
+    target: str | None = Field(default=None, max_length=60)
+    transition: str | None = Field(default=None, max_length=80)
+
+
+class JiraWriteReviewIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    draft_hash: str = Field(pattern="^[a-f0-9]{64}$")
+    decision: str = Field(pattern="^(approve|reject)$")
+
+
 def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users_file: Path | None = None, agent_cfg: dict | None = None, oidc_transport=None) -> FastAPI:
     data_dir = Path(data_dir or os.environ.get("QA_DATA_DIR", ROOT / "data"))
     if agent_cfg is None and os.environ.get("QA_AGENT_CONFIG"):
@@ -121,6 +134,11 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
     oidc = OidcClient(acfg["oidc"], agent.store, transport=oidc_transport) if mode == "oidc" else None
     from .job_authorization import JobAuthorization
     job_authorization = JobAuthorization(agent, sessions, users, mode, forbid_self_approval=acfg.get("forbid_self_approval", True))
+    from .jira_writes import JiraWrites, JiraWriteDenied
+    jira_writes = JiraWrites(agent, job_authorization)
+    app.state.jira_writes = jira_writes
+    if mode == "demo" and any(c.get("enabled") for c in agent.cfg.get("jira_writes", {}).values()):
+        raise ValueError("Jira writes require authenticated human workspace mode")
     if agent.queue:
         agent.queue.authorizer = job_authorization
     if oidc and public_url and acfg["oidc"]["redirect_uri"] != public_url.rstrip("/") + "/api/oidc/callback":
@@ -496,6 +514,46 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
         except ValueError as e:   # includes ConflictError (stale/duplicate/busy) and bad decision values
             raise HTTPException(409, str(e))
         return {"ok": True, "authenticated": identity is not None}
+
+    def jira_write_action(run_id, request, p, action, *, admit=True):
+        owned_run(run_id, p, "jira_write")
+        if not p.authenticated or p.kind != "human" or mode == "demo":
+            raise HTTPException(403, "Jira writes require an authenticated human")
+        if admit and not observer.health()["ready"]:
+            raise HTTPException(503, "service admission unavailable; operator recovery required")
+        try:
+            receipt = job_authorization.receipt(request, p, session_cookie)
+            return action(receipt)
+        except JiraWriteDenied as e:
+            agent.gateway.record(run_id, "jira.write.denied", {}, "deny", str(e))
+            raise HTTPException(409, str(e)) from None
+        except (ValueError, KeyError, TypeError, OSError):
+            raise HTTPException(409, "Jira write configuration or source contract is unavailable") from None
+        except Exception:
+            # Upstream errors may contain credentials/customer text. Return no body detail.
+            raise HTTPException(503, "Jira write unavailable; inspect its durable operation receipt") from None
+
+    @app.post("/api/runs/{run_id}/jira-writes")
+    def propose_jira_write(run_id: str, body: JiraWriteProposalIn, request: Request, p: Principal = Depends(need("requester"))):
+        return jira_write_action(run_id, request, p, lambda receipt: jira_writes.propose(
+            run_id, body.kind, receipt, target=body.target, transition=body.transition))
+
+    @app.get("/api/runs/{run_id}/jira-writes")
+    def list_jira_writes(run_id: str, request: Request, p: Principal = Depends(need("requester"))):
+        return jira_write_action(run_id, request, p, lambda receipt: jira_writes.list(run_id, receipt), admit=False)
+
+    @app.get("/api/runs/{run_id}/jira-writes/{operation_id}")
+    def get_jira_write(run_id: str, operation_id: str, request: Request, p: Principal = Depends(need("requester"))):
+        return jira_write_action(run_id, request, p, lambda receipt: jira_writes.get(run_id, operation_id, receipt), admit=False)
+
+    @app.post("/api/runs/{run_id}/jira-writes/{operation_id}/review")
+    def review_jira_write(run_id: str, operation_id: str, body: JiraWriteReviewIn, request: Request, p: Principal = Depends(need("approver"))):
+        return jira_write_action(run_id, request, p, lambda receipt: jira_writes.review(
+            run_id, operation_id, receipt, body.draft_hash, body.decision))
+
+    @app.post("/api/runs/{run_id}/jira-writes/{operation_id}/dispatch")
+    def dispatch_jira_write(run_id: str, operation_id: str, request: Request, p: Principal = Depends(need("approver"))):
+        return jira_write_action(run_id, request, p, lambda receipt: jira_writes.dispatch(run_id, operation_id, receipt))
 
     @app.post("/api/runs/{run_id}/cancel")
     def cancel(run_id: str, p: Principal = Depends(need("requester"))):

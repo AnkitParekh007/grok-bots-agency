@@ -339,6 +339,10 @@ def _invalidate_restored_authority(stage, backup_id):
             if "web_sessions" in tables:
                 receipt["revoked_sessions"] = db.execute("UPDATE web_sessions SET revoked=? WHERE revoked IS NULL", (time.time(),)).rowcount
             receipt["revoked_eval_grants"] = db.execute("UPDATE eval_grants SET revoked_at=?,revoked_by='restore-maintenance' WHERE revoked_at IS NULL", (now(),)).rowcount
+            # Jira may have changed after the backup. Even an apparently pending
+            # or successful old receipt cannot establish current upstream state.
+            receipt["invalidated_jira_writes"] = db.execute(
+                "UPDATE jira_writes SET state='restored_reconciliation_required' WHERE state!='restored_reconciliation_required'").rowcount
             receipt["invalidated_approvals"] = db.execute(
                 "INSERT INTO approvals(run_id,ts,plan_hash,approver,decision,comment,identity,auth_mode) "
                 "SELECT a.run_id,?,a.plan_hash,'restore-maintenance','rejected','Backup restored; fresh request and review required',NULL,'restore-maintenance' "

@@ -86,7 +86,7 @@ Organization execution additionally requires a server-managed `domain_capabiliti
 
 ## Add a Jira or Bitbucket adapter
 
-Implement the read-only `IssueTrackerProvider` or `GitProvider` contract and register it in `qa_agent/integrations/registry.py`. Reuse bounded integration HTTP, exact origin/project/repository allowlists, GET-only semantics, credential references, redaction and pagination/file limits. Add mock pagination, auth, path traversal, redirects, oversized content and denial tests. Start the new configuration disabled. Adapter implementation/testing does not grant real access, classify real data as synthetic or enable model planning on it. Writes require a separate future capability and approval design.
+Implement the read-only `IssueTrackerProvider` or `GitProvider` contract and register it in `qa_agent/integrations/registry.py`. Reuse bounded integration HTTP, exact origin/project/repository allowlists, GET-only semantics, credential references, redaction and pagination/file limits. Add mock pagination, auth, path traversal, redirects, oversized content and denial tests. Start the new configuration disabled. Adapter implementation/testing does not grant real access, classify real data as synthetic or enable model planning on it. Jira Cloud writes use the [separate human-reviewed capability](enterprise-readiness/JIRA_WRITES.md); never relax the read adapter's method boundary or register writes as model tools.
 
 ## Add a synthetic story
 

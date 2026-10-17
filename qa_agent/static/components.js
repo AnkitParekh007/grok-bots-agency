@@ -429,7 +429,7 @@ export function executionPanel(r) {
     activity(r)
   );
 }
-export function evidencePanel(r) {
+export function evidencePanel(r, me) {
   if (r?.analysis_json) {
     const base = '/api/runs/' + encodeURIComponent(r.id);
     return '<h2>Source review · analysis only</h2><p>' + esc(r.analysis_json.reason) + '</p><p>Zero tests executed. No model inference. Human source review and execution-capability onboarding are required.</p><div id="links" class="actions"><a class="button" href="' + base + '/report.html" target="_blank" rel="noopener">HTML source review</a><a class="button" href="' + base + '/report.json">JSON source review</a></div>' + gaps(r);
@@ -453,6 +453,9 @@ export function evidencePanel(r) {
       '/report.json">JSON report</a><a href="' +
       base +
       '/audit.jsonl" target="_blank" rel="noopener">Audit log</a></div>';
+  if (me?.authenticated && ['requester', 'approver'].includes(me.role) && r.status === 'completed' && r.project &&
+      r.results.some(x => ['failed', 'error'].includes(x.status)))
+    h += '<button class="button" data-action="jira-writes">Review Jira writes</button>';
   h += r.results
     .map(
       (x) =>

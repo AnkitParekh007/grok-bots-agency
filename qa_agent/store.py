@@ -6,7 +6,7 @@ from .interfaces import ArtifactStore, ApprovalProvider
 from datetime import datetime, timezone
 from .util import now, sha256, canon, redact
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 RUN_UPDATE_FIELDS = frozenset("updated status request story_key environment model_provider model_label story_json ac_json plan_json plan_hash summary_json error model_id model_version planning_json requested_by cancel_requested catalog_version plan_created_at project repository repo_context_json execution_envelope_json tenant_id analysis_json source_bundle_json".split())
 
 SCHEMA = """
@@ -34,6 +34,9 @@ CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,run_id TEXT,kind TEXT,state 
   lease_until REAL,attempts INTEGER DEFAULT 0,cancel_requested INTEGER DEFAULT 0,finished REAL,error TEXT,started REAL,UNIQUE(run_id,kind));
 CREATE TABLE IF NOT EXISTS job_resources(resource TEXT PRIMARY KEY,job_id TEXT,owner TEXT,fence INTEGER,expires REAL);
 CREATE TABLE IF NOT EXISTS job_quarantines(resource TEXT PRIMARY KEY,job_id TEXT,created TEXT,reason TEXT);
+CREATE TABLE IF NOT EXISTS jira_writes(id TEXT PRIMARY KEY,run_id TEXT NOT NULL,fingerprint TEXT UNIQUE NOT NULL,
+  draft TEXT NOT NULL,draft_hash TEXT NOT NULL,state TEXT NOT NULL,requester TEXT NOT NULL,requester_receipt TEXT NOT NULL,
+  approver TEXT,approver_receipt TEXT,expires REAL NOT NULL,started REAL,outcome TEXT);
 CREATE INDEX IF NOT EXISTS jobs_ready ON jobs(state,config_hash,created);
 CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT,'audit is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit BEGIN SELECT RAISE(ABORT,'audit is append-only'); END;
