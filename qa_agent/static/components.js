@@ -8,6 +8,16 @@ import {
   markdown,
   empty,
 } from "./ui.js";
+export function executionEnvelope(r) {
+  const envelope = r.execution_envelope_json;
+  if (!envelope) return '<div class="callout">This legacy plan requires a new reviewable execution package.</div>';
+  return '<h3>Execution inputs bound to this review</h3><p class="small muted">Target: ' +
+    esc(envelope.environment?.base_url || "") + " · " + esc(r.model_id || r.model_provider) +
+    " · " + Object.keys(envelope.fixtures || {}).length +
+    ' fixture(s). Source, expected results, fixture bytes, implementation, model, policy and configuration are fingerprinted.</p>' +
+    '<details><summary>Inspect execution manifest</summary><pre class="small">' +
+    esc(JSON.stringify(envelope, null, 2)) + "</pre></details>";
+}
 export const providerName = (p) =>
   ({
     ollama: "Ollama",
@@ -156,6 +166,9 @@ export function conversation(r, canCancel) {
   const p = r.planning_json;
   let answer = "The request is being planned. Execution has not started.";
   if (p) answer = p.understanding.summary;
+  if (r.status === "queued_planning") answer = "Your request is queued for planning. Execution has not started.";
+  if (r.status === "queued_execution") answer = "The approved plan is queued for execution. Tests have not started.";
+  if (r.analysis_json) answer = r.analysis_json.reason + " Source requirements were extracted without model inference. Execution is unavailable until the missing capabilities are reviewed and a new plan is generated.";
   if (
     r.status === "failed" ||
     r.status === "blocked" ||
@@ -221,8 +234,8 @@ export function conversation(r, canCancel) {
           r.status === "awaiting_approval" ? "primary" : "",
         )
       : "") +
-    (r.results.length || r.summary_json
-      ? button("View results & evidence", "evidence")
+    (r.results.length || r.summary_json || r.analysis_json
+      ? button(r.analysis_json ? "View source review" : "View results & evidence", "evidence")
       : "") +
     (canCancel ? button("Cancel run", "cancel") : "") +
     (r.status === "failed" ||
@@ -261,7 +274,8 @@ export function criteria(r) {
         esc(a.text) +
         "</p><blockquote>" +
         esc(a.source_quote) +
-        "</blockquote></div>",
+        "</blockquote>" +
+        (a.source_id ? '<p class="small muted">Source: ' + esc(a.source_id) + '</p>' : '') + "</div>",
     )
     .join("");
 }
@@ -300,7 +314,7 @@ export function cases(r, full = false) {
     .join("");
 }
 export function gaps(r) {
-  const g = r.planning_json?.coverage_gaps || [];
+  const g = r.planning_json?.coverage_gaps || r.analysis_json?.coverage_gaps || [];
   return g.length
     ? '<ul class="gap-list">' +
         g
@@ -342,6 +356,15 @@ export function approvalRecord(r) {
     "</div>"
   );
 }
+export function contextReview(r) {
+  const reviews = r?.planning_json?.context_review || [];
+  if (!reviews.length) return '';
+  const sources = new Map((r.source_bundle_json?.sources || []).map(source => [source.id, source]));
+  return '<section data-context-review><h3>Selected contextual evidence</h3><p class="small muted">Supporting sources inform tests; acceptance criteria and oracle expectations remain separate.</p>' + reviews.map(review => {
+    const source = sources.get(review.source_id);
+    return '<article class="criterion"><strong>' + esc(source?.kind || 'Context') + ' · ' + esc(review.decision.replaceAll('_', ' ')) + '</strong><p>' + esc(Object.values(source?.locator || {}).join(' · ')) + '</p><p>' + esc(review.reason) + '</p><code class="hash">' + esc(review.source_sha256) + '</code>' + review.citations.map(citation => '<blockquote>' + esc(citation.quote) + '</blockquote><p class="small">Lines ' + esc(citation.line_start) + '–' + esc(citation.line_end) + ' · ' + esc(citation.test_refs.join(', ')) + '</p>').join('') + '</article>';
+  }).join('') + '</section>';
+}
 export function planPanel(r) {
   return !r?.plan_json
     ? empty(
@@ -362,11 +385,13 @@ export function planPanel(r) {
         gaps(r) +
         '<h3 style="margin-top:24px">Proposed tests</h3>' +
         cases(r) +
-        '<h3 style="margin-top:20px">Exact plan hash</h3><code class="hash">' +
+        contextReview(r) +
+        executionEnvelope(r) +
+        '<h3 style="margin-top:20px">Execution envelope hash</h3><code class="hash">' +
         esc(r.plan_hash) +
         '</code><p class="small muted">Created ' +
         date(r.plan_created_at) +
-        ". Expiry and the current catalog are checked by the server.</p></div>";
+        ". Expiry and all bound execution inputs are checked by the server.</p></div>";
 }
 export function executionPanel(r) {
   if (!r)
@@ -414,7 +439,11 @@ export function executionPanel(r) {
     activity(r)
   );
 }
-export function evidencePanel(r) {
+export function evidencePanel(r, me) {
+  if (r?.analysis_json) {
+    const base = '/api/runs/' + encodeURIComponent(r.id);
+    return '<h2>Source review · analysis only</h2><p>' + esc(r.analysis_json.reason) + '</p><p>Zero tests executed. No model inference. Human source review and execution-capability onboarding are required.</p><div id="links" class="actions"><a class="button" href="' + base + '/report.html" target="_blank" rel="noopener">HTML source review</a><a class="button" href="' + base + '/report.json">JSON source review</a></div>' + gaps(r);
+  }
   if (!r?.results.length)
     return empty(
       "Evidence will appear here",
@@ -434,6 +463,9 @@ export function evidencePanel(r) {
       '/report.json">JSON report</a><a href="' +
       base +
       '/audit.jsonl" target="_blank" rel="noopener">Audit log</a></div>';
+  if (me?.authenticated && ['requester', 'approver'].includes(me.role) && r.status === 'completed' && r.project &&
+      r.results.some(x => ['failed', 'error'].includes(x.status)))
+    h += '<button class="button" data-action="jira-writes">Review Jira writes</button>';
   h += r.results
     .map(
       (x) =>

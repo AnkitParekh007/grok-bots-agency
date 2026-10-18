@@ -1,0 +1,506 @@
+{
+  "_comment": "Model choice is configuration, never code. Override provider with env QA_MODEL_PROVIDER. No automatic fallback between providers.",
+  "model": {
+    "provider": "ollama"
+  },
+  "providers": {
+    "replay": {
+      "replay_dir": "fixtures/replay",
+      "label": "REPLAYED (mock model)",
+      "model": "replay"
+    },
+    "compatible": {
+      "_comment": "Generic Chat Completions adapter retained for priced contract tests; disabled. Production use requires independent host policy, approval, credentials and prices.",
+      "enabled": false,
+      "approved": false,
+      "approval_ref": null,
+      "model": "contract-model",
+      "base_url": "https://unconfigured.invalid/v1",
+      "api_key_env": "MODEL_API_KEY",
+      "allowed_data_classes": [
+        "synthetic"
+      ],
+      "timeout_s": 60,
+      "max_retries": 3,
+      "backoff_base_s": 1.0,
+      "max_backoff_s": 30,
+      "max_completion_tokens": 8000,
+      "pricing": {
+        "input_per_mtok_usd": null,
+        "cached_input_per_mtok_usd": null,
+        "output_per_mtok_usd": null
+      },
+      "_egress_comment": "Approved external model hosts live in config/policy.json tools.model.request.approved_hosts (separate from this base_url). Non-loopback endpoints must use https.",
+      "cost_type": "paid",
+      "classification": "hosted"
+    },
+    "ollama": {
+      "enabled": true,
+      "approved": true,
+      "approval_ref": "loopback-local-default",
+      "allowed_data_classes": [
+        "synthetic"
+      ],
+      "structured_output": "json_schema",
+      "context_window": 32768,
+      "max_completion_tokens": 4096,
+      "timeout_s": 60,
+      "max_retries": 2,
+      "backoff_base_s": 1,
+      "max_backoff_s": 30,
+      "version": null,
+      "quotas": {
+        "rpm": 20,
+        "rpd": 1000,
+        "tpm": 100000,
+        "tpd": 1000000,
+        "concurrency": 1
+      },
+      "audit_restrictions": [
+        "gateway-required",
+        "no-redirects",
+        "no-automatic-fallback"
+      ],
+      "classification": "local",
+      "cost_type": "local",
+      "api_key_env": null,
+      "base_url": "http://127.0.0.1:11434",
+      "model": "qwen3:8b"
+    },
+    "lmstudio": {
+      "enabled": false,
+      "approved": false,
+      "approval_ref": null,
+      "allowed_data_classes": [
+        "synthetic"
+      ],
+      "structured_output": "json_schema",
+      "context_window": 32768,
+      "max_completion_tokens": 4096,
+      "timeout_s": 60,
+      "max_retries": 2,
+      "backoff_base_s": 1,
+      "max_backoff_s": 30,
+      "version": null,
+      "quotas": {
+        "rpm": 20,
+        "rpd": 1000,
+        "tpm": 100000,
+        "tpd": 1000000,
+        "concurrency": 1
+      },
+      "audit_restrictions": [
+        "gateway-required",
+        "no-redirects",
+        "no-automatic-fallback"
+      ],
+      "classification": "local",
+      "cost_type": "local",
+      "api_key_env": null,
+      "base_url": "http://127.0.0.1:1234/v1",
+      "model": "configure-local-model"
+    },
+    "llamacpp": {
+      "enabled": false,
+      "approved": false,
+      "approval_ref": null,
+      "allowed_data_classes": [
+        "synthetic"
+      ],
+      "structured_output": "json_schema",
+      "context_window": 32768,
+      "max_completion_tokens": 4096,
+      "timeout_s": 60,
+      "max_retries": 2,
+      "backoff_base_s": 1,
+      "max_backoff_s": 30,
+      "version": null,
+      "quotas": {
+        "rpm": 20,
+        "rpd": 1000,
+        "tpm": 100000,
+        "tpd": 1000000,
+        "concurrency": 1
+      },
+      "audit_restrictions": [
+        "gateway-required",
+        "no-redirects",
+        "no-automatic-fallback"
+      ],
+      "classification": "local",
+      "cost_type": "local",
+      "api_key_env": null,
+      "base_url": "http://127.0.0.1:8080/v1",
+      "model": "configure-local-model"
+    },
+    "vllm": {
+      "enabled": false,
+      "approved": false,
+      "approval_ref": null,
+      "allowed_data_classes": [
+        "synthetic"
+      ],
+      "structured_output": "json_schema",
+      "context_window": 32768,
+      "max_completion_tokens": 4096,
+      "timeout_s": 60,
+      "max_retries": 2,
+      "backoff_base_s": 1,
+      "max_backoff_s": 30,
+      "version": null,
+      "quotas": {
+        "rpm": 20,
+        "rpd": 1000,
+        "tpm": 100000,
+        "tpd": 1000000,
+        "concurrency": 1
+      },
+      "audit_restrictions": [
+        "gateway-required",
+        "no-redirects",
+        "no-automatic-fallback"
+      ],
+      "classification": "local",
+      "cost_type": "local",
+      "api_key_env": null,
+      "base_url": "http://127.0.0.1:8000/v1",
+      "model": "configure-local-model"
+    },
+    "groq": {
+      "enabled": false,
+      "approved": false,
+      "approval_ref": null,
+      "allowed_data_classes": [
+        "synthetic"
+      ],
+      "structured_output": "json_schema",
+      "context_window": 32768,
+      "max_completion_tokens": 4096,
+      "timeout_s": 60,
+      "max_retries": 2,
+      "backoff_base_s": 1,
+      "max_backoff_s": 30,
+      "version": null,
+      "quotas": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "concurrency": 1
+      },
+      "audit_restrictions": [
+        "gateway-required",
+        "no-redirects",
+        "no-automatic-fallback"
+      ],
+      "classification": "hosted",
+      "cost_type": "free",
+      "api_key_env": "GROQ_API_KEY",
+      "base_url": "https://api.groq.com/openai/v1",
+      "model": "openai/gpt-oss-20b",
+      "free_only": true,
+      "account_tier": "unknown",
+      "account_verified_ref": null,
+      "quota_scope": "groq-account",
+      "_comment": "Disabled; administrator must verify actual free-account entitlement and limits, select exact model, authorize synthetic egress, and approve host in policy.json. Never auto-upgrades.",
+      "models": [
+        {
+          "id": "openai/gpt-oss-120b",
+          "approved": false,
+          "structured_output": "json_schema",
+          "context_window": 32768,
+          "max_completion_tokens": 4096
+        },
+        {
+          "id": "qwen/qwen3.8-27b",
+          "approved": false,
+          "structured_output": "json_schema",
+          "context_window": 32768,
+          "max_completion_tokens": 4096
+        }
+      ]
+    },
+    "gemini": {
+      "enabled": false,
+      "approved": false,
+      "approval_ref": null,
+      "allowed_data_classes": [
+        "synthetic"
+      ],
+      "structured_output": "json_schema",
+      "context_window": 32768,
+      "max_completion_tokens": 4096,
+      "timeout_s": 60,
+      "max_retries": 2,
+      "backoff_base_s": 1,
+      "max_backoff_s": 30,
+      "version": null,
+      "quotas": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "concurrency": 1
+      },
+      "audit_restrictions": [
+        "gateway-required",
+        "no-redirects",
+        "no-automatic-fallback"
+      ],
+      "classification": "hosted",
+      "cost_type": "free",
+      "api_key_env": "GEMINI_API_KEY",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta",
+      "model": null,
+      "free_only": true,
+      "account_tier": "unknown",
+      "account_verified_ref": null,
+      "quota_scope": "gemini-account",
+      "_comment": "Disabled; administrator must verify actual free-account entitlement and limits, select exact model, authorize synthetic egress, and approve host in policy.json. Never auto-upgrades."
+    },
+    "openrouter": {
+      "enabled": false,
+      "approved": false,
+      "approval_ref": null,
+      "allowed_data_classes": [
+        "synthetic"
+      ],
+      "structured_output": "json_schema",
+      "context_window": 32768,
+      "max_completion_tokens": 4096,
+      "timeout_s": 60,
+      "max_retries": 2,
+      "backoff_base_s": 1,
+      "max_backoff_s": 30,
+      "version": null,
+      "quotas": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "concurrency": 1
+      },
+      "audit_restrictions": [
+        "gateway-required",
+        "no-redirects",
+        "no-automatic-fallback"
+      ],
+      "classification": "hosted",
+      "cost_type": "free",
+      "api_key_env": "OPENROUTER_API_KEY",
+      "base_url": "https://openrouter.ai/api/v1",
+      "model": null,
+      "free_only": true,
+      "account_tier": "unknown",
+      "account_verified_ref": null,
+      "quota_scope": "openrouter-account",
+      "_comment": "Disabled; administrator must verify actual free-account entitlement and limits, select exact model, authorize synthetic egress, and approve host in policy.json. Never auto-upgrades."
+    },
+    "nvidia": {
+      "enabled": false,
+      "approved": false,
+      "approval_ref": null,
+      "allowed_data_classes": [
+        "synthetic"
+      ],
+      "structured_output": "json_schema",
+      "context_window": 32768,
+      "max_completion_tokens": 4096,
+      "timeout_s": 60,
+      "max_retries": 2,
+      "backoff_base_s": 1,
+      "max_backoff_s": 30,
+      "version": null,
+      "quotas": {
+        "rpm": null,
+        "rpd": null,
+        "tpm": null,
+        "tpd": null,
+        "concurrency": 1
+      },
+      "audit_restrictions": [
+        "gateway-required",
+        "no-redirects",
+        "no-automatic-fallback"
+      ],
+      "classification": "hosted",
+      "cost_type": "free",
+      "base_url": "https://integrate.api.nvidia.com/v1",
+      "api_key_env": "NVIDIA_API_KEY",
+      "model": null,
+      "_comment": "Deferred. No adapter enabled before developer access, permitted use and free-model availability are confirmed."
+    }
+  },
+  "issue_tracker": {
+    "provider": "mock_jira",
+    "fixtures_dir": "fixtures/jira",
+    "_comment": "provider: mock_jira (default, synthetic fixtures) | jira_cloud | jira_dc. Real providers need integrations.<name> enabled+approved+credentials+https allowlisted host."
+  },
+  "oracles_dir": "fixtures/oracles",
+  "fixture_data_dir": "fixtures/data",
+  "default_environment": "synthetic-local",
+  "budget": {
+    "_comment": "Dollar spending controls remain independent of token quotas; paid adapters require pricing and account-side spend backstops.",
+    "per_run_usd": 1.0,
+    "daily_usd": 15.0,
+    "total_usd": 15.0,
+    "scope": "b2-live-eval-1"
+  },
+  "repair": {
+    "max_format_repairs": 2
+  },
+  "execution": {
+    "action_timeout_ms": 15000,
+    "navigation_timeout_ms": 15000,
+    "api_timeout_ms": 15000
+  },
+  "auth": {
+    "mode": "oidc",
+    "users_file": "data/users.json",
+    "forbid_self_approval": true,
+    "_comment": "demo = unauthenticated approver label (local demo only). local = hashed bearer tokens from users_file with roles viewer/requester/approver. Neither is SSO.",
+    "sessions": {
+      "key_env": "QA_SESSION_ENCRYPTION_KEY",
+      "idle_s": 900,
+      "lifetime_s": 3600
+    },
+    "login_attempts_per_minute": 20,
+    "oidc": {
+      "issuer": null,
+      "authorization_endpoint": null,
+      "token_endpoint": null,
+      "jwks_uri": null,
+      "redirect_uri": null,
+      "client_id": null,
+      "client_secret_env": "QA_OIDC_CLIENT_SECRET",
+      "flow_key_env": "QA_OIDC_FLOW_KEY",
+      "approval_ref": null,
+      "allowed_hosts": [],
+      "algorithms": [
+        "RS256"
+      ],
+      "required_amr": [
+        "mfa"
+      ],
+      "max_auth_age_s": 3600
+    }
+  },
+  "plan": {
+    "ttl_minutes": 60
+  },
+  "unattended_eval_approval": {
+    "_comment": "Synthetic-eval harness only. Requires a server-side eval grant created by an authenticated approver (POST /api/eval-grants or python -m qa_agent.eval_authorization create). Normal approvals are unaffected.",
+    "enabled": false
+  },
+  "git": {
+    "provider": "synthetic_git",
+    "repos_dir": "fixtures/repos",
+    "_comment": "provider: synthetic_git (default, fixtures/repos) | bitbucket_cloud | bitbucket_dc (read-only REST, never clones)."
+  },
+  "integrations": {
+    "_comment": "ALL DISABLED. Fill in only after Bluemeteor grants read-only service accounts. Credentials are env var NAMES, never values.",
+    "jira_cloud": {
+      "_comment": "Jira Cloud REST v3 (https://<site>.atlassian.net). auth basic = account email + API token.",
+      "enabled": false,
+      "approved": false,
+      "approval_ref": null,
+      "base_url": null,
+      "allowed_hosts": [],
+      "auth": {
+        "type": "basic",
+        "user_env": null,
+        "token_env": null
+      },
+      "timeout_s": 15,
+      "max_retries": 2,
+      "backoff_base_s": 0.5,
+      "max_backoff_s": 10,
+      "page_size": 50,
+      "max_pages": 10,
+      "projects": [],
+      "acceptance_criteria_field": null,
+      "max_attachment_bytes": 1000000
+    },
+    "jira_dc": {
+      "_comment": "Jira Data Center REST v2. auth bearer = personal access token.",
+      "enabled": false,
+      "approved": false,
+      "approval_ref": null,
+      "base_url": null,
+      "allowed_hosts": [],
+      "auth": {
+        "type": "bearer",
+        "token_env": null
+      },
+      "timeout_s": 15,
+      "max_retries": 2,
+      "backoff_base_s": 0.5,
+      "max_backoff_s": 10,
+      "page_size": 50,
+      "max_pages": 10,
+      "projects": [],
+      "acceptance_criteria_field": null,
+      "max_attachment_bytes": 1000000
+    },
+    "bitbucket_cloud": {
+      "_comment": "Bitbucket Cloud REST 2.0 (https://api.bitbucket.org/). repositories: WORKSPACE/slug. auth bearer = repository/workspace access token (read scopes).",
+      "enabled": false,
+      "approved": false,
+      "approval_ref": null,
+      "base_url": null,
+      "allowed_hosts": [],
+      "auth": {
+        "type": "bearer",
+        "token_env": null
+      },
+      "timeout_s": 15,
+      "max_retries": 2,
+      "backoff_base_s": 0.5,
+      "max_backoff_s": 10,
+      "page_size": 50,
+      "max_pages": 10,
+      "repositories": [],
+      "code_search_enabled": false,
+      "max_file_bytes": 500000
+    },
+    "bitbucket_dc": {
+      "_comment": "Bitbucket Data Center REST 1.0. repositories: PROJECT/slug. auth bearer = HTTP access token (repo read). Code search unsupported.",
+      "enabled": false,
+      "approved": false,
+      "approval_ref": null,
+      "base_url": null,
+      "allowed_hosts": [],
+      "auth": {
+        "type": "bearer",
+        "token_env": null
+      },
+      "timeout_s": 15,
+      "max_retries": 2,
+      "backoff_base_s": 0.5,
+      "max_backoff_s": 10,
+      "page_size": 50,
+      "max_pages": 10,
+      "repositories": [],
+      "max_file_bytes": 500000
+    }
+  },
+  "projects": {
+    "_comment": "Add only approved organization projects; no implicit scope from the workspace URL."
+  },
+  "deployment": {
+    "profile": "shared",
+    "public_url": null,
+    "_comment": "Fill the HTTPS workspace origin; this profile refuses demo/local authentication."
+  },
+  "authorization": {
+    "mode": "project",
+    "group_claim": "groups",
+    "group_grants": {},
+    "system_auditors": [],
+    "_comment": "Map verified IdP groups to one tenant and explicit project roles. Empty grants deny all project data."
+  },
+  "http_limits": {
+    "max_body_bytes": 1000000,
+    "max_requests": 40
+  }
+}

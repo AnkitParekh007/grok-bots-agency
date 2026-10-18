@@ -1,0 +1,6 @@
+{
+  "_comment": "Review-only configuration fragment. Merge into an authenticated operator configuration before creating template runs. This file is not loaded automatically. No scheduler, execution grant or release authorization is enabled.",
+  "regression": {
+    "enabled": false
+  }
+}

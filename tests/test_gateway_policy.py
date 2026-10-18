@@ -69,7 +69,10 @@ def test_audit_is_append_only(agent):
         agent.store.x("DELETE FROM audit")
     with pytest.raises(sqlite3.DatabaseError):
         agent.store.x("UPDATE audit SET decision='allow'")
-    assert (agent.artifacts.path_for("r6", "audit.jsonl")).read_text().count("\n") == 1
+    import json
+    records = [json.loads(line) for line in agent.artifacts.path_for("r6", "audit.jsonl").read_text().splitlines()]
+    assert [row["tool"] for row in records] == ["tool.intent", "env.resolve"]
+    assert records[0]["outcome"] == "pending" and records[1]["outcome"] == "ok"
 
 
 def test_environment_registry_refuses_unknown_and_nonlocal(agent, monkeypatch):

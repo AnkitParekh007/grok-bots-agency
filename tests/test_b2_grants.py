@@ -82,6 +82,23 @@ def test_wrong_scope(env, over, match):
     refused(a, planned(a), g["grant_id"], match)
 
 
+@pytest.mark.parametrize("source", ["real-adapter", "classified-bundle", "missing-synthetic-label"])
+def test_organization_sources_cannot_use_legacy_synthetic_eval_grants(env, source):
+    a, P, *_ = env
+    g = create_grant(a.store, a.gateway, P["bob"], spec())
+    rid = planned(a)
+    run = a.store.get_run(rid)
+    if source == "classified-bundle":
+        a.store.update_run(rid, source_bundle_json={"classification": "internal"})
+    else:
+        story = copy.deepcopy(run["story_json"])
+        if source == "real-adapter": story["_source"] = "jira_cloud"
+        else: story["fields"]["labels"] = []
+        a.store.update_run(rid, story_json=story)
+    refused(a, rid, g["grant_id"], "synthetic fixture sources")
+    assert a.store.get_grant(g["grant_id"])["uses"] == 0
+
+
 def test_expired(env):
     a, P, *_ = env
     with pytest.raises(AuthorizationError, match="future"):

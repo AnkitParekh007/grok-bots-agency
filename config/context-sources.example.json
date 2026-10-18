@@ -1,0 +1,17 @@
+{
+  "project_source_policy_fragment": {
+    "approved": false,
+    "approved_by": null,
+    "approval_ref": null,
+    "expires_at": null,
+    "tenant_id": null,
+    "classification": null,
+    "fields": ["summary", "description"],
+    "contexts": []
+  },
+  "selection_shapes_for_owner_review_only": [
+    {"kind": "repository_file", "repository": "bluemeteorapps/supplierportalui", "commit": null, "file": null, "sha256": null},
+    {"kind": "jira_comment", "id": null, "sha256": null},
+    {"kind": "jira_attachment", "id": null, "sha256": null}
+  ]
+}

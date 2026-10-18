@@ -155,7 +155,8 @@ def check_thresholds(agg, thresholds=PROPOSED_THRESHOLDS):
     for k, (op, v, hard) in thresholds.items():
         x = agg.get(k)
         if x is None:
-            out[k] = {"value": None, "threshold": f"{op} {v}", "hard_gate": hard, "pass": None}
+            # "pass" is a tri-state evaluation score, not a credential.
+            out[k] = {"value": None, "threshold": f"{op} {v}", "hard_gate": hard, "pass": None}  # nosec B105
             continue
         ok = {">=": x >= v, "<=": x <= v, "==": x == v}[op]
         out[k] = {"value": x, "threshold": f"{op} {v}", "hard_gate": hard, "pass": ok}

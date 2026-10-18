@@ -312,9 +312,9 @@ def _verified_env(**kw):
     return e
 
 
-def test_dev_and_playground_unverified_by_default(agent):
+def test_test_and_playground_unverified_by_default(agent):
     envs = {e["name"]: e for e in agent.envs.list_environments()}
-    for n in ("bluemeteor-dev", "bluemeteor-playground"):
+    for n in ("bluemeteor-test", "bluemeteor-playground"):
         assert envs[n]["status"] == "unverified" and envs[n]["executable"] is False
         with pytest.raises(EnvironmentRefused):
             agent.envs.resolve(n)
@@ -411,7 +411,8 @@ def test_chat_selection_validated_and_recorded(tmp_path):
     bad = [{"project": "NOPE"}, {"project": "PCC", "story_key": "OTHER-1"}, {"project": "PCC", "repository": "SYN/other"},
            {"repository": "SYN/pim-import-service"}, {"project": "PCC", "environment": "unlisted-env"}]
     for b in bad:
-        assert c.post("/api/chat", json={"message": "test PCC-DEMO-1", **b}).status_code == 400
+        expected = 404 if b.get("project") == "NOPE" else 400
+        assert c.post("/api/chat", json={"message": "test PCC-DEMO-1", **b}).status_code == expected
     a = c.app.state.agent
     rid = a.start_run("test it", "synthetic-local", story_key="PCC-DEMO-1", project="PCC", repository="SYN/pim-import-service", wait=True)
     r = a.store.get_run(rid)
@@ -425,6 +426,10 @@ def test_chat_selection_validated_and_recorded(tmp_path):
 def test_unverified_env_run_fails_closed(agent):
     with pytest.raises(ValueError):
         agent.start_run("x", "unlisted", story_key="PCC-DEMO-1", project="PCC")
+    from tests.test_enterprise_domains import approval
+    # Isolate environment verification from the separate domain-input gate.
+    approval(agent, {"tenant_id": "local", "project": "PCC", "repository": None,
+                     "story_key": "PCC-DEMO-1", "environment": "bluemeteor-playground"}, agent.envs._base("bluemeteor-playground"))
     rid = agent.start_run("test", "bluemeteor-playground", story_key="PCC-DEMO-1", project="PCC", wait=True)
     r = agent.store.get_run(rid)
     assert r["status"] == "failed" and "not executable" in r["error"] and r["plan_hash"] is None
@@ -436,6 +441,10 @@ def test_real_tracker_stories_not_auto_classified_synthetic(mock, tmp_path, monk
     c["integrations"]["jira_dc"] = cfg(mock.url)
     a = QAAgent(tmp_path, agent_cfg=c)
     assert a.tracker.kind == "jira_dc"
+    from tests.test_enterprise_domains import approval
+    # A domain receipt must not classify real-adapter content as synthetic.
+    approval(a, {"tenant_id": "local", "project": "PCC", "repository": None,
+                 "story_key": "PCC-DEMO-1", "environment": "synthetic-local"}, a.envs._base("synthetic-local"))
     rid = a.start_run("test", "synthetic-local", story_key="PCC-DEMO-1", project="PCC", wait=True)
     ev = " ".join(e["message"] for e in a.store.events(rid))
     assert "Data classification for model input: unclassified" in ev

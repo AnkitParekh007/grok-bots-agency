@@ -1,0 +1,37 @@
+# Example Prometheus rules. Deployment owners must configure scraping, routing,
+# contact owners and a tested notification receiver; this file deploys nothing.
+groups:
+  - name: qa-agent-service
+    rules:
+      - alert: QaAgentProcessNotReady
+        expr: qa_process_ready == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: QA Agent admission checks are failing
+          description: Check protected health details and the incident runbook before resuming work.
+      - alert: QaAgentAuditProjectionDelayed
+        expr: qa_audit_projection_pending > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Audit projection delivery is pending
+          description: The authoritative ledger retains records; inspect disk, permissions and projection integrity.
+      - alert: QaAgentStorageLow
+        expr: qa_storage_free_bytes < 500000000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: QA Agent storage is below the example reserve
+          description: Apply the approved retention/expansion procedure; preserve incomplete-run and audit evidence.
+      - alert: QaAgentServerErrors
+        expr: sum(rate(qa_http_requests_total{status_class="5xx"}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: QA Agent server errors are elevated
+          description: Correlate generated request IDs in minimized logs; do not collect credentials or source bodies.

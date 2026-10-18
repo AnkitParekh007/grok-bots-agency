@@ -1,9 +1,13 @@
 """SQLite task history + filesystem artifact store (runs/<run_id>/)."""
-import json, sqlite3, threading
+import json, sqlite3, threading, re
+from contextlib import contextmanager
 from pathlib import Path
 from .interfaces import ArtifactStore, ApprovalProvider
 from datetime import datetime, timezone
 from .util import now, sha256, canon, redact
+
+SCHEMA_VERSION = 4
+RUN_UPDATE_FIELDS = frozenset("updated status request story_key environment model_provider model_label story_json ac_json plan_json plan_hash summary_json error model_id model_version planning_json requested_by cancel_requested catalog_version plan_created_at project repository repo_context_json execution_envelope_json tenant_id analysis_json source_bundle_json".split())
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, created TEXT, updated TEXT, status TEXT, request TEXT,
@@ -23,6 +27,39 @@ CREATE TABLE IF NOT EXISTS eval_grants(grant_id TEXT PRIMARY KEY, created_by TEX
   require_first_manual_approval INTEGER, purpose TEXT, grant_hash TEXT, revoked_at TEXT, revoked_by TEXT);
 CREATE TABLE IF NOT EXISTS eval_grant_uses(id INTEGER PRIMARY KEY AUTOINCREMENT, grant_id TEXT, run_id TEXT UNIQUE, ts TEXT);
 CREATE TABLE IF NOT EXISTS telemetry(id INTEGER PRIMARY KEY AUTOINCREMENT, run_id TEXT, ts TEXT, kind TEXT, provider TEXT, detail TEXT);
+CREATE TABLE IF NOT EXISTS audit_outbox(seq INTEGER PRIMARY KEY, payload TEXT NOT NULL, created TEXT NOT NULL,
+  delivered TEXT, attempts INTEGER DEFAULT 0, last_error TEXT);
+CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY,run_id TEXT,kind TEXT,state TEXT,payload TEXT,config_hash TEXT,
+  tenant_id TEXT,requester TEXT,resources TEXT,created REAL,expires_at REAL,owner TEXT,fence INTEGER DEFAULT 0,
+  lease_until REAL,attempts INTEGER DEFAULT 0,cancel_requested INTEGER DEFAULT 0,finished REAL,error TEXT,started REAL,UNIQUE(run_id,kind));
+CREATE TABLE IF NOT EXISTS job_resources(resource TEXT PRIMARY KEY,job_id TEXT,owner TEXT,fence INTEGER,expires REAL);
+CREATE TABLE IF NOT EXISTS job_quarantines(resource TEXT PRIMARY KEY,job_id TEXT,created TEXT,reason TEXT);
+CREATE TABLE IF NOT EXISTS jira_writes(id TEXT PRIMARY KEY,run_id TEXT NOT NULL,fingerprint TEXT UNIQUE NOT NULL,
+  draft TEXT NOT NULL,draft_hash TEXT NOT NULL,state TEXT NOT NULL,requester TEXT NOT NULL,requester_receipt TEXT NOT NULL,
+  approver TEXT,approver_receipt TEXT,expires REAL NOT NULL,started REAL,outcome TEXT);
+CREATE INDEX IF NOT EXISTS jobs_ready ON jobs(state,config_hash,created);
+CREATE INDEX IF NOT EXISTS runs_history ON runs(created DESC,id DESC);
+CREATE INDEX IF NOT EXISTS audit_restore_history ON audit(tool,ts);
+CREATE TABLE IF NOT EXISTS workspace_trust(id INTEGER PRIMARY KEY CHECK(id=1),minimum_level INTEGER NOT NULL CHECK(minimum_level BETWEEN 0 AND 2),created TEXT NOT NULL,updated TEXT NOT NULL);
+CREATE TRIGGER IF NOT EXISTS workspace_trust_no_delete BEFORE DELETE ON workspace_trust BEGIN SELECT RAISE(ABORT,'workspace trust cannot be deleted'); END;
+CREATE TRIGGER IF NOT EXISTS workspace_trust_no_weaken BEFORE UPDATE ON workspace_trust WHEN NEW.minimum_level<OLD.minimum_level OR NEW.id!=OLD.id OR NEW.created!=OLD.created BEGIN SELECT RAISE(ABORT,'workspace trust cannot be weakened'); END;
+CREATE TABLE IF NOT EXISTS regression_versions(tenant TEXT,project TEXT,suite TEXT,version TEXT,
+  definition TEXT NOT NULL,digest TEXT NOT NULL,publisher_receipt TEXT NOT NULL,created TEXT NOT NULL,
+  PRIMARY KEY(tenant,project,suite,version));
+CREATE TABLE IF NOT EXISTS regression_batches(id TEXT PRIMARY KEY,tenant TEXT,project TEXT,suite TEXT,version TEXT,
+  suite_digest TEXT NOT NULL,owner TEXT NOT NULL,created TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS regression_attempts(run_id TEXT PRIMARY KEY,batch_id TEXT NOT NULL,slot TEXT NOT NULL,
+  ordinal INTEGER NOT NULL,created TEXT NOT NULL,UNIQUE(batch_id,slot,ordinal));
+CREATE TABLE IF NOT EXISTS regression_seals(batch_id TEXT PRIMARY KEY,created TEXT NOT NULL,actor TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS regression_attempt_batch ON regression_attempts(batch_id,slot,ordinal);
+CREATE TRIGGER IF NOT EXISTS regression_versions_no_update BEFORE UPDATE ON regression_versions BEGIN SELECT RAISE(ABORT,'suite versions are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS regression_versions_no_delete BEFORE DELETE ON regression_versions BEGIN SELECT RAISE(ABORT,'suite versions are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS regression_batches_no_update BEFORE UPDATE ON regression_batches BEGIN SELECT RAISE(ABORT,'suite batches are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS regression_batches_no_delete BEFORE DELETE ON regression_batches BEGIN SELECT RAISE(ABORT,'suite batches are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS regression_attempts_no_update BEFORE UPDATE ON regression_attempts BEGIN SELECT RAISE(ABORT,'suite attempts are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS regression_attempts_no_delete BEFORE DELETE ON regression_attempts BEGIN SELECT RAISE(ABORT,'suite attempts are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS regression_seals_no_update BEFORE UPDATE ON regression_seals BEGIN SELECT RAISE(ABORT,'suite seals are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS regression_seals_no_delete BEFORE DELETE ON regression_seals BEGIN SELECT RAISE(ABORT,'suite seals are immutable'); END;
 CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT,'audit is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit BEGIN SELECT RAISE(ABORT,'audit is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS approvals_no_update BEFORE UPDATE ON approvals BEGIN SELECT RAISE(ABORT,'approvals are append-only'); END;
@@ -34,12 +71,24 @@ class Store:
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.lock = threading.RLock()
+        self._job_context = threading.local()
         self.db = sqlite3.connect(self.data_dir / "qa_agent.db", check_same_thread=False, isolation_level=None)
         self.db.row_factory = sqlite3.Row
-        self.db.executescript(SCHEMA)
-        self._migrate()
+        try:
+            version = self.db.execute("PRAGMA user_version").fetchone()[0]
+            if version > SCHEMA_VERSION:
+                raise ValueError("database schema is newer than this application; rollback requires a compatible backup")
+            self.db.executescript("BEGIN IMMEDIATE;\n" + SCHEMA)
+            self._migrate()
+            self.db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            self.db.close()
+            raise
         # Anything mid-flight when the process died is marked interrupted (no silent resume in Milestone A).
-        stale = [r[0] for r in self.db.execute("SELECT id FROM runs WHERE status IN ('planning','executing')")]
+        stale = [r[0] for r in self.db.execute("SELECT r.id FROM runs r WHERE r.status IN ('planning','executing') "
+                                             "AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.run_id=r.id AND j.state IN ('queued','running'))")]
         for rid in stale:
             self.db.execute("UPDATE runs SET status='interrupted', updated=?, error=? WHERE id=?",
                             (now(), "process stopped while run was in progress; partial results and evidence preserved; re-run required", rid))
@@ -51,11 +100,13 @@ class Store:
             return {r[1] for r in self.db.execute(f"PRAGMA table_info({t})")}
         add = {"runs": [("model_id", "TEXT"), ("model_version", "TEXT"), ("planning_json", "TEXT"), ("requested_by", "TEXT"), ("cancel_requested", "INTEGER DEFAULT 0"),
                         ("catalog_version", "TEXT"), ("plan_created_at", "TEXT"),
-                        ("project", "TEXT"), ("repository", "TEXT"), ("repo_context_json", "TEXT")],
+                        ("project", "TEXT"), ("repository", "TEXT"), ("repo_context_json", "TEXT"),
+                        ("execution_envelope_json", "TEXT"), ("tenant_id", "TEXT DEFAULT 'local'"), ("analysis_json", "TEXT"), ("source_bundle_json", "TEXT")],
                "approvals": [("identity", "TEXT"), ("auth_mode", "TEXT"), ("approver_label", "TEXT")],
                "audit": [("prev_hash", "TEXT"), ("entry_hash", "TEXT"),
                           ("seq", "INTEGER"), ("payload_hash", "TEXT")],
-               "usage": [("http_attempt", "INTEGER"), ("est_usd", "REAL"), ("budget_scope", "TEXT")]}
+               "usage": [("http_attempt", "INTEGER"), ("est_usd", "REAL"), ("budget_scope", "TEXT")],
+               "jobs": [("started", "REAL")]}
         for t, cs in add.items():
             have = cols(t)
             for c, typ in cs:
@@ -70,6 +121,62 @@ class Store:
         with self.lock:
             self.db.execute(sql, args)
 
+    @contextmanager
+    def fenced_job(self, jobs, job, authorize=None):
+        previous = getattr(self._job_context, "value", None)
+        self._job_context.value = (jobs, job, authorize)
+        try:
+            yield
+        finally:
+            self._job_context.value = previous
+
+    def assert_job_lease(self, run_id=None, *, allow_cancel=False, authorize=True):
+        context = getattr(self._job_context, "value", None)
+        if context is None:
+            return  # Trusted operator/nonworker paths retain their existing endpoint gates.
+        jobs, job, validator = context
+        if run_id is not None and run_id != job["run_id"]:
+            from .jobs import LeaseLost
+            raise LeaseLost("worker attempted to mutate another run")
+        jobs.assert_lease(job, allow_cancel=allow_cancel)
+        if authorize and validator is not None:
+            validator(job)
+
+    def capture_job_guard(self):
+        """Carry an immutable lease reference into proxy/helper threads explicitly."""
+        context = getattr(self._job_context, "value", None)
+        if context is None:
+            return lambda **kwargs: None
+        jobs, job, validator = context
+        job = dict(job)
+        def check(*, allow_cancel=False, authorize=True):
+            jobs.assert_lease(job, allow_cancel=allow_cancel)
+            if authorize and validator is not None:
+                validator(job)
+        return check
+
+    def job_run_id(self):
+        context = getattr(self._job_context, "value", None)
+        return context[1]["run_id"] if context is not None else None
+
+    @contextmanager
+    def _fenced_state(self, run_id):
+        if getattr(self._job_context, "value", None) is None:
+            yield;return
+        with self.lock:
+            outer = self.db.in_transaction
+            if not outer:
+                self.db.execute("BEGIN IMMEDIATE")
+            try:
+                self.assert_job_lease(run_id, allow_cancel=True, authorize=False)
+                yield
+                if not outer:
+                    self.db.commit()
+            except Exception:
+                if not outer:
+                    self.db.rollback()
+                raise
+
     # runs
     def create_run(self, run_id, request, environment, provider, label):
         t = now()
@@ -77,6 +184,8 @@ class Store:
                (run_id, t, t, "planning", request, environment, provider, label))
 
     def update_run(self, run_id, **kw):
+        if set(kw) - RUN_UPDATE_FIELDS:
+            raise ValueError("unknown or immutable run update field")
         kw["updated"] = now()
         if kw.get("error"):
             kw["error"] = redact(kw["error"])
@@ -84,22 +193,25 @@ class Store:
             if isinstance(v, (dict, list)):
                 kw[k] = json.dumps(v)
         cols = ",".join(f"{k}=?" for k in kw)
-        self.x(f"UPDATE runs SET {cols} WHERE id=?", (*kw.values(), run_id))
+        with self._fenced_state(run_id):
+            # Identifiers use the fixed RUN_UPDATE_FIELDS allowlist; values are bound.
+            self.x(f"UPDATE runs SET {cols} WHERE id=?", (*kw.values(), run_id))  # nosec B608
 
     def get_run(self, run_id):
         rows = self.q("SELECT * FROM runs WHERE id=?", (run_id,))
         if not rows:
             return None
         r = rows[0]
-        for k in ("story_json", "ac_json", "plan_json", "summary_json", "planning_json", "repo_context_json"):
+        for k in ("story_json", "ac_json", "plan_json", "summary_json", "planning_json", "repo_context_json", "execution_envelope_json", "analysis_json", "source_bundle_json"):
             r[k] = json.loads(r[k]) if r[k] else None
         return r
 
     def list_runs(self):
-        return self.q("SELECT id,created,status,story_key,environment,model_label,request,requested_by FROM runs ORDER BY created DESC")
+        return self.q("SELECT id,created,status,story_key,environment,model_label,request,requested_by,project,tenant_id FROM runs ORDER BY created DESC")
 
     def event(self, run_id, step, message):
-        self.x("INSERT INTO events(run_id,ts,step,message) VALUES(?,?,?,?)", (run_id, now(), step, redact(message)))
+        with self._fenced_state(run_id):
+            self.x("INSERT INTO events(run_id,ts,step,message) VALUES(?,?,?,?)", (run_id, now(), step, redact(message)))
 
     # ---- audit (append-only, hash-chained) ----
     AUDIT_FIELDS = ("ts", "run_id", "tool", "args_hash", "args_summary", "decision", "reason", "outcome", "duration_ms")
@@ -118,16 +230,27 @@ class Store:
         return sha256(f"audit-v2|{seq}|{prev_hash}|{payload_hash}")
 
     def append_audit(self, rec):
-        """Caller must hold the gateway lock. v2 chain: monotonically increasing seq + canonical payload hash."""
+        """Serialize sequence allocation across processes; ledger and outbox commit together."""
         with self.lock:
-            last = self.db.execute("SELECT entry_hash, seq FROM audit WHERE entry_hash IS NOT NULL ORDER BY id DESC LIMIT 1").fetchone()
-            last_seq = self.db.execute("SELECT MAX(seq) FROM audit").fetchone()[0] or 0
-            rec["prev_hash"] = last[0] if last else "GENESIS"
-            rec["seq"] = last_seq + 1
-            rec["payload_hash"] = self.payload_hash(rec)
-            rec["entry_hash"] = self.entry_hash_v2(rec["seq"], rec["prev_hash"], rec["payload_hash"])
-            self.db.execute("INSERT INTO audit(ts,run_id,tool,args_hash,args_summary,decision,reason,outcome,duration_ms,prev_hash,entry_hash,seq,payload_hash)"
-                            " VALUES(:ts,:run_id,:tool,:args_hash,:args_summary,:decision,:reason,:outcome,:duration_ms,:prev_hash,:entry_hash,:seq,:payload_hash)", rec)
+            outer = self.db.in_transaction
+            self.db.execute("SAVEPOINT audit_append" if outer else "BEGIN IMMEDIATE")
+            try:
+                last = self.db.execute("SELECT entry_hash, seq FROM audit WHERE entry_hash IS NOT NULL ORDER BY id DESC LIMIT 1").fetchone()
+                last_seq = self.db.execute("SELECT MAX(seq) FROM audit").fetchone()[0] or 0
+                rec["prev_hash"] = last[0] if last else "GENESIS"
+                rec["seq"] = last_seq + 1
+                rec["payload_hash"] = self.payload_hash(rec)
+                rec["entry_hash"] = self.entry_hash_v2(rec["seq"], rec["prev_hash"], rec["payload_hash"])
+                self.db.execute("INSERT INTO audit(ts,run_id,tool,args_hash,args_summary,decision,reason,outcome,duration_ms,prev_hash,entry_hash,seq,payload_hash)"
+                                " VALUES(:ts,:run_id,:tool,:args_hash,:args_summary,:decision,:reason,:outcome,:duration_ms,:prev_hash,:entry_hash,:seq,:payload_hash)", rec)
+                payload = {k: rec[k] for k in (*self.AUDIT_FIELDS, "prev_hash", "entry_hash", "seq", "payload_hash")}
+                self.db.execute("INSERT INTO audit_outbox(seq,payload,created) VALUES(?,?,?)", (rec["seq"], canon(payload), now()))
+                self.db.execute("RELEASE audit_append" if outer else "COMMIT")
+            except Exception:
+                self.db.execute("ROLLBACK TO audit_append" if outer else "ROLLBACK")
+                if outer:
+                    self.db.execute("RELEASE audit_append")
+                raise
         return rec
 
     def export_audit(self, path):
@@ -266,7 +389,8 @@ class Store:
         return self.q("SELECT ts,step,message FROM events WHERE run_id=? ORDER BY id", (run_id,))
 
     def save_result(self, run_id, res):
-        self.x("INSERT OR REPLACE INTO results VALUES(?,?,?,?)", (run_id, res["id"], res["status"], json.dumps(res)))
+        with self._fenced_state(run_id):
+            self.x("INSERT OR REPLACE INTO results VALUES(?,?,?,?)", (run_id, res["id"], res["status"], json.dumps(res)))
 
     def results(self, run_id):
         return [json.loads(r["json"]) for r in self.q("SELECT json FROM results WHERE run_id=? ORDER BY test_id", (run_id,))]
@@ -275,30 +399,7 @@ class Store:
         return self.q("SELECT * FROM audit WHERE run_id=? ORDER BY id", (run_id,))
 
 
-class FileArtifactStore(ArtifactStore):
-    def __init__(self, runs_dir: Path):
-        self.root = Path(runs_dir).resolve()
-        self.root.mkdir(parents=True, exist_ok=True)
-
-    def path_for(self, run_id, rel=""):
-        p = (self.root / run_id / rel).resolve()
-        if not str(p).startswith(str(self.root / run_id)):
-            raise ValueError("path escapes run directory")
-        p.parent.mkdir(parents=True, exist_ok=True)
-        return p
-
-    def write_bytes(self, run_id, rel, data):
-        p = self.path_for(run_id, rel)
-        p.write_bytes(data)
-        return str(p)
-
-    def manifest(self, run_id):
-        base = self.root / run_id
-        out = []
-        for p in sorted(base.rglob("*")):
-            if p.is_file() and p.name != "manifest.json":
-                out.append({"path": str(p.relative_to(base)), "bytes": p.stat().st_size, "sha256": sha256(p.read_bytes())})
-        return out
+from .storage import FileArtifactStore  # Stable import for existing adapters and maintenance tools.
 
 
 class SqliteApprovalProvider(ApprovalProvider):

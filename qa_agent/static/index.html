@@ -273,14 +273,13 @@
       <form id="login-form">
         <span class="brand-mark" aria-hidden="true">b.</span>
         <h1 id="login-title">Welcome to your QA workspace</h1>
-        <p>Sign in with your local access token.</p>
+        <p id="login-help">Sign in with your local access token.</p>
         <label for="tok">Access token</label
         ><input id="tok" type="password" autocomplete="off" required />
         <p id="login-error" class="error-text" role="alert"></p>
         <button id="login" class="button primary" type="submit">Sign in</button>
-        <p class="small muted">
-          Your token stays in an HttpOnly session cookie. It is never stored in
-          browser local storage.
+        <p class="small muted" id="login-session-note">
+          Your access token is exchanged for a revocable session. It is never saved in browser storage.
         </p>
       </form>
     </dialog>

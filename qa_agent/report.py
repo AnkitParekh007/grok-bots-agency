@@ -4,6 +4,10 @@ from .util import canon, now, sha256, redact
 
 def write_report(agent, run_id):
     run = agent.store.get_run(run_id)
+    oracle_bytes = agent.artifacts.path_for(run_id, "inputs/oracles.json").read_bytes()
+    if sha256(oracle_bytes) != (run.get("execution_envelope_json") or {}).get("oracle_sha256"):
+        raise ValueError("oracle snapshot changed before report generation")
+    oracle_manifest = json.loads(oracle_bytes)
     results = agent.store.results(run_id)
     audit = agent.store.audit_rows(run_id)
     rep = {
@@ -11,9 +15,10 @@ def write_report(agent, run_id):
         "story_summary": run["story_json"]["fields"]["summary"], "environment": run["environment"],
         "model": {"provider": run["model_provider"], "id": run.get("model_id"), "version": run.get("model_version"), "label": run["model_label"],
                   "note": "Test plan and AC extraction were REPLAYED from a recording; no live LLM was called." if run["model_provider"] == "replay" else ""},
-        "oracle_source": agent._oracles(run["story_key"]).get("source"),
-        "oracle_review": agent._oracles(run["story_key"]).get("review"),
+        "oracle_source": oracle_manifest.get("source"),
+        "oracle_review": oracle_manifest.get("review"),
         "plan_hash": run["plan_hash"], "catalog_version": run.get("catalog_version"),
+        "approval_format": "qa-execution-envelope/1", "execution_envelope": run.get("execution_envelope_json"),
         "approval": agent.approvals.latest(run_id),
         "acceptance_criteria": run["ac_json"]["acceptance_criteria"],
         "summary": run["summary_json"], "results": results,
@@ -22,8 +27,10 @@ def write_report(agent, run_id):
         "run_status_at_report": "cancelled" if agent.is_cancelled(run_id) else run["status"],
         "coverage_gaps": (run.get("planning_json") or {}).get("coverage_gaps", []),
         "understanding": (run.get("planning_json") or {}).get("understanding"),
+        "source_bundle": run.get("source_bundle_json"),
+        "context_review": (run.get("planning_json") or {}).get("context_review", []),
         "usage": agent.store.run_usage(run_id)["totals"],
-        "approval_identity_note": "authenticated local identity" if (agent.approvals.latest(run_id) or {}).get("identity")
+        "approval_identity_note": ("authenticated " + str((agent.approvals.latest(run_id) or {}).get("auth_mode")) + " identity") if (agent.approvals.latest(run_id) or {}).get("identity")
                                   else "UNAUTHENTICATED demo approver label (local demo mode)",
         "audit_entries": len(audit), "audit_denied": sum(a["decision"] == "deny" for a in audit),
     }
@@ -42,16 +49,19 @@ def write_report(agent, run_id):
     acs = "".join(f"<tr><td>{a['id']}</td><td>{e(a['text'])}</td><td><i>{e(a['source_quote'])}</i></td><td>{rep['per_ac'][a['id']].upper()}</td></tr>"
                   for a in rep["acceptance_criteria"])
     s = rep["summary"]
+    context_markup = ("<h3>Supporting context review</h3><p>Context is separate from acceptance criteria and oracle expectations.</p><pre>" +
+                      e(json.dumps(rep["context_review"], indent=2)) + "</pre>") if rep["context_review"] else ""
     doc = f"""<!doctype html><html><head><meta charset=utf-8><title>QA report {run_id}</title><style>
 body{{font-family:sans-serif;margin:2em}} table{{border-collapse:collapse;width:100%}} td,th{{border:1px solid #ccc;padding:4px;vertical-align:top;font-size:13px}}
 tr.failed td,tr.error td{{background:#fde8e8}} tr.passed td{{background:#e8f8ec}} pre{{white-space:pre-wrap;margin:0}} .lbl{{background:#ffe08a;padding:4px 8px;display:inline-block}}
 </style></head><body><h1>QA execution report — {e(run['story_key'])}</h1>
 <p class=lbl>Model: {e(run['model_label'])}. {e(rep['model']['note'])}</p>
 <p>Run <code>{run_id}</code> · env <b>{e(run['environment'])}</b> (synthetic) · generated {rep['generated_at']} UTC</p>
-<p>Plan sha256 <code>{run['plan_hash']}</code> approved by <b>{e(str((rep['approval'] or {}).get('approver')))}</b> at {e(str((rep['approval'] or {}).get('ts')))} UTC</p>
+<p>Execution envelope sha256 <code>{run['plan_hash']}</code> approved by <b>{e(str((rep['approval'] or {}).get('approver')))}</b> at {e(str((rep['approval'] or {}).get('ts')))} UTC</p>
 <p>Oracle: {e(str(rep['oracle_source']))} — review status <b>{e(str((rep['oracle_review'] or {}).get('status')))}</b></p>
 <h2>Summary: {s['passed']} passed / {s['failed']} failed / {s['error']} error / {s['blocked']} blocked of {s['total']}</h2>
 <h3>Acceptance criteria traceability</h3><table><tr><th>AC</th><th>Interpretation</th><th>Story quote</th><th>Verdict</th></tr>{acs}</table>
+{context_markup}
 <h3>Test results</h3><table><tr><th>ID</th><th>Test</th><th>AC</th><th>Status</th><th>Expected (oracle)</th><th>Actual</th><th>Mismatch</th><th>Evidence</th></tr>{rows}</table>
 <h3>Coverage gaps (not tested)</h3><ul>{''.join(f"<li>{e(','.join(g['ac_refs']) or '-')} [{e(g['kind'])}] {e(g['reason'])}</li>" for g in rep['coverage_gaps']) or '<li>none</li>'}</ul>
 <p>Approver identity: {e(rep['approval_identity_note'])}</p>

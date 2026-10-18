@@ -4,7 +4,7 @@
 - any other (non-loopback) environment is refused unless ALL of: status == "verified", a safety_verification record
   (verified_by, verified_at, approval_ref), https base_url whose host is on allowed_hosts, >=1 synthetic test account
   (credential referenced by env var name, never stored), and a cleanup procedure (procedure_ref + steps).
-Dev and Playground ship 'unverified' with no base_url, so they cannot execute."""
+Test and Playground ship 'unverified'; recorded URLs do not make them executable."""
 import fnmatch, ipaddress, os, re
 from urllib.parse import urlparse
 from .interfaces import EnvironmentProvider
@@ -94,8 +94,12 @@ class RegistryEnvironmentProvider(EnvironmentProvider):
 
     def is_url_allowed(self, env, url):
         u, base = urlparse(url), urlparse(env["base_url"])
+        if u.username or u.password or u.fragment or u.scheme not in ("http", "https"):
+            return False
         host = u.hostname or ""
-        if host not in env.get("allowed_hosts", []) or u.port != base.port:
+        port = u.port or (443 if u.scheme == "https" else 80)
+        base_port = base.port or (443 if base.scheme == "https" else 80)
+        if host not in env.get("allowed_hosts", []) or port != base_port or u.scheme != base.scheme:
             return False
         if any(fnmatch.fnmatch(host, pat) for pat in self.prohibited):
             return False

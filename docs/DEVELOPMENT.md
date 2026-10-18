@@ -4,7 +4,7 @@
 
 ## Environment and conventions
 
-Use Python 3.12+ and the README's virtual environment. CI currently uses Python 3.12 on Ubuntu 24.04. Windows commands below use the virtual environment's interpreter without activation; after activation `python` is equivalent. The frontend is plain HTML/CSS/JavaScript served by FastAPI, with no Node build step. Node is not an application prerequisite.
+Use Python 3.12+ and the README's virtual environment with `requirements.lock` and mandatory hashes. CI currently pins Python 3.12.15 on Ubuntu 24.04. Windows commands below use the virtual environment's interpreter without activation; after activation `python` is equivalent. The frontend is plain HTML/CSS/JavaScript served by FastAPI, with no Node build step. Node is not an application prerequisite. See [dependency/source assurance](enterprise-readiness/SUPPLY_CHAIN.md) for lock updates and the separate security-tool environment.
 
 Follow neighboring Python modules, existing abstract interfaces in `qa_agent/interfaces.py`, JSON configuration/schema/catalog validation and pytest markers in `pytest.ini`. The repository does not mandate a formatter/linter toolchain. Prefer extending a provider, skill or adapter boundary rather than embedding domain behavior in the runtime. Preserve default-deny policy, oracle independence, explicit approvals and recorded model identity. Do not alter gold/replay answers merely to make quality metrics pass.
 
@@ -82,9 +82,13 @@ The fixture token is literally `synthetic-mock-token-not-a-secret`; the server p
 3. Define fixture/oracle references and actual-result fields. Expected values belong in independent oracle manifests, not model output. Unsupported requirements should surface as coverage gaps.
 4. Add positive/negative/policy and real synthetic browser/API tests. Verify approval/hash/expiry, fixture path containment and artifact handling. Broaden tool policy only for a concrete authorized action with denial tests.
 
+Organization execution additionally requires a server-managed `domain_capabilities` receipt binding the exact story/project/repository/environment, action implementations, catalog, fixtures and independently reviewed oracle. Use the [local proposal workflow](enterprise-readiness/SUPPLIER_PORTAL_ONBOARDING.md#enforced-domain-approval-contract) after implementing and reviewing the domain artifacts. A new oracle file, enabled environment or model-data grant alone cannot authorize domain actions. The built-in fixture harness remains explicitly synthetic.
+
 ## Add a Jira or Bitbucket adapter
 
-Implement the read-only `IssueTrackerProvider` or `GitProvider` contract and register it in `qa_agent/integrations/registry.py`. Reuse bounded integration HTTP, exact origin/project/repository allowlists, GET-only semantics, credential references, redaction and pagination/file limits. Add mock pagination, auth, path traversal, redirects, oversized content and denial tests. Start the new configuration disabled. Adapter implementation/testing does not grant real access, classify real data as synthetic or enable model planning on it. Writes require a separate future capability and approval design.
+Implement the read-only `IssueTrackerProvider` or `GitProvider` contract and register it in `qa_agent/integrations/registry.py`. Reuse bounded integration HTTP, exact origin/project/repository allowlists, GET-only semantics, credential references, redaction and pagination/file limits. Add mock pagination, auth, path traversal, redirects, oversized content and denial tests. Start the new configuration disabled. Adapter implementation/testing does not grant real access, classify real data as synthetic or enable model planning on it. Jira Cloud writes use the [separate human-reviewed capability](enterprise-readiness/JIRA_WRITES.md); never relax the read adapter's method boundary or register writes as model tools.
+
+Optional [context-source ingestion](enterprise-readiness/CONTEXT_SOURCES.md) consumes only exact owner-reviewed file/commit or comment/attachment selections with observed text digests. Preserve the normalized complete-text/byte/hash contract and source scope. Tests must distinguish citation provenance and protocol checks from actual reasoning/domain quality. An adapter must not add discovered or unapproved content to the model corpus.
 
 ## Add a synthetic story
 
@@ -100,9 +104,13 @@ Usage and latency come from runtime/provider observations, with unknown/missing 
 
 ## Contributions
 
-Inspect licensing before reusing or redistributing code: no `LICENSE` is present at this revision. A public GitHub repository is not itself an explicit redistribution/modification license. Do not add a license without owner approval.
+The repository uses the [MIT License](../LICENSE), approved by the owner on 2026-10-16. Preserve its copyright and permission notice when redistributing the software. Dependencies, model weights and external services retain their own licenses and terms. Changes to the project's license require owner approval.
 
 For changes proposed to the owner, use a focused branch and PR with the problem, resulting behavior and relevant checks. Follow the existing push/pull-request workflow, review CI artifacts and keep tests offline by default. Never commit actual keys/tokens, customer stories, generated `data/`/`reports/` or sealed gold. Historical evidence under `docs/history/` is preserved as superseded provenance; update current guides rather than rewriting historical results. No merge, release or deployment is part of a documentation contribution.
+
+## Manual regression suites
+
+Manual [regression suites](enterprise-readiness/REGRESSION_SUITES.md) are a separate opt-in API capability. Preserve atomic registration before planning, immutable versions/attempts/seals, live publisher/owner authorization and individual human plan approval. Aggregate every attempt; missing evidence, coverage, authority or a non-success response cannot authorize release. Constructed aggregation fixtures do not demonstrate real SUT quality. Scheduled execution needs a separately designed bounded delegation contract.
 
 ## Workspace frontend
 
