@@ -296,7 +296,7 @@ def test_versions_and_attempts_are_immutable_and_hash_review_is_required(suites,
         with pytest.raises(sqlite3.IntegrityError):
             column = "digest" if table == "regression_versions" else ("owner" if table == "regression_batches" else "created")
             agent.store.x("UPDATE " + table + " SET " + column + "='edited'")
-    assert agent.store.db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION == 3
+    assert agent.store.db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
 
 
 def test_contract_binds_every_input_except_requester(suites):
@@ -498,7 +498,7 @@ def test_schema_v2_migrates_additively_and_preserves_history(tmp_path):
     upgraded = Store(tmp_path)
     try:
         assert upgraded.get_run("legacy")["request"] == before["request"]
-        assert upgraded.db.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert upgraded.db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         assert upgraded.q("SELECT * FROM regression_versions") == []
     finally:
         upgraded.db.close()

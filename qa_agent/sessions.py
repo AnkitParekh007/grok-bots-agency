@@ -1,4 +1,7 @@
-"""Opaque revocable sessions. """
+"""Opaque revocable sessions. HTTP callers supply an authentication-context digest.
+
+The default None namespace is for standalone operator/test callers, not HTTP trust.
+"""
 import hashlib
 import hmac
 import json
@@ -14,12 +17,15 @@ def _hash(value):
 
 class SessionManager:
     def __init__(self, store, users=None, *, key=None, shared=False, idle_s=900, lifetime_s=3600,
-                 max_per_identity=20, clock=time.time):
+                 max_per_identity=20, clock=time.time, context=None):
         if shared and not key:
             raise ValueError("shared deployment requires session encryption key")
         if not 60 <= idle_s <= 3600 or not idle_s <= lifetime_s <= 86400:
             raise ValueError("invalid bounded session lifetimes")
+        if context is not None and (not isinstance(context, str) or len(context) != 64 or any(c not in "0123456789abcdef" for c in context)):
+            raise ValueError("session context must be a canonical SHA-256 fingerprint")
         self.store, self.users, self.clock = store, users, clock
+        self.context = context
         self.idle_s, self.lifetime_s, self.cap = idle_s, lifetime_s, max_per_identity
         self.fernet = Fernet(key.encode() if isinstance(key, str) else key) if key else None
         store.x("CREATE TABLE IF NOT EXISTS web_sessions(token_hash TEXT PRIMARY KEY, csrf_hash TEXT, "
@@ -58,7 +64,8 @@ class SessionManager:
         token, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
         binding = {"token_hash": _hash(token), "csrf_hash": _hash(csrf), "identity": principal["name"],
                    "issuer": issuer, "subject": subject, "external_sid": sid, "expires": expiry}
-        data = json.dumps({"principal": principal, "revision": revision, "expires": expiry, "binding": binding}, separators=(",", ":"))
+        data = json.dumps({"principal": principal, "revision": revision, "expires": expiry, "binding": binding,
+                           "context": self.context}, separators=(",", ":"))
         sealed = self.fernet.encrypt(data.encode()).decode() if self.fernet else data
         with self.store.lock:
             self.store.db.execute("BEGIN IMMEDIATE")
@@ -99,7 +106,7 @@ class SessionManager:
                 payload = json.loads(body)
             except (InvalidToken, ValueError, UnicodeError, AttributeError):
                 return None
-            if not isinstance(payload, dict) or payload.get("expires") != row["expires"]:
+            if not isinstance(payload, dict) or payload.get("expires") != row["expires"] or payload.get("context") != self.context:
                 return None
             binding = payload.get("binding")
             expected_keys = {"token_hash", "csrf_hash", "identity", "issuer", "subject", "external_sid", "expires"}

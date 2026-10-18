@@ -14,6 +14,7 @@ class ToolGateway:
     def __init__(self, policy: dict, store, approvals, envs, artifacts, audit_jsonl: Path):
         self.policy, self.store, self.approvals, self.envs, self.artifacts = policy, store, approvals, envs, artifacts
         self.audit_jsonl = Path(audit_jsonl)
+        self.profile_check = None
         self.audit_jsonl.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
         from .audit_delivery import AuditDelivery
@@ -35,6 +36,8 @@ class ToolGateway:
 
     def check(self, run_id, tool, args, ctx) -> str | None:
         """Return None if allowed, else a denial reason. Fail-closed on anything missing."""
+        if self.profile_check is not None and not self.profile_check():
+            return "workspace security profile changed"
         rule = self.policy.get("tools", {}).get(tool)
         if self.policy.get("default") != "deny":
             return "policy misconfigured: default must be deny"

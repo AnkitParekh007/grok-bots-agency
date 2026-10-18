@@ -7,7 +7,7 @@ Auth modes (config auth.mode or env QA_AUTH_MODE):
 """
 import os
 import hmac
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict
 from urllib.parse import urlsplit
 from pathlib import Path
@@ -25,7 +25,7 @@ from .providers.models import ProviderNotApproved
 from .sessions import SessionManager
 from .oidc import OidcClient, OidcError
 from .security import RateLimits, SecurityMiddleware
-from .util import register_secret_env
+from .util import register_secret_env, canon, sha256
 from .observability import Observability, RequestObservability
 
 
@@ -150,7 +150,10 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
         register_secret_env(acfg.get("oidc", {}).get("flow_key_env", "QA_OIDC_FLOW_KEY"))
         register_secret_env(acfg.get("oidc", {}).get("client_secret_env"))
     session_key = os.environ.get(session_cfg.get("key_env", "QA_SESSION_ENCRYPTION_KEY"))
-    sessions = SessionManager(agent.store, users, key=session_key, shared=shared,
+    session_context = sha256(canon({"mode": mode, "shared": shared, "origin": public_url.rstrip("/"),
+                                   "oidc": acfg.get("oidc") if mode == "oidc" else None,
+                                   "authorization_revision": agent.access.revision}))
+    sessions = SessionManager(agent.store, users, key=session_key, shared=shared, context=session_context,
                               idle_s=session_cfg.get("idle_s", 900), lifetime_s=session_cfg.get("lifetime_s", 3600))
     app.state.sessions = sessions
     limiter = RateLimits(agent.store)
@@ -183,9 +186,28 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
     if not isinstance(metrics_env, str) or not metrics_env.isidentifier() or len(metrics_env) > 128:
         raise ValueError("metrics credential must be a server-side environment reference")
     register_secret_env(metrics_env)
+    from .workspace_trust import level, register, allowed, ProfileFence
+    profile_level = level(mode, shared)
+    try:
+        register(agent, profile_level)
+    except BaseException:
+        with suppress(Exception):
+            agent.close()
+        with suppress(Exception):
+            agent.connections.close()
+        if oidc is not None:
+            with suppress(Exception):
+                oidc.close()
+        agent.store.db.close()
+        raise
+    agent.profile_authorized = lambda: allowed(agent.store, profile_level)
+    agent.gateway.profile_check = agent.profile_authorized
+    app.add_middleware(ProfileFence, store=agent.store, rank=profile_level)
     app.mount("/static", StaticFiles(directory=ROOT / "qa_agent/static"), name="static")
 
     def principal(request: Request) -> Principal:
+        if not agent.profile_authorized():
+            raise HTTPException(503, "workspace security profile changed; restart with its required profile")
         if mode == "demo":
             return Principal(name=None, role="approver", mode="demo")
         h = request.headers.get("authorization", "")
@@ -197,7 +219,7 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
                 p = Principal(**payload) if payload else None
             except TypeError:
                 p = None
-        if not p:
+        if not p or p.mode != mode:
             raise HTTPException(401, "authentication required")
         if p.mode == "oidc" and p.authorization_revision != agent.access.revision:
             sessions.revoke(request.cookies.get(session_cookie))

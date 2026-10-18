@@ -6,7 +6,7 @@ from .interfaces import ArtifactStore, ApprovalProvider
 from datetime import datetime, timezone
 from .util import now, sha256, canon, redact
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 RUN_UPDATE_FIELDS = frozenset("updated status request story_key environment model_provider model_label story_json ac_json plan_json plan_hash summary_json error model_id model_version planning_json requested_by cancel_requested catalog_version plan_created_at project repository repo_context_json execution_envelope_json tenant_id analysis_json source_bundle_json".split())
 
 SCHEMA = """
@@ -40,6 +40,9 @@ CREATE TABLE IF NOT EXISTS jira_writes(id TEXT PRIMARY KEY,run_id TEXT NOT NULL,
 CREATE INDEX IF NOT EXISTS jobs_ready ON jobs(state,config_hash,created);
 CREATE INDEX IF NOT EXISTS runs_history ON runs(created DESC,id DESC);
 CREATE INDEX IF NOT EXISTS audit_restore_history ON audit(tool,ts);
+CREATE TABLE IF NOT EXISTS workspace_trust(id INTEGER PRIMARY KEY CHECK(id=1),minimum_level INTEGER NOT NULL CHECK(minimum_level BETWEEN 0 AND 2),created TEXT NOT NULL,updated TEXT NOT NULL);
+CREATE TRIGGER IF NOT EXISTS workspace_trust_no_delete BEFORE DELETE ON workspace_trust BEGIN SELECT RAISE(ABORT,'workspace trust cannot be deleted'); END;
+CREATE TRIGGER IF NOT EXISTS workspace_trust_no_weaken BEFORE UPDATE ON workspace_trust WHEN NEW.minimum_level<OLD.minimum_level OR NEW.id!=OLD.id OR NEW.created!=OLD.created BEGIN SELECT RAISE(ABORT,'workspace trust cannot be weakened'); END;
 CREATE TABLE IF NOT EXISTS regression_versions(tenant TEXT,project TEXT,suite TEXT,version TEXT,
   definition TEXT NOT NULL,digest TEXT NOT NULL,publisher_receipt TEXT NOT NULL,created TEXT NOT NULL,
   PRIMARY KEY(tenant,project,suite,version));

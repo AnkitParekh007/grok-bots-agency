@@ -46,6 +46,9 @@ class JobAuthorization:
         return p
 
     def check(self, receipt, run, kind):
+        profile_check = getattr(self.agent, "profile_authorized", None)
+        if profile_check is not None and not profile_check():
+            return False
         if receipt.get("mode") == "operator":
             return True  # Only trusted in-process callers can create this receipt.
         if receipt.get("mode") == "demo":
