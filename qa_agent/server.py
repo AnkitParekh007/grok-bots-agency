@@ -81,6 +81,31 @@ class JiraWriteReviewIn(BaseModel):
     decision: str = Field(pattern="^(approve|reject)$")
 
 
+class SuiteSlotIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(pattern="^[A-Za-z0-9_-]{1,80}$")
+    run_id: str = Field(pattern="^[A-Za-z0-9_-]{1,80}$")
+    plan_hash: str = Field(pattern="^[a-f0-9]{64}$")
+
+
+class SuiteVersionIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    slots: list[SuiteSlotIn] = Field(min_length=1, max_length=20)
+    max_age_s: int = Field(default=86400, ge=60, le=604800, strict=True)
+    expires_at: str = Field(min_length=1, max_length=40)
+    definition_hash: str | None = Field(default=None, pattern="^[a-f0-9]{64}$")
+
+
+class SuiteBatchIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    suite_hash: str = Field(pattern="^[a-f0-9]{64}$")
+
+
+class SuiteAttemptIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    slot: str = Field(pattern="^[A-Za-z0-9_-]{1,80}$")
+
+
 def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users_file: Path | None = None, agent_cfg: dict | None = None, oidc_transport=None) -> FastAPI:
     data_dir = Path(data_dir or os.environ.get("QA_DATA_DIR", ROOT / "data"))
     if agent_cfg is None and os.environ.get("QA_AGENT_CONFIG"):
@@ -137,6 +162,11 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
     from .jira_writes import JiraWrites, JiraWriteDenied, JiraWriteThrottled
     jira_writes = JiraWrites(agent, job_authorization)
     app.state.jira_writes = jira_writes
+    from .regression import RegressionSuites, SuiteDenied
+    regression = RegressionSuites(agent, job_authorization)
+    app.state.regression = regression
+    if mode == "demo" and agent.cfg.get("regression", {}).get("enabled"):
+        raise ValueError("manual regression suites require authenticated human workspace mode")
     if mode == "demo" and any(c.get("enabled") for c in agent.cfg.get("jira_writes", {}).values()):
         raise ValueError("Jira writes require authenticated human workspace mode")
     if agent.queue:
@@ -480,6 +510,55 @@ def create_app(data_dir: Path | None = None, auth_mode: str | None = None, users
             raise HTTPException(400, "invalid or unsupported run-history page") from None
         except HistoryUnavailable:
             raise HTTPException(503, "run-history query budget exceeded; operator review required") from None
+
+    def suite_action(request, p, action):
+        if not observer.health()["ready"]:
+            raise HTTPException(503, "service admission unavailable; operator recovery required")
+        throttle(request, "regression")
+        try:
+            return action(job_authorization.receipt(request, p, session_cookie))
+        except SuiteDenied as e:
+            raise HTTPException(409, str(e)) from None
+        except (ValueError, KeyError, TypeError, OSError, RuntimeError):
+            raise HTTPException(409, "suite inputs or evidence are unavailable; gate is UNKNOWN") from None
+
+    @app.post("/api/projects/{project}/regression-suites/{suite}/versions/{version}/preview")
+    def suite_preview(project: str, suite: str, version: str, body: SuiteVersionIn, request: Request,
+                      p: Principal = Depends(need("approver"))):
+        _project(project, p, "approver")
+        return suite_action(request, p, lambda receipt: regression.preview(project, suite, version,
+            [s.model_dump() for s in body.slots], body.max_age_s, body.expires_at, receipt))
+
+    @app.post("/api/projects/{project}/regression-suites/{suite}/versions/{version}")
+    def suite_publish(project: str, suite: str, version: str, body: SuiteVersionIn, request: Request,
+                      p: Principal = Depends(need("approver"))):
+        _project(project, p, "approver")
+        return suite_action(request, p, lambda receipt: regression.publish(project, suite, version,
+            [s.model_dump() for s in body.slots], body.max_age_s, body.expires_at, body.definition_hash, receipt))
+
+    @app.get("/api/projects/{project}/regression-suites/{suite}/versions/{version}")
+    def suite_version(project: str, suite: str, version: str, request: Request, p: Principal = Depends(need("requester"))):
+        _project(project, p, "requester")
+        return suite_action(request, p, lambda receipt: dict(zip(("definition", "definition_hash"),
+            regression.version(project, suite, version, receipt))))
+
+    @app.post("/api/projects/{project}/regression-suites/{suite}/versions/{version}/batches")
+    def suite_batch(project: str, suite: str, version: str, body: SuiteBatchIn, request: Request,
+                    p: Principal = Depends(need("requester"))):
+        _project(project, p, "requester")
+        return suite_action(request, p, lambda receipt: regression.open_batch(project, suite, version, body.suite_hash, receipt))
+
+    @app.post("/api/regression-batches/{batch_id}/attempts")
+    def suite_attempt(batch_id: str, body: SuiteAttemptIn, request: Request, p: Principal = Depends(need("requester"))):
+        return suite_action(request, p, lambda receipt: {"run_id": regression.start_attempt(batch_id, body.slot, receipt)})
+
+    @app.post("/api/regression-batches/{batch_id}/seal")
+    def suite_seal(batch_id: str, request: Request, p: Principal = Depends(need("requester"))):
+        return suite_action(request, p, lambda receipt: regression.seal(batch_id, receipt))
+
+    @app.post("/api/regression-batches/{batch_id}/gate")
+    def suite_gate(batch_id: str, request: Request, p: Principal = Depends(need("requester"))):
+        return suite_action(request, p, lambda receipt: regression.gate(batch_id, receipt))
 
     @app.get("/api/run-pages")
     def run_pages(limit: int = Query(default=100, ge=1, le=100), cursor: str | None = Query(default=None, max_length=512),

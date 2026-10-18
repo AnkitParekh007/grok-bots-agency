@@ -108,6 +108,10 @@ The repository uses the [MIT License](../LICENSE), approved by the owner on 2026
 
 For changes proposed to the owner, use a focused branch and PR with the problem, resulting behavior and relevant checks. Follow the existing push/pull-request workflow, review CI artifacts and keep tests offline by default. Never commit actual keys/tokens, customer stories, generated `data/`/`reports/` or sealed gold. Historical evidence under `docs/history/` is preserved as superseded provenance; update current guides rather than rewriting historical results. No merge, release or deployment is part of a documentation contribution.
 
+## Manual regression suites
+
+Manual [regression suites](enterprise-readiness/REGRESSION_SUITES.md) are a separate opt-in API capability. Preserve atomic registration before planning, immutable versions/attempts/seals, live publisher/owner authorization and individual human plan approval. Aggregate every attempt; missing evidence, coverage, authority or a non-success response cannot authorize release. Constructed aggregation fixtures do not demonstrate real SUT quality. Scheduled execution needs a separately designed bounded delegation contract.
+
 ## Workspace frontend
 
 The UI remains vanilla HTML/CSS and native JavaScript modules in `qa_agent/static/`, served from `/static`. `app.js` coordinates API/state/actions; `components.js` renders reusable views; `ui.js` escapes text and implements shared primitives; `workspace.css` holds semantic tokens and responsive styling. No Node build step or runtime package is required. See the [UI-1 audit and workflow map](ui-1/WORKSPACE_REDESIGN.md). Browser interaction coverage is in `tests/test_ui_workspace.py` and runs with the integration suite, using replay and temporary test identities. Set `QA_UI_SCREENSHOTS_DIR` to keep its actual UI captures in a chosen directory.

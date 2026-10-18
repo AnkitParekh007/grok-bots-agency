@@ -54,7 +54,7 @@ Implementation is ongoing on `codex/enterprise-readiness`. The [current implemen
 | Credential management | Available / Planned | Server-side environment references, hashed local credentials and revocable sessions; managed vault/evidence encryption/rotation remain open. |
 | Operations | Experimental | Protected metrics, minimized logs, process readiness and recoverable audit projections/checkpoints; live monitoring/recovery qualification pending. |
 | Jira defect reporting | Planned | Evidence reports available locally; no Jira create/comment/transition operations. |
-| Regression execution | Available / Planned | Rerun individual approved synthetic plans today; suite scheduling and orchestration planned. |
+| Regression execution | Experimental / Planned | Opt-in immutable manual suites, sealed batches and PASS/FAIL/UNKNOWN evidence gates; every child still needs human approval. Scheduling and unattended execution grants remain planned. |
 | Release sanity testing | Planned | No automated release gate or release-wide orchestration. |
 
 ## Screenshots and demonstrations
@@ -188,7 +188,7 @@ Follow the [complete Windows local-model tutorial](docs/SETUP_LOCAL.md): install
 | B — Browser testing | Start the SUT on port 8601. Approve registered upload/error/count actions; Playwright runs against that environment and saves screenshots/traces. General natural-language website automation is not implemented. |
 | C — API testing | Approve supplier CSV import and product checks. Runtime actions call the synthetic API and compare normalized units, attributes and validation errors with oracle manifests. |
 | D — Defect identification | Inspect failed comparisons and their actual/expected values, screenshot, trace and log evidence. Export the HTML/JSON QA report; Jira defect creation is planned. |
-| E — Regression preparation | Record story IDs, fixture/oracle versions, approved model ID, environment and defect mode. Start and review a fresh run for each story/change, then compare reports. Scheduling, suites and release-wide orchestration are planned. |
+| E — Regression preparation | Use [manual suite versions](docs/enterprise-readiness/REGRESSION_SUITES.md) to pin reviewed inputs, register every attempt, seal a batch and aggregate verified evidence. Review each child separately. Scheduling, CI execution grants and release-wide qualification remain planned. |
 
 ## Evaluation and benchmarking
 
@@ -274,7 +274,7 @@ $env:QA_MODEL_PROVIDER = 'replay'
 | C2 — Repository-grounded QA | Selected-source contracts implemented; live/model qualification pending |
 | C3 — Environment testing | Planned; nonlocal environments unverified |
 | C4 — Human-approved Jira write-back | Implemented / Disabled; live qualification pending |
-| C5 — Regression and release sanity automation | Planned |
+| C5 — Regression and release sanity automation | Experimental manual suites/gates; scheduling and release qualification planned |
 
 See [the detailed roadmap](docs/ROADMAP.md) for delivered scope and remaining boundaries.
 

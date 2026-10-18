@@ -6,7 +6,7 @@ from .interfaces import ArtifactStore, ApprovalProvider
 from datetime import datetime, timezone
 from .util import now, sha256, canon, redact
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 RUN_UPDATE_FIELDS = frozenset("updated status request story_key environment model_provider model_label story_json ac_json plan_json plan_hash summary_json error model_id model_version planning_json requested_by cancel_requested catalog_version plan_created_at project repository repo_context_json execution_envelope_json tenant_id analysis_json source_bundle_json".split())
 
 SCHEMA = """
@@ -40,6 +40,23 @@ CREATE TABLE IF NOT EXISTS jira_writes(id TEXT PRIMARY KEY,run_id TEXT NOT NULL,
 CREATE INDEX IF NOT EXISTS jobs_ready ON jobs(state,config_hash,created);
 CREATE INDEX IF NOT EXISTS runs_history ON runs(created DESC,id DESC);
 CREATE INDEX IF NOT EXISTS audit_restore_history ON audit(tool,ts);
+CREATE TABLE IF NOT EXISTS regression_versions(tenant TEXT,project TEXT,suite TEXT,version TEXT,
+  definition TEXT NOT NULL,digest TEXT NOT NULL,publisher_receipt TEXT NOT NULL,created TEXT NOT NULL,
+  PRIMARY KEY(tenant,project,suite,version));
+CREATE TABLE IF NOT EXISTS regression_batches(id TEXT PRIMARY KEY,tenant TEXT,project TEXT,suite TEXT,version TEXT,
+  suite_digest TEXT NOT NULL,owner TEXT NOT NULL,created TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS regression_attempts(run_id TEXT PRIMARY KEY,batch_id TEXT NOT NULL,slot TEXT NOT NULL,
+  ordinal INTEGER NOT NULL,created TEXT NOT NULL,UNIQUE(batch_id,slot,ordinal));
+CREATE TABLE IF NOT EXISTS regression_seals(batch_id TEXT PRIMARY KEY,created TEXT NOT NULL,actor TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS regression_attempt_batch ON regression_attempts(batch_id,slot,ordinal);
+CREATE TRIGGER IF NOT EXISTS regression_versions_no_update BEFORE UPDATE ON regression_versions BEGIN SELECT RAISE(ABORT,'suite versions are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS regression_versions_no_delete BEFORE DELETE ON regression_versions BEGIN SELECT RAISE(ABORT,'suite versions are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS regression_batches_no_update BEFORE UPDATE ON regression_batches BEGIN SELECT RAISE(ABORT,'suite batches are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS regression_batches_no_delete BEFORE DELETE ON regression_batches BEGIN SELECT RAISE(ABORT,'suite batches are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS regression_attempts_no_update BEFORE UPDATE ON regression_attempts BEGIN SELECT RAISE(ABORT,'suite attempts are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS regression_attempts_no_delete BEFORE DELETE ON regression_attempts BEGIN SELECT RAISE(ABORT,'suite attempts are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS regression_seals_no_update BEFORE UPDATE ON regression_seals BEGIN SELECT RAISE(ABORT,'suite seals are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS regression_seals_no_delete BEFORE DELETE ON regression_seals BEGIN SELECT RAISE(ABORT,'suite seals are immutable'); END;
 CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT,'audit is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit BEGIN SELECT RAISE(ABORT,'audit is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS approvals_no_update BEFORE UPDATE ON approvals BEGIN SELECT RAISE(ABORT,'approvals are append-only'); END;

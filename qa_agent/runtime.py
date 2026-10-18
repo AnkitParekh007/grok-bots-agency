@@ -144,7 +144,8 @@ class QAAgent:
 
     def start_run(self, request: str, environment: str | None = None, story_key: str | None = None, wait=False, requested_by=None,
                   project: str | None = None, repository: str | None = None,
-                  model_provider: str | None = None, model_id: str | None = None, tenant_id="local", authorization=None):
+                  model_provider: str | None = None, model_id: str | None = None, tenant_id="local", authorization=None,
+                  _on_create=None):
         if self.review_only:
             raise ConflictError("review-only agent cannot plan or execute")
         self.artifacts.ensure_capacity()
@@ -165,19 +166,37 @@ class QAAgent:
         run_id = "run-" + uuid.uuid4().hex[:10]
         if not self.queue:
             self._run_models[run_id] = model
-        def create():
+        def create_rows():
             self.store.create_run(run_id, request, env_name, model.name, model.label)
             self.store.update_run(run_id, tenant_id=tenant_id, requested_by=requested_by, project=project, repository=repository,
                                   model_id=getattr(model, "model", model.name), model_version=getattr(model, "version", None))
             self.gateway.record(run_id, "model.selected", {"provider": model.name, "model": getattr(model, "model", model.name), "version": getattr(model, "version", None)}, "allow", "model selected for new run")
             self.store.event(run_id, "start", f"Request received: {request!r}")
+            if _on_create is not None:
+                _on_create(run_id)  # Trusted suite admission, never supplied by a model/HTTP body.
+        def create():
+            if _on_create is None or self.queue:
+                return create_rows()  # Queued admission already owns an atomic transaction.
+            with self.store.lock:
+                self.store.db.execute("BEGIN IMMEDIATE")
+                try:
+                    create_rows()
+                    self.store.db.commit()
+                except BaseException:
+                    self.store.db.rollback()
+                    raise
+            self.gateway.audit_delivery.flush()
         if self.queue:
             try:
                 return self.queue.start(run_id, create, story_key, env_name, authorization, wait)
             except Exception:
                 self._run_models.pop(run_id, None)
                 raise
-        create()
+        try:
+            create()
+        except BaseException:
+            self._run_models.pop(run_id, None)
+            raise
         return self._spawn(run_id, self._plan, run_id, story_key, env_name, wait=wait)
 
     def approve(self, run_id, approver, decision, comment="", wait=False, identity=None, auth_mode="demo",

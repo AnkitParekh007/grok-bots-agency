@@ -27,9 +27,9 @@ Before starting the restored application, compare its original audit prefix agai
 
 ## Schema and rollback
 
-`PRAGMA user_version` now records application schema version 1. Existing version-zero databases upgrade in one schema transaction; an exception rolls back table/column changes. A database from a higher schema version is refused before mutation. The version metadata uses SQLite's [application-owned user_version](https://www.sqlite.org/pragma.html#pragma_user_version).
+`PRAGMA user_version` records application schema version 3. Version 2 added Jira write receipts; version 3 adds append-only manual suite versions, batches, attempts and seals. Existing supported databases upgrade in one schema transaction; an exception rolls back table/column changes. A database from a higher schema version is refused before mutation. The version metadata uses SQLite's [application-owned user_version](https://www.sqlite.org/pragma.html#pragma_user_version).
 
-This release supports additive legacy-to-v1 migration, not arbitrary downgrade. To roll back an incompatible deployment, stop its writers and restore a verified pre-upgrade set into a new directory with its matching release/configuration and external secret inventory. Versions predating this guard cannot enforce it; a deployment supervisor must prohibit launching those against a newer database. Production rollback and corruption drills remain acceptance work.
+This release supports additive legacy-to-v3 migration, not arbitrary downgrade. Restored manual suite history remains readable to operators, but old versions/batches cannot grant new admission or a positive gate; reconcile and create fresh reviews. To roll back an incompatible deployment, stop its writers and restore a verified pre-upgrade set into a new directory with its matching release/configuration and external secret inventory. Versions predating this guard cannot enforce it; a deployment supervisor must prohibit launching those against a newer database. Production rollback and corruption drills remain acceptance work.
 
 ## Synthetic drill and acceptance
 
