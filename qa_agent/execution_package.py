@@ -100,9 +100,20 @@ def capture(agent, run_id, env):
     return approval_hash
 
 
+def _suite_binding(agent, run):
+    from .regression import verify_bound_run, SuiteDenied
+    try:
+        verify_bound_run(agent, run)
+    except SuiteDenied as exc:
+        raise PackageChanged(str(exc)) from None
+    except (ValueError, KeyError, TypeError, OSError):
+        raise PackageChanged("suite binding is unavailable") from None
+
+
 def verify(agent, run, env, *, check_sources=True):
     if digest(run) != run["plan_hash"]:
         raise PackageChanged("reviewed execution envelope or stored plan changed")
+    _suite_binding(agent, run)
     from .domain import authorize
     authorize(agent, run, env, run["story_json"])
     story, repo = run["story_json"], run.get("repo_context_json")
@@ -139,6 +150,7 @@ def verify(agent, run, env, *, check_sources=True):
         if sha256(body) != expected:
             raise PackageChanged("fixture snapshot changed")
         fixtures[name] = body
+    _suite_binding(agent, run)
     return json.loads(oracle), fixtures
 
 

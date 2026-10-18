@@ -4,6 +4,8 @@ This optional capability creates immutable suite versions, registers every child
 
 A suite does not authorize a run. Every child goes through existing source/model/domain policy, planning, exact distinct-human approval, package verification and execution admission. No corporate integration is enabled by this feature.
 
+Before approval and dispatch, package verification additionally checks the child's immutable suite binding, live publication authority, version lifetime and exact pinned inputs, before re-reading sources and again after verifying snapshots. Authority lost during refresh is rejected. A changed plan cannot receive approval as part of the old suite, even if a reviewer would otherwise approve it individually. Create and review a fresh standalone template and suite version for changed inputs. A process without the authenticated suite authorization context cannot dispatch a stored suite child.
+
 ## Publish a version
 
 Use completed, authenticated, independently reviewed template runs in the same tenant/project. The publisher needs the live project approver role and must differ from every template requester. Template approval must match its exact execution-envelope hash. A template can contain a failure: the suite records its reviewed contract, not a passing baseline claim.

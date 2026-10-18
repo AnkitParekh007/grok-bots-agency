@@ -14,7 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from qa_agent.auth import UserStore
-from qa_agent.regression import RegressionSuites, SuiteDenied, contract
+from qa_agent.regression import RegressionSuites, SuiteDenied, contract, verify_bound_run
 from qa_agent.report import write_report
 from qa_agent.server import create_app
 from qa_agent.runtime import QAAgent
@@ -313,8 +313,8 @@ def test_contract_binds_every_input_except_requester(suites):
     assert contract(changed) == original
 
 
-def test_real_planning_handoff_still_requires_separate_human_review(suites, planned_seed):
-    _, service, agent, receipts, _, _, _, batch, *_ = suites
+def test_real_planning_handoff_still_requires_separate_human_review(suites, planned_seed, monkeypatch):
+    _, service, agent, receipts, tokens, users, _, batch, *_ = suites
     run_id = service.start_attempt(batch, "import", receipts["requester"], wait=True)
     run = agent.store.get_run(run_id)
     assert run["status"] == "awaiting_approval", run.get("error")
@@ -322,6 +322,42 @@ def test_real_planning_handoff_still_requires_separate_human_review(suites, plan
     assert not agent.approvals.latest(run_id)
     assert not agent.store.results(run_id)
     assert gate(suites)["verdict"] == "UNKNOWN"
+    monkeypatch.setattr(agent.tracker, "get_issue", lambda *a: pytest.fail("changed suite reached a source read"))
+    with pytest.raises(ValueError, match="suite execution inputs changed"):
+        agent.review_plan(run_id, users.verify(tokens["reviewer"]), "approved", run["plan_hash"])
+    assert not agent.approvals.latest(run_id)
+
+
+@pytest.mark.parametrize("change", ["publisher", "expiry", "disabled", "missing_authorizer"])
+def test_suite_authority_is_rechecked_before_source_reads_and_dispatch(suites, monkeypatch, change):
+    run_id = child(suites, monkeypatch)
+    _, service, agent, _, _, users, *_ = suites
+    run = agent.store.get_run(run_id)
+    verify_bound_run(agent, run)
+    monkeypatch.setattr(agent.tracker, "get_issue", lambda *a: pytest.fail("revoked suite reached a source read"))
+    if change == "publisher": users.disable("reviewer")
+    elif change == "expiry": service.clock = lambda: time.time() + 3601
+    elif change == "disabled": agent.cfg["regression"]["enabled"] = False
+    else: delattr(agent, "regression")
+    with pytest.raises(ValueError, match="(authorization|expired|disabled|unavailable)"):
+        agent._verify_package(run)
+
+
+@pytest.mark.parametrize("change", ["publisher", "expiry"])
+def test_suite_authority_changed_during_source_refresh_is_rejected(suites, monkeypatch, change):
+    run_id = child(suites, monkeypatch)
+    _, service, agent, _, _, users, *_ = suites
+    original, observed = agent.tracker.get_issue, []
+    def refresh(key):
+        value = original(key)
+        observed.append(key)
+        if change == "publisher": users.disable("reviewer")
+        else: service.clock = lambda: time.time() + 3601
+        return value
+    monkeypatch.setattr(agent.tracker, "get_issue", refresh)
+    with pytest.raises(ValueError, match="(authorization|expired)"):
+        agent._verify_package(agent.store.get_run(run_id))
+    assert len(observed) == 1
 
 
 def test_http_scope_validation_and_preview_publish_protocol(suites):

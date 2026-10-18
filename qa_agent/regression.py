@@ -41,9 +41,32 @@ def contract(run):
     return sha256(canon(envelope))
 
 
+def verify_bound_run(agent, run):
+    """A suite constraint is additional to, and cannot replace, human approval."""
+    bindings = agent.store.q("SELECT a.slot,b.id,b.tenant,b.project,b.owner,b.created AS batch_created,b.suite_digest,"
+        "v.definition,v.digest,v.publisher_receipt,v.created AS version_created FROM regression_attempts a "
+        "LEFT JOIN regression_batches b ON b.id=a.batch_id LEFT JOIN regression_versions v "
+        "ON v.tenant=b.tenant AND v.project=b.project AND v.suite=b.suite AND v.version=b.version WHERE a.run_id=?", (run["id"],))
+    if not bindings:
+        return
+    service = getattr(agent, "regression", None)
+    require(isinstance(service, RegressionSuites) and service.store is agent.store, "suite authorization is unavailable")
+    row = bindings[0]
+    require(row["id"] and row["definition"] and not service.restored(row["batch_created"]), "suite binding requires a fresh batch")
+    definition, digest = service.validated_version({"definition": row["definition"], "digest": row["digest"],
+        "publisher_receipt": row["publisher_receipt"], "created": row["version_created"]})
+    slot = next((s for s in definition["slots"] if s["id"] == row["slot"]), None)
+    require(slot is not None and digest == row["suite_digest"] and run.get("tenant_id") == row["tenant"] and
+            run.get("project") == row["project"] and run.get("requested_by") == row["owner"] and
+            run.get("story_key") == slot["story"] and run.get("repository") == slot["repository"] and
+            run.get("environment") == slot["environment"] and contract(run) == slot["contract"],
+            "suite execution inputs changed; publish a newly reviewed version")
+
+
 class RegressionSuites:
     def __init__(self, agent, authorization, *, clock=time.time):
         self.agent, self.store, self.authorization, self.clock = agent, agent.store, authorization, clock
+        agent.regression = self
 
     def actor(self, receipt, project, role="requester"):
         require(self.agent.cfg.get("regression", {}).get("enabled") is True, "manual regression suites are disabled")
@@ -133,10 +156,12 @@ class RegressionSuites:
         rows = self.store.q("SELECT * FROM regression_versions WHERE tenant=? AND project=? AND suite=? AND version=?",
                             (p.tenant_id, project, suite, version))
         require(rows, "suite version is unavailable")
-        row = rows[0]
+        return self.validated_version(rows[0])
+
+    def validated_version(self, row):
         d = json.loads(row["definition"])
         require(sha256(canon(d)) == row["digest"] and not self.restored(row["created"]), "suite version requires fresh review")
-        publisher = self.actor(json.loads(row["publisher_receipt"]), project, "approver")
+        publisher = self.actor(json.loads(row["publisher_receipt"]), d["project"], "approver")
         require(publisher.name == d["publisher"], "suite publisher identity changed")
         require(datetime.fromisoformat(d["expires_at"]).timestamp() > self.clock(), "suite version expired")
         return d, row["digest"]
