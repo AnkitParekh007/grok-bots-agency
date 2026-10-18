@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from qa_agent.auth import UserStore
 from qa_agent.server import create_app
 from qa_agent.jira_writes import JiraWrites, JiraWriteDenied
-from qa_agent.store import Store, FileArtifactStore, SqliteApprovalProvider, verify_chain
+from qa_agent.store import Store, FileArtifactStore, SqliteApprovalProvider
 from qa_agent.gateway import ToolGateway
 from tests.b1_helpers import agent_cfg
 from tests.b1_helpers import free_port
@@ -104,7 +104,8 @@ def test_exact_review_minimal_payload_and_one_dispatch(writes, kind, kw):
     with pytest.raises(JiraWriteDenied):
         w.service.dispatch("run", draft["draft"]["id"], w.receipts["reviewer"])
     assert len(posts(w)) == 1
-    assert verify_chain(w.agent.store.audit_rows("run"))["ok"]
+    assert w.agent.store.audit_rows("run")
+    assert w.agent.store.verify_audit_chain()["ok"]
 
 
 def test_duplicate_proposal_returns_original_receipt_without_new_operation(writes):

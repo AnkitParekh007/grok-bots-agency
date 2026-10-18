@@ -133,7 +133,8 @@ class ProfileFence:
                 await send(message)
             return await self.app(scope, receive, fenced_socket)
         # Starlette's sendfile extension bypasses body callbacks; force bounded chunks.
-        scope = {**scope, "extensions": {k: v for k, v in scope.get("extensions", {}).items() if k != "http.response.pathsend"}}
+        # Preserve the shared scope so routing metadata reaches outer observability.
+        scope["extensions"] = {k: v for k, v in scope.get("extensions", {}).items() if k != "http.response.pathsend"}
         started, stopped = False, False
         async def fenced_send(message):
             nonlocal started, stopped
